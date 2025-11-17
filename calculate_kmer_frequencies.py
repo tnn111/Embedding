@@ -12,7 +12,7 @@ Reads a FASTA file and outputs normalized 7-mer frequencies where:
 import argparse
 import sys
 from collections import Counter
-from itertools import product
+from itertools import groupby, product
 from pathlib import Path
 from typing import Iterator
 
@@ -72,28 +72,22 @@ def read_fasta_sequences(fasta_file: Path) -> Iterator[str]:
     Generator that yields sequences from a FASTA file one at a time.
 
     Memory-efficient for large files. Handles multi-line sequences.
+    Uses itertools.groupby for elegant parsing.
     """
     try:
         with open(fasta_file) as f:
-            current_seq = []
+            # Group lines by whether they start with '>' (header) or not (sequence)
+            groups = groupby(f, key = lambda line: line.startswith('>'))
 
-            for line in f:
-                line = line.strip()
-
-                if not line:
-                    continue
-
-                if line.startswith('>'):
-                    # Yield previous sequence if exists
-                    if current_seq:
-                        yield ''.join(current_seq)
-                        current_seq = []
+            for is_header, group in groups:
+                if is_header:
+                    # Skip header line(s)
+                    next(group, None)
                 else:
-                    current_seq.append(line)
-
-            # Yield last sequence
-            if current_seq:
-                yield ''.join(current_seq)
+                    # Join sequence lines, stripping whitespace
+                    sequence = ''.join(line.strip() for line in group)
+                    if sequence:  # Only yield non-empty sequences
+                        yield sequence
 
     except FileNotFoundError:
         print(f'Error: File not found: {fasta_file}', file=sys.stderr)
