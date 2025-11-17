@@ -38,13 +38,18 @@ def generate_canonical_kmers(k: int) -> list[str]:
     bases = 'ACGT'
 
     # Generate all possible k-mers using itertools.product
-    all_kmers = [''.join(kmer) for kmer in product(bases, repeat=k)]
+    all_kmers = [''.join(kmer) for kmer in product(bases, repeat = k)]
 
     # Get canonical forms and keep unique ones
     canonical_set = {get_canonical_kmer(kmer) for kmer in all_kmers}
 
     # Sort lexicographically
     return sorted(canonical_set)
+
+
+def is_valid_kmer(kmer: str) -> bool:
+    """Check if k-mer contains only A, T, G, C."""
+    return all(base in 'ATGC' for base in kmer)
 
 
 def count_canonical_kmers(sequence: str, k: int) -> Counter:
@@ -59,8 +64,7 @@ def count_canonical_kmers(sequence: str, k: int) -> Counter:
     for i in range(len(seq_upper) - k + 1):
         kmer = seq_upper[i:i + k]
 
-        # Skip k-mers with non-ATGC bases
-        if all(base in 'ATGC' for base in kmer):
+        if is_valid_kmer(kmer):
             canonical = get_canonical_kmer(kmer)
             counts[canonical] += 1
 
@@ -123,13 +127,13 @@ def main():
     """Main function to process contigs and output k-mer frequencies."""
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
-        description='Calculate canonical 7-mer frequencies from FASTA file'
+        description = 'Calculate canonical 7-mer frequencies from FASTA file'
     )
     parser.add_argument(
         '-i', '--input',
-        required=True,
-        type=Path,
-        help='Input FASTA file'
+        required = True,
+        type = Path,
+        help = 'Input FASTA file'
     )
     args = parser.parse_args()
 
