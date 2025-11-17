@@ -11,3 +11,8 @@ wheels/
 
 # Bulky data.
 Data/
+
+# Generated outputs
+*.npy
+*.png
+*.html
