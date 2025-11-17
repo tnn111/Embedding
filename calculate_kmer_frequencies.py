@@ -47,11 +47,6 @@ def generate_canonical_kmers(k: int) -> list[str]:
     return sorted(canonical_set)
 
 
-def is_valid_kmer(kmer: str) -> bool:
-    """Check if k-mer contains only A, T, G, C."""
-    return all(base in 'ATGC' for base in kmer)
-
-
 def count_canonical_kmers(sequence: str, k: int) -> Counter:
     """
     Count canonical k-mers in a sequence.
@@ -64,7 +59,8 @@ def count_canonical_kmers(sequence: str, k: int) -> Counter:
     for i in range(len(seq_upper) - k + 1):
         kmer = seq_upper[i:i + k]
 
-        if is_valid_kmer(kmer):
+        # Skip k-mers with non-ATGC bases
+        if all(base in 'ATGC' for base in kmer):
             canonical = get_canonical_kmer(kmer)
             counts[canonical] += 1
 
