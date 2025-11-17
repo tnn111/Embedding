@@ -51,18 +51,14 @@ def count_canonical_kmers(sequence: str, k: int) -> Counter:
     """
     Count canonical k-mers in a sequence.
 
-    Skips k-mers containing non-ATGC bases.
+    Assumes sequence contains only ATGC bases (filtered upstream).
     """
     counts = Counter()
-    seq_upper = sequence.upper()
 
-    for i in range(len(seq_upper) - k + 1):
-        kmer = seq_upper[i:i + k]
-
-        # Skip k-mers with non-ATGC bases
-        if all(base in 'ATGC' for base in kmer):
-            canonical = get_canonical_kmer(kmer)
-            counts[canonical] += 1
+    for i in range(len(sequence) - k + 1):
+        kmer = sequence[i:i + k]
+        canonical = get_canonical_kmer(kmer)
+        counts[canonical] += 1
 
     return counts
 
@@ -86,6 +82,8 @@ def read_fasta_sequences(fasta_file: Path) -> Iterator[str]:
                 else:
                     # Join sequence lines, stripping whitespace
                     sequence = ''.join(line.strip() for line in group)
+                    # Filter to keep only ATGC bases (more efficient than checking each k-mer)
+                    sequence = ''.join(base for base in sequence.upper() if base in 'ATGC')
                     if sequence:  # Only yield non-empty sequences
                         yield sequence
 
