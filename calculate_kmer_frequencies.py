@@ -29,35 +29,41 @@ def get_canonical_kmer(kmer: str) -> str:
     return min(kmer, rc)
 
 
-def generate_canonical_kmers(k: int) -> list[str]:
+def generate_canonical_kmers(k: int) -> tuple[list[str], dict[str, str]]:
     """
-    Generate all canonical k-mers in lexicographic order.
+    Generate all canonical k-mers in lexicographic order and create lookup dict.
 
     For k=7, this generates 8,192 canonical k-mers (4^7 / 2).
+
+    Returns:
+        tuple: (sorted list of canonical k-mers, dict mapping all k-mers to canonical forms)
     """
     bases = 'ACGT'
 
     # Generate all possible k-mers using itertools.product
     all_kmers = [''.join(kmer) for kmer in product(bases, repeat = k)]
 
-    # Get canonical forms and keep unique ones
-    canonical_set = {get_canonical_kmer(kmer) for kmer in all_kmers}
+    # Create dict mapping each k-mer to its canonical form
+    kmer_to_canonical = {kmer: get_canonical_kmer(kmer) for kmer in all_kmers}
 
-    # Sort lexicographically
-    return sorted(canonical_set)
+    # Get unique canonical k-mers and sort lexicographically
+    canonical_set = set(kmer_to_canonical.values())
+
+    return sorted(canonical_set), kmer_to_canonical
 
 
-def count_canonical_kmers(sequence: str, k: int) -> Counter:
+def count_canonical_kmers(sequence: str, k: int, kmer_to_canonical: dict[str, str]) -> Counter:
     """
     Count canonical k-mers in a sequence.
 
     Assumes sequence contains only ATGC bases (filtered upstream).
+    Uses pre-computed dictionary for fast canonical k-mer lookup.
     """
     counts = Counter()
 
     for i in range(len(sequence) - k + 1):
         kmer = sequence[i:i + k]
-        canonical = get_canonical_kmer(kmer)
+        canonical = kmer_to_canonical[kmer]
         counts[canonical] += 1
 
     return counts
@@ -134,9 +140,9 @@ def main():
         print(f'Error: Input file does not exist: {input_file}', file=sys.stderr)
         sys.exit(1)
 
-    # Generate canonical k-mers in lexicographic order
+    # Generate canonical k-mers and lookup dictionary
     print(f'Generating canonical {k}-mers...', file=sys.stderr)
-    canonical_kmers = generate_canonical_kmers(k)
+    canonical_kmers, kmer_to_canonical = generate_canonical_kmers(k)
     print(f'Generated {len(canonical_kmers)} canonical {k}-mers', file=sys.stderr)
 
     # Process sequences one at a time (memory efficient)
@@ -149,7 +155,7 @@ def main():
             continue
 
         # Count canonical k-mers
-        counts = count_canonical_kmers(sequence, k)
+        counts = count_canonical_kmers(sequence, k, kmer_to_canonical)
 
         # Normalize to frequencies
         frequencies = calculate_normalized_frequencies(counts, canonical_kmers)
