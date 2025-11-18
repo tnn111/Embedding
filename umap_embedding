@@ -6,11 +6,20 @@ import  hdbscan
 
 
 X_freq = np.loadtxt('./Data/kmer_frequencies_l5000_shuffled.txt', dtype=np.float32)
+# X_freq = X_freq[:100000]  # Uncomment to test with 100K sequences first
 
 print(f"Loaded {X_freq.shape[0]} sequences")
 print(f"Sum check: {X_freq[0].sum():.6f}")
 
-reducer = UMAP(n_components = 32, metric = 'cosine', n_neighbors = 30, min_dist = 0.0, verbose = True)
+reducer = UMAP(
+    n_components = 32,
+    metric = 'cosine',
+    n_neighbors = 15,  # Reduced from 30 to save memory
+    min_dist = 0.0,
+    n_jobs = 8,  # Reduced parallelism to limit memory usage
+    low_memory = True,  # Essential for large datasets
+    verbose = True
+)
 
 embedding = reducer.fit_transform(X_freq)
 np.save('./Data/umap_32_30_0.npy', embedding)
