@@ -13,7 +13,6 @@ os.environ['XLA_PYTHON_CLIENT_ALLOCATOR'] = 'platform'  # Use platform allocator
 
 import numpy as np
 import jax
-import jax.numpy as jnp
 import keras
 from keras import layers, Model, ops
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
@@ -89,6 +88,8 @@ class VAE(Model):
         z_log_var = layers.Dense(self.latent_dim, name = 'z_log_var')(x)
 
         # Clip log variance to prevent numerical instability
+        # Range [-20, 2] corresponds to variance in [e^-20, e^2] ≈ [2e-9, 7.4]
+        # This prevents both explosion (too large variance) and collapse (too small variance)
         z_log_var = ops.clip(z_log_var, -20, 2)
 
         z = Sampling()([z_mean, z_log_var])
@@ -114,10 +115,10 @@ class VAE(Model):
 
         return Model(latent_inputs, decoder_outputs, name = 'decoder')
 
-    def call(self, inputs):
+    def call(self, inputs, training = None):
         """Forward pass through the VAE"""
-        _, _, z = self.encoder(inputs)
-        reconstructed = self.decoder(z)
+        _, _, z = self.encoder(inputs, training = training)
+        reconstructed = self.decoder(z, training = training)
         return reconstructed
 
     @property
@@ -134,8 +135,8 @@ class VAE(Model):
 
         # Define loss computation inside a function for gradient computation
         def compute_loss_and_forward():
-            z_mean, z_log_var, z = self.encoder(data)
-            reconstruction = self.decoder(z)
+            z_mean, z_log_var, z = self.encoder(data, training = True)
+            reconstruction = self.decoder(z, training = True)
 
             # Reconstruction loss using categorical cross-entropy
             reconstruction_loss = ops.mean(
@@ -180,9 +181,9 @@ class VAE(Model):
 
     def test_step(self, data):
         """Custom test step"""
-        # Forward pass
-        z_mean, z_log_var, z = self.encoder(data)
-        reconstruction = self.decoder(z)
+        # Forward pass (use inference mode for batch normalization)
+        z_mean, z_log_var, z = self.encoder(data, training = False)
+        reconstruction = self.decoder(z, training = False)
 
         # Reconstruction loss using categorical cross-entropy
         reconstruction_loss = ops.mean(
@@ -250,9 +251,7 @@ def main():
 
     # Set random seeds for reproducibility
     np.random.seed(42)
-    keras.utils.set_random_seed(42)
-    # Set JAX random seed
-    jax_key = jax.random.PRNGKey(42)
+    keras.utils.set_random_seed(42)  # This also sets JAX seed when using JAX backend
 
     # Load data
     data_path = './Data/kmer_frequencies_l5000_shuffled.txt'
