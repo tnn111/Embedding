@@ -26,14 +26,14 @@ class Sampling(layers.Layer):
         z_mean, z_log_var = inputs
         batch = ops.shape(z_mean)[0]
         dim = ops.shape(z_mean)[1]
-        epsilon = keras.random.normal(shape=(batch, dim))
+        epsilon = keras.random.normal(shape = (batch, dim))
         return z_mean + ops.exp(0.5 * z_log_var) * epsilon
 
 
 class VAE(Model):
     """Variational Autoencoder for k-mer frequency distributions"""
 
-    def __init__(self, latent_dim=128, **kwargs):
+    def __init__(self, latent_dim = 128, **kwargs):
         super(VAE, self).__init__(**kwargs)
         self.latent_dim = latent_dim
 
@@ -44,33 +44,33 @@ class VAE(Model):
         self.decoder = self._build_decoder()
 
         # Metrics
-        self.total_loss_tracker = keras.metrics.Mean(name='total_loss')
-        self.reconstruction_loss_tracker = keras.metrics.Mean(name='reconstruction_loss')
-        self.kl_loss_tracker = keras.metrics.Mean(name='kl_loss')
+        self.total_loss_tracker = keras.metrics.Mean(name = 'total_loss')
+        self.reconstruction_loss_tracker = keras.metrics.Mean(name = 'reconstruction_loss')
+        self.kl_loss_tracker = keras.metrics.Mean(name = 'kl_loss')
 
     def _build_encoder(self):
         """Build encoder: 8192 -> 2048 -> 512 -> 128 (latent)"""
-        encoder_inputs = keras.Input(shape=(8192,))
-        x = layers.Dense(2048, activation='relu')(encoder_inputs)
-        x = layers.Dense(512, activation='relu')(x)
-        z_mean = layers.Dense(self.latent_dim, name='z_mean')(x)
-        z_log_var = layers.Dense(self.latent_dim, name='z_log_var')(x)
+        encoder_inputs = keras.Input(shape = (8192,))
+        x = layers.Dense(2048, activation = 'relu')(encoder_inputs)
+        x = layers.Dense(512, activation = 'relu')(x)
+        z_mean = layers.Dense(self.latent_dim, name = 'z_mean')(x)
+        z_log_var = layers.Dense(self.latent_dim, name = 'z_log_var')(x)
         z = Sampling()([z_mean, z_log_var])
 
-        return Model(encoder_inputs, [z_mean, z_log_var, z], name='encoder')
+        return Model(encoder_inputs, [z_mean, z_log_var, z], name = 'encoder')
 
     def _build_decoder(self):
         """Build decoder: 128 (latent) -> 512 -> 2048 -> 8192"""
-        latent_inputs = keras.Input(shape=(self.latent_dim,))
-        x = layers.Dense(512, activation='relu')(latent_inputs)
-        x = layers.Dense(2048, activation='relu')(x)
-        decoder_outputs = layers.Dense(8192, activation='softmax')(x)
+        latent_inputs = keras.Input(shape = (self.latent_dim,))
+        x = layers.Dense(512, activation = 'relu')(latent_inputs)
+        x = layers.Dense(2048, activation = 'relu')(x)
+        decoder_outputs = layers.Dense(8192, activation = 'softmax')(x)
 
-        return Model(latent_inputs, decoder_outputs, name='decoder')
+        return Model(latent_inputs, decoder_outputs, name = 'decoder')
 
     def call(self, inputs):
         """Forward pass through the VAE"""
-        z_mean, z_log_var, z = self.encoder(inputs)
+        _, _, z = self.encoder(inputs)
         reconstructed = self.decoder(z)
         return reconstructed
 
@@ -95,7 +95,7 @@ class VAE(Model):
             reconstruction_loss = ops.mean(
                 ops.sum(
                     -data * ops.log(reconstruction + 1e-10),
-                    axis=1
+                    axis = 1
                 )
             )
 
@@ -103,7 +103,7 @@ class VAE(Model):
             kl_loss = -0.5 * ops.mean(
                 ops.sum(
                     1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var),
-                    axis=1
+                    axis = 1
                 )
             )
 
@@ -139,7 +139,7 @@ class VAE(Model):
         reconstruction_loss = ops.mean(
             ops.sum(
                 -data * ops.log(reconstruction + 1e-10),
-                axis=1
+                axis = 1
             )
         )
 
@@ -147,7 +147,7 @@ class VAE(Model):
         kl_loss = -0.5 * ops.mean(
             ops.sum(
                 1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var),
-                axis=1
+                axis = 1
             )
         )
 
@@ -169,7 +169,7 @@ class VAE(Model):
 def load_data(file_path):
     """Load k-mer frequency data from file"""
     print(f'Loading data from {file_path}...')
-    data = np.loadtxt(file_path, dtype=np.float32)
+    data = np.loadtxt(file_path, dtype = np.float32)
     print(f'Loaded {data.shape[0]} sequences with {data.shape[1]} features')
     return data
 
@@ -194,30 +194,30 @@ def main():
     X = load_data(data_path)
 
     # Split into train and validation sets (80/20)
-    X_train, X_val = train_test_split(X, test_size=0.2, random_state=42)
+    X_train, X_val = train_test_split(X, test_size = 0.2, random_state = 42)
     print(f'Training set: {X_train.shape[0]} sequences')
     print(f'Validation set: {X_val.shape[0]} sequences')
 
     # Create VAE model
     latent_dim = 128
-    vae = VAE(latent_dim=latent_dim)
+    vae = VAE(latent_dim = latent_dim)
 
     # Compile model
-    vae.compile(optimizer=keras.optimizers.Adam(learning_rate=1e-3))
+    vae.compile(optimizer = keras.optimizers.Adam(learning_rate = 1e-3))  # type: ignore
 
     # Callbacks
     callbacks = [
         EarlyStopping(
-            monitor='val_total_loss',
-            patience=10,
-            restore_best_weights=True,
-            verbose=1
+            monitor = 'val_total_loss',
+            patience = 10,
+            restore_best_weights = True,
+            verbose = 1
         ),
         ModelCheckpoint(
             'vae_best_model.keras',
-            monitor='val_total_loss',
-            save_best_only=True,
-            verbose=1
+            monitor = 'val_total_loss',
+            save_best_only = True,
+            verbose = 1
         )
     ]
 
@@ -225,11 +225,11 @@ def main():
     print('\nTraining VAE...')
     history = vae.fit(
         X_train,
-        epochs=50,
-        batch_size=256,
-        validation_data=(X_val, X_val),
-        callbacks=callbacks,
-        verbose=1
+        epochs = 50,
+        batch_size = 256,
+        validation_data = (X_val, X_val),
+        callbacks = callbacks,
+        verbose = 1  # type: ignore
     )
 
     # Save final model
