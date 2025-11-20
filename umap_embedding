@@ -8,8 +8,17 @@
 # ]
 # ///
 
+import  argparse
 import  numpy as np
 import  hdbscan
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Run UMAP embedding with GPU/CPU support')
+parser.add_argument('-j', '--jobs', type=int, default=8, help='Number of parallel jobs for CPU version (default: 8)')
+parser.add_argument('-n', '--neighbors', type=int, default=15, help='Number of neighbors for UMAP (default: 15)')
+parser.add_argument('-i', '--input', type=str, required=True, help='Input file path for k-mer frequencies')
+parser.add_argument('-o', '--output', type=str, required=True, help='Output file path for UMAP embedding')
+args = parser.parse_args()
 
 # Try to use GPU-accelerated UMAP, fall back to CPU if unavailable
 try:
@@ -22,7 +31,7 @@ except ImportError:
     use_gpu = False
 
 
-X_freq = np.loadtxt('./Data/kmer_frequencies_l5000_shuffled.txt', dtype=np.float32)
+X_freq = np.loadtxt(args.input, dtype=np.float32)
 # X_freq = X_freq[:100000]  # Uncomment to test with 100K sequences first
 
 print(f"Loaded {X_freq.shape[0]} sequences")
@@ -34,7 +43,7 @@ if use_gpu:
     reducer = UMAP(
         n_components = 32,
         metric = 'cosine',
-        n_neighbors = 15,
+        n_neighbors = args.neighbors,
         min_dist = 0.0,
         verbose = True
     )
@@ -43,12 +52,13 @@ else:
     reducer = UMAP(
         n_components = 32,
         metric = 'cosine',
-        n_neighbors = 15,
+        n_neighbors = args.neighbors,
         min_dist = 0.0,
-        n_jobs = 8,
+        n_jobs = args.jobs,
         low_memory = True,
         verbose = True
     )
 
 embedding = reducer.fit_transform(X_freq)
-np.save('./Data/umap_32_30_0.npy', embedding)
+np.save(args.output, embedding)
+print(f'Saved embedding to {args.output}')
