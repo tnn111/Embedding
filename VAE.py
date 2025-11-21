@@ -9,7 +9,6 @@ os.environ['KERAS_BACKEND'] = 'jax'
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 
 import numpy as np
-import jax
 import keras
 from keras import layers, Model, ops
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
@@ -35,14 +34,14 @@ class VAEMetricsCallback(keras.callbacks.Callback):
         z_mean, z_log_var, _ = self.model.encoder(sample_x, training=False)
 
         # KL loss
-        kl_loss = -0.5 * float(ops.mean(
+        kl_loss = -0.5 * float(ops.mean(  # type: ignore[arg-type]
             ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis=1)
         ))
         weighted_kl = float(self.model.kl_weight) * kl_loss
 
         # Reconstruction loss (MSE)
         predictions = self.model(sample_x, training=False)
-        recon_loss = float(ops.mean(ops.sum(ops.square(sample_x - predictions), axis=1)))
+        recon_loss = float(ops.mean(ops.sum(ops.square(sample_x - predictions), axis=1)))  # type: ignore[arg-type]
 
         val_loss = logs.get('val_loss', 0)
         total = recon_loss + weighted_kl
@@ -192,7 +191,7 @@ def main():
 
     # NOTE: learning_rate=1e-3 is safer for MSE. 
     # If loss is too high/NaN, lower to 1e-4.
-    vae.compile(optimizer=keras.optimizers.Adam(learning_rate=1e-3)) 
+    vae.compile(optimizer=keras.optimizers.Adam(learning_rate=1e-3))  # type: ignore[arg-type] 
 
     # Setup metrics callback
     vae_metrics = VAEMetricsCallback()
@@ -212,11 +211,11 @@ def main():
     history = vae.fit(
         X_train, 
         X_train, # Input = Output (Log Space)
-        epochs=20, # 20 Epochs is usually enough for 2M samples
+        epochs=500,
         batch_size=1024, # Large batch size for stability
         validation_data=(X_val, X_val),
         callbacks=callbacks,
-        verbose=0
+        verbose=0  # type: ignore[arg-type]
     )
     
     # Save
