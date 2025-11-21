@@ -1,0 +1,42 @@
+#!/usr/bin/env -S uv run --quiet --script
+"""
+Convert k-mer frequency text to NumPy binary format (.npy).
+Pure filter: reads stdin, writes stdout, messages to stderr.
+
+Usage:
+    cat input_file.txt | convert_txt_to_npy > output_file.npy
+    convert_txt_to_npy < input.txt > output.npy
+"""
+# /// script
+# dependencies = [
+#   "numpy",
+# ]
+# ///
+
+import sys
+import numpy as np
+import io
+
+
+def main():
+    # Read from stdin
+    print('Loading data from stdin...', file = sys.stderr)
+
+    # Load text data and convert to float32
+    data = np.loadtxt(sys.stdin, dtype = np.float32)
+
+    print(f'Loaded array with shape {data.shape} and dtype {data.dtype}', file = sys.stderr)
+
+    # Write to stdout as NumPy binary format
+    # We need to write to stdout.buffer for binary data
+    buffer = io.BytesIO()
+    np.save(buffer, data)
+    buffer.seek(0)
+
+    sys.stdout.buffer.write(buffer.read())
+
+    print('Conversion complete', file = sys.stderr)
+
+
+if __name__ == '__main__':
+    main()

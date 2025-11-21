@@ -20,6 +20,33 @@ from sklearn.model_selection import train_test_split
 import pickle
 
 
+class VAEMetricsCallback(keras.callbacks.Callback):
+    """Track VAE-specific metrics (KL loss, reconstruction loss) during training"""
+
+    def on_epoch_end(self, epoch, logs = None):
+        if logs is None:
+            return
+
+        # Sample a batch to compute metrics
+        import numpy as np
+        sample_idx = np.random.choice(len(self.validation_data[0]), min(1000, len(self.validation_data[0])), replace = False)
+        sample_x = self.validation_data[0][sample_idx]
+
+        # Get encoder outputs
+        z_mean, z_log_var, _ = self.model.encoder(sample_x, training = False)
+
+        # Compute KL loss
+        kl_loss = -0.5 * float(ops.mean(
+            ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1)
+        ))
+
+        # Get predictions to compute reconstruction loss
+        predictions = self.model(sample_x, training = False)
+        recon_loss = float(ops.mean(keras.losses.categorical_crossentropy(sample_x, predictions)))
+
+        print(f'  KL loss: {kl_loss:.4f}, Recon loss: {recon_loss:.4f}, Total: {recon_loss + self.model.kl_weight * kl_loss:.4f}')
+
+
 class KLWarmupCallback(keras.callbacks.Callback):
     """Gradually increase KL loss weight during training to prevent posterior collapse"""
 
@@ -35,17 +62,22 @@ class KLWarmupCallback(keras.callbacks.Callback):
             new_weight = self.max_weight
 
         self.model.kl_weight = new_weight
-        print(f'KL weight: {new_weight:.4f}')
+        print(f'KL weight: {new_weight:.4f}', end = ' ')
 
 
 class Sampling(layers.Layer):
     """Reparameterization trick: sample z = mean + exp(0.5 * log_var) * epsilon"""
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Create a seed generator for JAX compatibility
+        self.seed_generator = keras.random.SeedGenerator(1337)
+
     def call(self, inputs):
         z_mean, z_log_var = inputs
         batch = ops.shape(z_mean)[0]
         dim = ops.shape(z_mean)[1]
-        epsilon = keras.random.normal(shape = (batch, dim))
+        epsilon = keras.random.normal(shape = (batch, dim), seed = self.seed_generator)
         return z_mean + ops.exp(0.5 * z_log_var) * epsilon
 
 
@@ -62,12 +94,6 @@ class VAE(Model):
 
         # Decoder
         self.decoder = self._build_decoder()
-
-        # Metrics
-        self.total_loss_tracker = keras.metrics.Mean(name = 'total_loss')
-        self.reconstruction_loss_tracker = keras.metrics.Mean(name = 'reconstruction_loss')
-        self.kl_loss_tracker = keras.metrics.Mean(name = 'kl_loss')
-        self.kl_weight_tracker = keras.metrics.Mean(name = 'kl_weight')
 
     def _build_encoder(self):
         """Build encoder: 8192 -> 2048 -> 512 -> 128 (latent) with batch normalization"""
@@ -116,103 +142,19 @@ class VAE(Model):
         return Model(latent_inputs, decoder_outputs, name = 'decoder')
 
     def call(self, inputs, training = None):
-        """Forward pass through the VAE"""
-        _, _, z = self.encoder(inputs, training = training)
-        reconstructed = self.decoder(z, training = training)
-        return reconstructed
+        """Forward pass through the VAE with loss computation"""
+        z_mean, z_log_var, z = self.encoder(inputs, training = training)
+        reconstruction = self.decoder(z, training = training)
 
-    @property
-    def metrics(self):
-        return [
-            self.total_loss_tracker,
-            self.reconstruction_loss_tracker,
-            self.kl_loss_tracker,
-            self.kl_weight_tracker,
-        ]
-
-    def train_step(self, data):
-        """Custom training step with VAE loss"""
-
-        # Define loss computation inside a function for gradient computation
-        def compute_loss_and_forward():
-            z_mean, z_log_var, z = self.encoder(data, training = True)
-            reconstruction = self.decoder(z, training = True)
-
-            # Reconstruction loss using categorical cross-entropy
-            reconstruction_loss = ops.mean(
-                keras.losses.categorical_crossentropy(data, reconstruction)
-            )
-
-            # KL divergence loss
-            kl_loss = -0.5 * ops.mean(
-                ops.sum(
-                    1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var),
-                    axis = 1
-                )
-            )
-
-            # Total loss with KL weight
-            total_loss = reconstruction_loss + self.kl_weight * kl_loss
-
-            return total_loss, reconstruction_loss, kl_loss
-
-        # Compute gradients
-        grads = self.optimizer.compute_gradients(
-            lambda: compute_loss_and_forward()[0],
-            self.trainable_weights
-        )
-        self.optimizer.apply_gradients(grads)
-
-        # Recompute losses for metrics (necessary with current Keras API)
-        total_loss, reconstruction_loss, kl_loss = compute_loss_and_forward()
-
-        # Update metrics
-        self.total_loss_tracker.update_state(total_loss)
-        self.reconstruction_loss_tracker.update_state(reconstruction_loss)
-        self.kl_loss_tracker.update_state(kl_loss)
-        self.kl_weight_tracker.update_state(self.kl_weight)
-
-        return {
-            'total_loss': self.total_loss_tracker.result(),
-            'reconstruction_loss': self.reconstruction_loss_tracker.result(),
-            'kl_loss': self.kl_loss_tracker.result(),
-            'kl_weight': self.kl_weight_tracker.result(),
-        }
-
-    def test_step(self, data):
-        """Custom test step"""
-        # Forward pass (use inference mode for batch normalization)
-        z_mean, z_log_var, z = self.encoder(data, training = False)
-        reconstruction = self.decoder(z, training = False)
-
-        # Reconstruction loss using categorical cross-entropy
-        reconstruction_loss = ops.mean(
-            keras.losses.categorical_crossentropy(data, reconstruction)
-        )
-
-        # KL divergence loss
+        # Add KL divergence loss
         kl_loss = -0.5 * ops.mean(
-            ops.sum(
-                1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var),
-                axis = 1
-            )
+            ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1)
         )
 
-        # Total loss with KL weight
-        total_loss = reconstruction_loss + self.kl_weight * kl_loss
+        # Add weighted KL loss to model (total loss = reconstruction + KL)
+        self.add_loss(self.kl_weight * kl_loss)
 
-        # Update metrics
-        self.total_loss_tracker.update_state(total_loss)
-        self.reconstruction_loss_tracker.update_state(reconstruction_loss)
-        self.kl_loss_tracker.update_state(kl_loss)
-        self.kl_weight_tracker.update_state(self.kl_weight)
-
-        return {
-            'total_loss': self.total_loss_tracker.result(),
-            'reconstruction_loss': self.reconstruction_loss_tracker.result(),
-            'kl_loss': self.kl_loss_tracker.result(),
-            'kl_weight': self.kl_weight_tracker.result(),
-        }
+        return reconstruction
 
 
 def load_data(file_path):
@@ -266,20 +208,28 @@ def main():
     latent_dim = 128
     vae = VAE(latent_dim = latent_dim, kl_weight = 0.0)
 
-    # Compile model
-    vae.compile(optimizer = keras.optimizers.Adam(learning_rate = 1e-3))  # type: ignore
+    # Compile model with categorical crossentropy for reconstruction loss (no accuracy metric)
+    vae.compile(
+        optimizer = keras.optimizers.Adam(learning_rate = 1e-3),  # type: ignore
+        loss = keras.losses.categorical_crossentropy
+    )
+
+    # Create metrics callback with validation data
+    vae_metrics = VAEMetricsCallback()
+    vae_metrics.validation_data = (X_val, X_val)
 
     # Callbacks
     callbacks = [
         KLWarmupCallback(warmup_epochs = 10, max_weight = 1.0),
+        vae_metrics,
         EarlyStopping(
-            monitor = 'val_total_loss',
+            monitor = 'val_loss',
             patience = 15,
             restore_best_weights = True,
             verbose = 1
         ),
         ReduceLROnPlateau(
-            monitor = 'val_total_loss',
+            monitor = 'val_loss',
             factor = 0.5,
             patience = 5,
             min_lr = 1e-6,
@@ -287,19 +237,20 @@ def main():
         ),
         ModelCheckpoint(
             'vae_best_model.keras',
-            monitor = 'val_total_loss',
+            monitor = 'val_loss',
             save_best_only = True,
             verbose = 1
         )
     ]
 
-    # Train the model
+    # Train the model (VAE is autoencoder, so input = output)
     print('\nTraining VAE...')
     history = vae.fit(
         X_train,
+        X_train,  # Target is same as input for autoencoder
         epochs = 100,
         batch_size = 256,
-        validation_data = X_val,
+        validation_data = (X_val, X_val),
         callbacks = callbacks,
         verbose = 1  # type: ignore
     )
@@ -320,10 +271,10 @@ def main():
     print('Training history saved to vae_history.pkl')
 
     # Print final metrics
-    print(f'\nFinal training loss: {history.history["total_loss"][-1]:.4f}')
-    print(f'Final validation loss: {history.history["val_total_loss"][-1]:.4f}')
-    print(f'Final reconstruction loss: {history.history["reconstruction_loss"][-1]:.4f}')
-    print(f'Final KL loss: {history.history["kl_loss"][-1]:.4f}')
+    print(f'\nFinal training loss: {history.history["loss"][-1]:.4f}')
+    print(f'Final validation loss: {history.history["val_loss"][-1]:.4f}')
+    if 'kl_loss' in history.history:
+        print(f'Final KL loss: {history.history["kl_loss"][-1]:.4f}')
 
 
 if __name__ == '__main__':
