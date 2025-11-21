@@ -32,7 +32,6 @@ class VAEMetricsCallback(keras.callbacks.Callback):
             return
 
         # Sample a batch to compute metrics
-        import numpy as np
         sample_idx = np.random.choice(len(self.validation_data[0]), min(1000, len(self.validation_data[0])), replace = False)
         sample_x = self.validation_data[0][sample_idx]
 
@@ -65,7 +64,8 @@ class KLWarmupCallback(keras.callbacks.Callback):
         else:
             new_weight = self.max_weight
 
-        self.model.kl_weight = new_weight
+        # Use .assign() to update the keras.Variable
+        self.model.kl_weight.assign(new_weight)
         print(f'KL weight: {new_weight:.4f}', end = ' ')
 
 
@@ -84,6 +84,10 @@ class Sampling(layers.Layer):
         epsilon = keras.random.normal(shape = (batch, dim), seed = self.seed_generator)
         return z_mean + ops.exp(0.5 * z_log_var) * epsilon
 
+    def get_config(self):
+        """Enable serialization of custom layer"""
+        return super().get_config()
+
 
 class VAE(Model):
     """Variational Autoencoder for k-mer frequency distributions"""
@@ -91,7 +95,8 @@ class VAE(Model):
     def __init__(self, latent_dim = 128, kl_weight = 1.0, **kwargs):
         super(VAE, self).__init__(**kwargs)
         self.latent_dim = latent_dim
-        self.kl_weight = kl_weight
+        # Use keras.Variable so JAX doesn't compile this as a constant
+        self.kl_weight = keras.Variable(kl_weight, trainable = False, dtype = 'float32', name = 'kl_weight')
 
         # Encoder
         self.encoder = self._build_encoder()
@@ -150,15 +155,24 @@ class VAE(Model):
         z_mean, z_log_var, z = self.encoder(inputs, training = training)
         reconstruction = self.decoder(z, training = training)
 
-        # Add KL divergence loss
+        # KL Divergence calculation
         kl_loss = -0.5 * ops.mean(
             ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1)
         )
 
-        # Add weighted KL loss to model (total loss = reconstruction + KL)
+        # Add weighted KL loss to model (total loss = reconstruction + weighted KL)
         self.add_loss(self.kl_weight * kl_loss)
 
         return reconstruction
+
+    def get_config(self):
+        """Enable serialization of custom model"""
+        config = super().get_config()
+        config.update({
+            'latent_dim': self.latent_dim,
+            'kl_weight': float(self.kl_weight.numpy()),
+        })
+        return config
 
 
 def load_data(file_path):
@@ -177,9 +191,12 @@ def load_data(file_path):
     print(f'Mean row sum: {mean_sum:.6f} (should be ~1.0 for probability distributions)')
     print(f'Row sum range: [{row_sums.min():.6f}, {row_sums.max():.6f}]')
 
-    # Warn if data doesn't look like probabilities
+    # Normalize if data doesn't look like probabilities
     if not (0.99 < mean_sum < 1.01):
-        print('WARNING: Data does not appear to be normalized (rows should sum to 1)')
+        print('WARNING: Data not normalized. Normalizing now...')
+        # Add epsilon to avoid division by zero if a row is all zeros
+        data = data / (data.sum(axis = 1, keepdims = True) + 1e-9)
+        print(f'After normalization - Mean row sum: {data.sum(axis = 1).mean():.6f}')
 
     return data
 
@@ -212,9 +229,9 @@ def main():
     latent_dim = 128
     vae = VAE(latent_dim = latent_dim, kl_weight = 0.0)
 
-    # Compile model with categorical crossentropy for reconstruction loss (no accuracy metric)
+    # Compile model with categorical crossentropy for reconstruction loss
     vae.compile(
-        optimizer = keras.optimizers.Adam(learning_rate = 1e-3),  # type: ignore
+        optimizer = keras.optimizers.Adam(learning_rate = 1e-2),  # type: ignore
         loss = keras.losses.categorical_crossentropy
     )
 
@@ -256,7 +273,7 @@ def main():
         batch_size = 256,
         validation_data = (X_val, X_val),
         callbacks = callbacks,
-        verbose = 1  # type: ignore
+        verbose = 2  # type: ignore  # verbose=2 for cleaner log output (one line per epoch)
     )
 
     # Save final model
@@ -277,8 +294,6 @@ def main():
     # Print final metrics
     print(f'\nFinal training loss: {history.history["loss"][-1]:.4f}')
     print(f'Final validation loss: {history.history["val_loss"][-1]:.4f}')
-    if 'kl_loss' in history.history:
-        print(f'Final KL loss: {history.history["kl_loss"][-1]:.4f}')
 
 
 if __name__ == '__main__':
