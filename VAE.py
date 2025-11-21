@@ -23,7 +23,11 @@ import pickle
 class VAEMetricsCallback(keras.callbacks.Callback):
     """Track VAE-specific metrics (KL loss, reconstruction loss) during training"""
 
-    def on_epoch_end(self, epoch, logs = None):
+    def __init__(self):
+        super().__init__()
+        self.validation_data: tuple | None = None
+
+    def on_epoch_end(self, _epoch, logs = None):
         if logs is None:
             return
 
@@ -36,13 +40,13 @@ class VAEMetricsCallback(keras.callbacks.Callback):
         z_mean, z_log_var, _ = self.model.encoder(sample_x, training = False)
 
         # Compute KL loss
-        kl_loss = -0.5 * float(ops.mean(
+        kl_loss = -0.5 * float(ops.mean(  # type: ignore
             ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1)
         ))
 
         # Get predictions to compute reconstruction loss
         predictions = self.model(sample_x, training = False)
-        recon_loss = float(ops.mean(keras.losses.categorical_crossentropy(sample_x, predictions)))
+        recon_loss = float(ops.mean(keras.losses.categorical_crossentropy(sample_x, predictions)))  # type: ignore
 
         print(f'  KL loss: {kl_loss:.4f}, Recon loss: {recon_loss:.4f}, Total: {recon_loss + self.model.kl_weight * kl_loss:.4f}')
 
@@ -55,7 +59,7 @@ class KLWarmupCallback(keras.callbacks.Callback):
         self.warmup_epochs = warmup_epochs
         self.max_weight = max_weight
 
-    def on_epoch_begin(self, epoch, logs = None):
+    def on_epoch_begin(self, epoch, _logs = None):
         if epoch < self.warmup_epochs:
             new_weight = (epoch / self.warmup_epochs) * self.max_weight
         else:
@@ -160,7 +164,7 @@ class VAE(Model):
 def load_data(file_path):
     """Load k-mer frequency data from file with validation"""
     print(f'Loading data from {file_path}...')
-    data = np.loadtxt(file_path, dtype = np.float32)
+    data = np.load(file_path)
 
     # Validate data shape
     assert data.ndim == 2, f'Expected 2D array, got {data.ndim}D'
@@ -196,7 +200,7 @@ def main():
     keras.utils.set_random_seed(42)  # This also sets JAX seed when using JAX backend
 
     # Load data
-    data_path = './Data/kmer_frequencies_l5000_shuffled.txt'
+    data_path = './Data/kmer_frequencies_l5000_shuffled.npy'
     X = load_data(data_path)
 
     # Split into train and validation sets (80/20)
