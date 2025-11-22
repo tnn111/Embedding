@@ -16,3 +16,6 @@ Data/
 *.npy
 *.png
 *.html
+*.keras
+*.pkl
+*.log
