@@ -5,7 +5,6 @@ Optimized for Keras 3 / JAX with 2M+ sequences.
 """
 
 import os
-from xml.etree.ElementPath import ops
 os.environ['KERAS_BACKEND'] = 'jax'
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 
