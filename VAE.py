@@ -8,15 +8,14 @@ import os
 os.environ['KERAS_BACKEND'] = 'jax'
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 
-import  numpy as np
+import  numpy                   as      np
 import  keras
-from    keras   import layers
-from    keras   import  Model
-from    keras   import  ops
-
-from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from sklearn.model_selection import train_test_split
-import pickle
+from    keras                   import  layers
+from    keras                   import  Model
+from    keras                   import  ops
+from    keras.callbacks         import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from    sklearn.model_selection import train_test_split
+import  pickle
 
 class VAEMetricsCallback(keras.callbacks.Callback):
     """Track VAE metrics outside of JIT-compiled code (Keras 3 compatible)"""
@@ -158,15 +157,20 @@ def main():
     X = load_data_log_space(data_path)
 
     # Split
-    X_train, X_val = train_test_split(X, test_size=0.2, random_state=42)
+    X_train, X_val = train_test_split(X, test_size = 0.2, random_state = 42)
     print(f'Training on {X_train.shape[0]} sequences')
 
-    # Model Setup
-    vae = VAE(latent_dim=256, kl_weight=0.0)
-
-    # NOTE: learning_rate=1e-3 is safer for MSE. 
-    # If loss is too high/NaN, lower to 1e-4.
-    vae.compile(optimizer=keras.optimizers.Adam(learning_rate=1e-3))  # type: ignore[arg-type] 
+    # Load existing model if available, otherwise create new one
+    if os.path.exists('vae_best.keras'):
+        print('Loading existing model from vae_best.keras...')
+        vae = keras.models.load_model('vae_best.keras', custom_objects = {'VAE': VAE, 'Sampling': Sampling})
+        print('Model loaded successfully. Continuing training...')
+    else:
+        print('No existing model found. Creating new VAE...')
+        vae = VAE(latent_dim = 256, kl_weight = 0.0)
+        # NOTE: learning_rate=1e-3 is safer for MSE.
+        # If loss is too high/NaN, lower to 1e-4.
+        vae.compile(optimizer = keras.optimizers.Adam(learning_rate = 1e-4))  # type: ignore[arg-type] 
 
     # Setup metrics callback
     vae_metrics = VAEMetricsCallback()
@@ -185,7 +189,7 @@ def main():
         X_train, 
         X_train, # Input = Output (Log Space)
         epochs = 500,
-        batch_size = 1024, # Large batch size for stability
+        batch_size = 4096, # Large batch size for stability
         validation_data = (X_val, X_val),
         callbacks = callbacks,
         verbose = 0  # type: ignore[arg-type]

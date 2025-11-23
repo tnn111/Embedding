@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """
-Calculate canonical 7-mer frequencies from metagenomic contigs.
+Calculate canonical k-mer frequencies from metagenomic contigs.
 
-Reads a FASTA file and outputs normalized 7-mer frequencies where:
-- K-mers are canonical (lexicographically smallest of k-mer and reverse complement)
-- Frequencies are normalized to sum to 1.0
-- K-mers containing non-ATGC bases are skipped
-- Output has 8,192 frequency values per sequence (4^7 / 2)
+Reads a FASTA file and outputs per-sequence features:
+- Sequence ID (first word from FASTA header)
+- Sequence length (after filtering to ATGC only)
+- Normalized canonical 7-mer frequencies (8,192 values)
+- Normalized canonical 4-mer frequencies (136 values)
+- Normalized canonical 3-mer frequencies (32 values)
+- GC content (float between 0 and 1)
+- Total fields per line: 1 (ID) + 1 (length) + 8,192 (7-mers) + 136 (4-mers) + 32 (3-mers) + 1 (GC) = 8,363 fields
+
+K-mers are canonical (lexicographically smallest of k-mer and reverse complement).
+Each k-mer group is normalized separately to sum to 1.0.
 """
 
 import argparse
@@ -69,29 +75,33 @@ def count_canonical_kmers(sequence: str, k: int, kmer_to_canonical: dict[str, st
     return counts
 
 
-def read_fasta_sequences(fasta_file: Path) -> Iterator[str]:
+def read_fasta_sequences(fasta_file: Path) -> Iterator[tuple[str, str]]:
     """
-    Generator that yields sequences from a FASTA file one at a time.
+    Generator that yields (seq_id, sequence) tuples from a FASTA file.
 
+    Seq_id is the first word from the header (after '>', before whitespace).
     Memory-efficient for large files. Handles multi-line sequences.
-    Uses itertools.groupby for elegant parsing.
     """
     try:
         with open(fasta_file) as f:
             # Group lines by whether they start with '>' (header) or not (sequence)
             groups = groupby(f, key = lambda line: line.startswith('>'))
 
+            seq_id = None
             for is_header, group in groups:
                 if is_header:
-                    # Skip header line(s)
-                    next(group, None)
+                    # Extract first word from header line
+                    header_line = next(group, None)
+                    if header_line:
+                        # Remove '>' and get first word (split on whitespace)
+                        seq_id = header_line[1:].strip().split()[0] if header_line[1:].strip() else 'unknown'
                 else:
                     # Join sequence lines, stripping whitespace
                     sequence = ''.join(line.strip() for line in group)
                     # Filter to keep only ATGC bases (more efficient than checking each k-mer)
                     sequence = ''.join(base for base in sequence.upper() if base in 'ATGC')
-                    if sequence:  # Only yield non-empty sequences
-                        yield sequence
+                    if sequence and seq_id:  # Only yield non-empty sequences with valid IDs
+                        yield (seq_id, sequence)
 
     except FileNotFoundError:
         print(f'Error: File not found: {fasta_file}', file=sys.stderr)
@@ -117,11 +127,24 @@ def calculate_normalized_frequencies(counts: Counter, canonical_kmers: list[str]
     return [counts.get(kmer, 0) / total for kmer in canonical_kmers]
 
 
+def calculate_gc_content(sequence: str) -> float:
+    """
+    Calculate GC content as a float between 0 and 1.
+
+    Assumes sequence contains only ATGC bases (filtered upstream).
+    """
+    if len(sequence) == 0:
+        return 0.0
+
+    gc_count = sequence.count('G') + sequence.count('C')
+    return gc_count / len(sequence)
+
+
 def main():
     """Main function to process contigs and output k-mer frequencies."""
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
-        description = 'Calculate canonical 7-mer frequencies from FASTA file'
+        description = 'Calculate canonical k-mer frequencies from FASTA file'
     )
     parser.add_argument(
         '-i', '--input',
@@ -132,7 +155,6 @@ def main():
     args = parser.parse_args()
 
     # Configuration
-    k = 7
     input_file = args.input
 
     # Validate input file
@@ -140,29 +162,46 @@ def main():
         print(f'Error: Input file does not exist: {input_file}', file=sys.stderr)
         sys.exit(1)
 
-    # Generate canonical k-mers and lookup dictionary
-    print(f'Generating canonical {k}-mers...', file=sys.stderr)
-    canonical_kmers, kmer_to_canonical = generate_canonical_kmers(k)
-    print(f'Generated {len(canonical_kmers)} canonical {k}-mers', file=sys.stderr)
+    # Generate canonical k-mers and lookup dictionaries for k=3, 4, 7
+    print('Generating canonical k-mers for k=3, 4, 7...', file=sys.stderr)
+    canonical_3mers, kmer3_to_canonical = generate_canonical_kmers(3)
+    canonical_4mers, kmer4_to_canonical = generate_canonical_kmers(4)
+    canonical_7mers, kmer7_to_canonical = generate_canonical_kmers(7)
+    print(f'Generated {len(canonical_3mers)} 3-mers, {len(canonical_4mers)} 4-mers, {len(canonical_7mers)} 7-mers', file=sys.stderr)
 
     # Process sequences one at a time (memory efficient)
-    print(f'Reading {input_file} and calculating k-mer frequencies...', file=sys.stderr)
+    print(f'Reading {input_file} and calculating features...', file=sys.stderr)
     seq_count = 0
 
-    for sequence in read_fasta_sequences(input_file):
+    for seq_id, sequence in read_fasta_sequences(input_file):
         # Skip empty sequences
         if not sequence:
             continue
 
-        # Count canonical k-mers
-        counts = count_canonical_kmers(sequence, k, kmer_to_canonical)
+        # Calculate sequence length (after ATGC filtering)
+        seq_length = len(sequence)
 
-        # Normalize to frequencies
-        frequencies = calculate_normalized_frequencies(counts, canonical_kmers)
+        # Count canonical k-mers for each k
+        counts_7mer = count_canonical_kmers(sequence, 7, kmer7_to_canonical)
+        counts_4mer = count_canonical_kmers(sequence, 4, kmer4_to_canonical)
+        counts_3mer = count_canonical_kmers(sequence, 3, kmer3_to_canonical)
 
-        # Format output: freq1 freq2 freq3 ... (no ID)
-        freq_str = ' '.join(f'{freq:.10f}' for freq in frequencies)
-        print(freq_str)
+        # Normalize to frequencies (each k-mer group normalized separately)
+        freq_7mer = calculate_normalized_frequencies(counts_7mer, canonical_7mers)
+        freq_4mer = calculate_normalized_frequencies(counts_4mer, canonical_4mers)
+        freq_3mer = calculate_normalized_frequencies(counts_3mer, canonical_3mers)
+
+        # Calculate GC content
+        gc_content = calculate_gc_content(sequence)
+
+        # Format output: ID length freq_7mers freq_4mers freq_3mers gc_content
+        output_parts = [seq_id, str(seq_length)]
+        output_parts.extend(f'{freq:.10f}' for freq in freq_7mer)
+        output_parts.extend(f'{freq:.10f}' for freq in freq_4mer)
+        output_parts.extend(f'{freq:.10f}' for freq in freq_3mer)
+        output_parts.append(f'{gc_content:.10f}')
+
+        print(' '.join(output_parts))
 
         seq_count += 1
 
