@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 Log-Space Variational Autoencoder for multi-scale k-mer frequency distributions.
-Handles 8362-dimensional inputs: sequence length, 7-mer, 4-mer, 3-mer frequencies, and GC content.
-Optimized for Keras 3 / JAX with 2M+ sequences.
+
+Handles multi-dimensional inputs (INPUT_DIM features): sequence length, 7-mer, 4-mer,
+3-mer frequencies, and GC content. Optimized for Keras 3 / JAX with 2M+ sequences.
 """
 
 import os
@@ -18,26 +19,32 @@ from    keras.callbacks         import EarlyStopping, ModelCheckpoint, ReduceLRO
 from    sklearn.model_selection import train_test_split
 import  pickle
 
-class VAEMetricsCallback(keras.callbacks.Callback):
-    """Track VAE metrics outside of JIT-compiled code (Keras 3 compatible)"""
+# Input dimension: sequence length + 7-mer + 4-mer + 3-mer frequencies + GC content
+INPUT_DIM = 8362
 
-    def __init__(self):
+
+class VAEMetricsCallback(keras.callbacks.Callback):
+    """Track VAE metrics outside of JIT-compiled code (Keras 3 compatible)."""
+
+    def __init__(self, validation_data: tuple, sample_size: int = 5000):
         super().__init__()
-        self.validation_data: tuple | None = None
+        self.validation_data = validation_data
+        self.sample_size = sample_size
 
     def on_epoch_end(self, epoch, logs = None):
         if logs is None or self.validation_data is None:
             return
 
-        sample_idx = np.random.choice(len(self.validation_data[0]), min(1000, len(self.validation_data[0])), replace = False)
+        n_samples = min(self.sample_size, len(self.validation_data[0]))
+        sample_idx = np.random.choice(len(self.validation_data[0]), n_samples, replace = False)
         sample_x = self.validation_data[0][sample_idx]
 
         z_mean, z_log_var, _ = self.model.encoder(sample_x, training = False)
-        kl_loss = -0.5 * float(ops.mean(ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis=1)))  # type: ignore[arg-type]
+        kl_loss = -0.5 * float(ops.mean(ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1)))
         weighted_kl = float(self.model.kl_weight) * kl_loss
 
         predictions = self.model(sample_x, training = False)
-        recon_loss = float(ops.mean(ops.sum(ops.square(sample_x - predictions), axis=1)))  # type: ignore[arg-type]
+        recon_loss = float(ops.mean(ops.sum(ops.square(sample_x - predictions), axis = 1)))
 
         val_loss = logs.get('val_loss', 0)
         total = recon_loss + weighted_kl
@@ -81,7 +88,7 @@ class VAE(Model):
         self.decoder = self._build_decoder()
 
     def _build_encoder(self):
-        encoder_inputs = keras.Input(shape = (8362,))
+        encoder_inputs = keras.Input(shape = (INPUT_DIM,))
         x = layers.Dense(4096)(encoder_inputs)
         x = layers.BatchNormalization()(x)
         x = layers.LeakyReLU(negative_slope = 0.2)(x)
@@ -111,7 +118,7 @@ class VAE(Model):
         x = layers.Dense(4096)(x)
         x = layers.BatchNormalization()(x)
         x = layers.LeakyReLU(negative_slope = 0.2)(x)
-        decoder_outputs = layers.Dense(8362, activation = 'linear')(x) # Linear activation because we are predicting log values; no softmax.
+        decoder_outputs = layers.Dense(INPUT_DIM, activation = 'linear')(x)  # Linear activation for log-space prediction
 
         return Model(latent_inputs, decoder_outputs, name = 'decoder')
 
@@ -136,17 +143,34 @@ class VAE(Model):
         })
         return config
 
-def load_data_log_space(file_path):
+def load_data_log_space(file_path, expected_dim = INPUT_DIM):
+    """Load k-mer frequency data and transform to log-space.
+
+    Args:
+        file_path: Path to the .npy file containing frequency data.
+        expected_dim: Expected number of features per sample.
+
+    Returns:
+        Log-transformed data as float32 array.
+
+    Raises:
+        ValueError: If the data dimensions don't match expected_dim.
+    """
     print(f'Loading data from {file_path}...', flush = True)
 
     data = np.load(file_path)
-#    row_sums = data.sum(axis = 1, keepdims = True) + 1e-9   # Normalize to avoid division by zero
-#    data = data / row_sums
 
-    print("Transforming data to Log-Space (Log(x + 1e-6))...", flush = True)
-    data_log = np.log(data + 1e-6)
+    # Validate input dimensions
+    if data.ndim != 2:
+        raise ValueError(f'Expected 2D array, got {data.ndim}D array with shape {data.shape}')
+    if data.shape[1] != expected_dim:
+        raise ValueError(f'Expected {expected_dim} features, got {data.shape[1]}. '
+                         f'Data shape: {data.shape}')
 
-    print(f"Data stats: Min {data_log.min():.2f}, Max {data_log.max():.2f}, Mean {data_log.mean():.2f}", flush = True)
+    print('Transforming data to Log-Space (Log(x + 1e-6))...', flush = True)
+    data_log = np.log(data + 1e-6).astype(np.float32)
+
+    print(f'Data stats: Min {data_log.min():.2f}, Max {data_log.max():.2f}, Mean {data_log.mean():.2f}', flush = True)
     return data_log
 
 def main():
@@ -155,7 +179,7 @@ def main():
 
     # Load Log-Transformed Data
  #   data_path = './Data/kmer_frequencies_l5000_shuffled.npy'
-    data_path = './Data/multimer_frequencies_l5000_shuffled.npy'
+    data_path = './Data/all_multimer_frequencies_l5000_shuffled.npy'
     X = load_data_log_space(data_path)
 
     # Split
@@ -175,8 +199,7 @@ def main():
         vae.compile(optimizer = keras.optimizers.Adam(learning_rate = 1e-4))  # type: ignore[arg-type] 
 
     # Setup metrics callback
-    vae_metrics = VAEMetricsCallback()
-    vae_metrics.validation_data = (X_val, X_val)
+    vae_metrics = VAEMetricsCallback(validation_data = (X_val, X_val), sample_size = 5000)
 
     callbacks = [
         KLWarmupCallback(warmup_epochs = 5, max_weight = 1.0),
