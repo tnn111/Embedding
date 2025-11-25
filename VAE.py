@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Log-Space Variational Autoencoder for 7-mer frequency distributions.
+Log-Space Variational Autoencoder for multi-scale k-mer frequency distributions.
+Handles 8362-dimensional inputs: sequence length, 7-mer, 4-mer, 3-mer frequencies, and GC content.
 Optimized for Keras 3 / JAX with 2M+ sequences.
 """
 
@@ -40,7 +41,7 @@ class VAEMetricsCallback(keras.callbacks.Callback):
 
         val_loss = logs.get('val_loss', 0)
         total = recon_loss + weighted_kl
-        print(f'Epoch {epoch + 1}/{self.params["epochs"]}: MSE Recon: {recon_loss:.2f}, KL: {kl_loss:.2f}, Weighted KL: {weighted_kl:.2f}, Val Loss: {val_loss:.2f}, Total: {total:.2f}')
+        print(f'Epoch {epoch + 1}/{self.params["epochs"]}: MSE Recon: {recon_loss:.2f}, KL: {kl_loss:.2f}, Weighted KL: {weighted_kl:.2f}, Val Loss: {val_loss:.2f}, Total: {total:.2f}', flush = True)
 
 
 class KLWarmupCallback(keras.callbacks.Callback):
@@ -80,7 +81,7 @@ class VAE(Model):
         self.decoder = self._build_decoder()
 
     def _build_encoder(self):
-        encoder_inputs = keras.Input(shape = (8192,))
+        encoder_inputs = keras.Input(shape = (8362,))
         x = layers.Dense(4096)(encoder_inputs)
         x = layers.BatchNormalization()(x)
         x = layers.LeakyReLU(negative_slope = 0.2)(x)
@@ -110,7 +111,7 @@ class VAE(Model):
         x = layers.Dense(4096)(x)
         x = layers.BatchNormalization()(x)
         x = layers.LeakyReLU(negative_slope = 0.2)(x)
-        decoder_outputs = layers.Dense(8192, activation = 'linear')(x) # Linear activation because we are predicting log values; no softmax.
+        decoder_outputs = layers.Dense(8362, activation = 'linear')(x) # Linear activation because we are predicting log values; no softmax.
 
         return Model(latent_inputs, decoder_outputs, name = 'decoder')
 
@@ -136,16 +137,16 @@ class VAE(Model):
         return config
 
 def load_data_log_space(file_path):
-    print(f'Loading data from {file_path}...')
-    
+    print(f'Loading data from {file_path}...', flush = True)
+
     data = np.load(file_path)
-    row_sums = data.sum(axis = 1, keepdims = True) + 1e-9   # Normalize to avoid division by zero
-    data = data / row_sums
-    
-    print("Transforming data to Log-Space (Log(x + 1e-6))...")
+#    row_sums = data.sum(axis = 1, keepdims = True) + 1e-9   # Normalize to avoid division by zero
+#    data = data / row_sums
+
+    print("Transforming data to Log-Space (Log(x + 1e-6))...", flush = True)
     data_log = np.log(data + 1e-6)
-    
-    print(f"Data stats: Min {data_log.min():.2f}, Max {data_log.max():.2f}, Mean {data_log.mean():.2f}")
+
+    print(f"Data stats: Min {data_log.min():.2f}, Max {data_log.max():.2f}, Mean {data_log.mean():.2f}", flush = True)
     return data_log
 
 def main():
@@ -153,20 +154,21 @@ def main():
     keras.utils.set_random_seed(42)
 
     # Load Log-Transformed Data
-    data_path = './Data/kmer_frequencies_l5000_shuffled.npy'
+ #   data_path = './Data/kmer_frequencies_l5000_shuffled.npy'
+    data_path = './Data/multimer_frequencies_l5000_shuffled.npy'
     X = load_data_log_space(data_path)
 
     # Split
     X_train, X_val = train_test_split(X, test_size = 0.2, random_state = 42)
-    print(f'Training on {X_train.shape[0]} sequences')
+    print(f'Training on {X_train.shape[0]} sequences', flush = True)
 
     # Load existing model if available, otherwise create new one
     if os.path.exists('vae_best.keras'):
-        print('Loading existing model from vae_best.keras...')
+        print('Loading existing model from vae_best.keras...', flush = True)
         vae = keras.models.load_model('vae_best.keras', custom_objects = {'VAE': VAE, 'Sampling': Sampling})
-        print('Model loaded successfully. Continuing training...')
+        print('Model loaded successfully. Continuing training...', flush = True)
     else:
-        print('No existing model found. Creating new VAE...')
+        print('No existing model found. Creating new VAE...', flush = True)
         vae = VAE(latent_dim = 256, kl_weight = 0.0)
         # NOTE: learning_rate=1e-3 is safer for MSE.
         # If loss is too high/NaN, lower to 1e-4.
@@ -184,7 +186,7 @@ def main():
         ModelCheckpoint('vae_best.keras', monitor = 'val_loss', save_best_only = True, verbose = 0)
     ]
 
-    print('\nStarting Training...')
+    print('\nStarting Training...', flush = True)
     history = vae.fit(
         X_train, 
         X_train, # Input = Output (Log Space)

@@ -23,7 +23,7 @@ def main():
     print('Loading data from stdin...', file = sys.stderr)
 
     # Load text data and convert to float32
-    data = np.loadtxt(sys.stdin, dtype = np.float32)
+    data = np.loadtxt(sys.stdin, usecols = range(1, 8363), dtype = np.float32)
 
     print(f'Loaded array with shape {data.shape} and dtype {data.dtype}', file = sys.stderr)
 
