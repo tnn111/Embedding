@@ -46,6 +46,13 @@ KMER_4_SLICE = (8193, 8329)     # indices 8193-8328 (136 features)
 KMER_3_SLICE = (8329, 8361)     # indices 8329-8360 (32 features)
 GC_SLICE = (8361, 8362)         # index 8361
 
+# Output slice indices (no length field)
+# Output layout: [7-mers(8192), 4-mers(136), 3-mers(32), GC(1)]
+OUT_KMER_7_SLICE = (0, 8192)      # 8,192 features
+OUT_KMER_4_SLICE = (8192, 8328)   # 136 features
+OUT_KMER_3_SLICE = (8328, 8360)   # 32 features
+OUT_GC_SLICE = (8360, 8361)       # 1 feature
+
 
 class VAEMetricsCallback(keras.callbacks.Callback):
     """Track VAE metrics outside of JIT-compiled code (Keras 3 compatible)."""
@@ -74,12 +81,23 @@ class VAEMetricsCallback(keras.callbacks.Callback):
 
         predictions = self.model(sample_x, training = False)
         target = sample_x[:, 1:]  # Skip length field
-        recon_loss = float(ops.mean(ops.sum(ops.square(target - predictions), axis = 1)))  # type: ignore[arg-type]
+
+        # Per-group MSE for monitoring
+        mse_7 = float(ops.mean(ops.square(target[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]] -
+                                          predictions[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]])))  # type: ignore[arg-type]
+        mse_4 = float(ops.mean(ops.square(target[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]] -
+                                          predictions[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]])))  # type: ignore[arg-type]
+        mse_3 = float(ops.mean(ops.square(target[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]] -
+                                          predictions[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]])))  # type: ignore[arg-type]
+        mse_gc = float(ops.mean(ops.square(target[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]] -
+                                           predictions[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]])))  # type: ignore[arg-type]
+
+        # Total recon loss (per-group weighted, scaled)
+        recon_loss = (mse_7 + mse_4 + mse_3 + mse_gc) * (OUTPUT_DIM / 4)
 
         val_loss = logs.get('val_loss')
         val_loss_str = f'{val_loss:.2f}' if val_loss is not None else 'N/A'
-        total = recon_loss + weighted_kl
-        logger.info(f'Epoch {epoch + 1}/{self.params["epochs"]}: MSE Recon: {recon_loss:.2f}, KL: {kl_loss:.2f}, Weighted KL: {weighted_kl:.2f}, Val Loss: {val_loss_str}, Total: {total:.2f}')
+        logger.info(f'Epoch {epoch + 1}/{self.params["epochs"]}: Recon: {recon_loss:.2f}, KL: {kl_loss:.2f} (w={weighted_kl:.2f}), Val: {val_loss_str} | 7mer={mse_7:.4f}, 4mer={mse_4:.4f}, 3mer={mse_3:.4f}, GC={mse_gc:.4f}')
 
 
 class KLWarmupCallback(keras.callbacks.Callback):
@@ -312,7 +330,18 @@ class VAE(Model):
         # Target is input without length field: [7-mers, 4-mers, 3-mers, GC] = 8,361 features
         target = inputs[:, 1:]  # Skip index 0 (length)
 
-        recon_loss = ops.mean(ops.sum(ops.square(target - reconstruction), axis = 1))  # Sum over features
+        # Per-feature-group MSE (equal weight to each group regardless of size)
+        mse_7 = ops.mean(ops.square(target[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]] -
+                                    reconstruction[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]]))
+        mse_4 = ops.mean(ops.square(target[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]] -
+                                    reconstruction[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]]))
+        mse_3 = ops.mean(ops.square(target[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]] -
+                                    reconstruction[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]]))
+        mse_gc = ops.mean(ops.square(target[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]] -
+                                     reconstruction[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]]))
+
+        # Average across groups, scale to similar magnitude as before (~8361 features summed)
+        recon_loss = (mse_7 + mse_4 + mse_3 + mse_gc) * (OUTPUT_DIM / 4)
 
         kl_loss = -0.5 * ops.mean(ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1))
 

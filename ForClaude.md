@@ -201,3 +201,64 @@ Could use as additional loss term or replace MSE entirely.
 2. Implement #1 (per-group weighting) if monitoring reveals imbalanced learning
 3. Add #2 (LR scheduling) for fine-tuning in later epochs
 
+---
+
+# 7-mer Bottleneck Improvement Options
+
+Based on training results showing 7-mer MSE (~3.6) is now the bottleneck while 4-mer (0.06) and 3-mer (0.01) have essentially converged.
+
+## Option 1: Increase 7-mer branch width (Recommended)
+
+Current: 8,194 → 512 → **128** (64x compression)
+Proposed: 8,194 → 512 → **256** (32x compression)
+
+Doubles 7-mer information capacity. Modest parameter increase (~65K encoder + ~130K decoder).
+
+**Impact:** Concat becomes 256+64+32=352 instead of 224. Shared layers need adjustment (352 → 512 → latent).
+
+## Option 2: Add depth to 7-mer branch
+
+Current: 8,194 → 512 → 128
+Proposed: 8,194 → 1024 → 512 → 256
+
+More layers = more non-linearity to learn complex patterns. Larger parameter increase.
+
+## Option 3: Skip connection in 7-mer branch
+
+Add residual connection from first hidden layer:
+```python
+x1 = Dense(512)(input)
+x1 = BatchNormalization()(x1)
+x1 = LeakyReLU()(x1)
+x2 = Dense(128)(x1)
+x2 = BatchNormalization()(x2)
+x2 = LeakyReLU()(x2)
+skip = Dense(128)(x1)  # project to same dim
+x = x2 + skip  # residual connection
+```
+
+Cheap to add, helps gradient flow.
+
+## Option 4: Adjust loss weighting
+
+Give 7-mers more than 25% weight since they're harder:
+```python
+recon_loss = (mse_7 * 2 + mse_4 + mse_3 + mse_gc) * (OUTPUT_DIM / 5)
+```
+
+Gives 7-mers 40% weight. Easiest change but may hurt other branches.
+
+## Recommendation
+
+Try Option 1 first after current run completes - it directly addresses the capacity constraint with minimal complexity.
+
+---
+
+# Implementation Log
+
+**2025-11-25 20:48** - Implemented #1 (Per-Feature-Group Loss Weighting) and #3 (Per-Branch Monitoring)
+- Added output slice constants: `OUT_KMER_7_SLICE`, `OUT_KMER_4_SLICE`, `OUT_KMER_3_SLICE`, `OUT_GC_SLICE`
+- Updated `VAE.call()` to compute per-group MSE with equal weighting
+- Updated `VAEMetricsCallback` to log per-group MSE each epoch
+- Loss now gives equal weight to 7-mers, 4-mers, 3-mers, and GC regardless of feature count
+
