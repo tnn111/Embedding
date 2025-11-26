@@ -13,7 +13,7 @@ For the decoder: Reverse the progression used for the encoder.
 
 Keep the batch normalization layers.
 
-Reveiw this and ask any questions you wish. Do not write any code yet. If possible, show me a graph of what the models would be like.
+Review this and ask any questions you wish. Do not write any code yet. If possible, show me a graph of what the models would be like.
 
 ---
 
@@ -28,11 +28,12 @@ Reveiw this and ask any questions you wish. Do not write any code yet. If possib
 3. **GC handling**: Each decoder branch predicts GC; average the 3 predictions
 4. **Decoder split**: Separate Dense layers project from shared representation to each branch
 5. **Loss calculation**: Computed on 8,361 features (input minus length field)
-6. **Balanced branch influence** (Option B):
-   - 7-mer branch: 57% of concatenated features
-   - 4-mer branch: 29%
-   - 3-mer branch: 14%
-   - **Total parameters: ~10M** (down from ~90M)
+6. **Deep 7-mer branch** (Option B + Option 1 + Option 2):
+   - 7-mer branch: 8,194 → 1024 → 512 → 256 (3 layers, 73% of concat)
+   - 4-mer branch: 138 → 128 → 64 (2 layers, 18% of concat)
+   - 3-mer branch: 34 → 64 → 32 (2 layers, 9% of concat)
+   - **Total parameters: ~19M**
+7. **Learning rate scheduling**: ReduceLROnPlateau (factor=0.5, patience=20, min_lr=1e-6)
 
 ### Encoder Architecture
 ```
@@ -48,14 +49,17 @@ Input (8,362)
   b_7 (8,194)         b_4 (138)         b_3 (34)
     │                     │                 │
     ▼                     ▼                 ▼
- Dense(512)+BN+LReLU   Dense(128)+BN+LReLU  Dense(64)+BN+LReLU
+ Dense(1024)+BN+LReLU  Dense(128)+BN+LReLU  Dense(64)+BN+LReLU
     │                     │                 │
     ▼                     ▼                 ▼
- Dense(128)+BN+LReLU   Dense(64)+BN+LReLU   Dense(32)+BN+LReLU
+ Dense(512)+BN+LReLU   Dense(64)+BN+LReLU   Dense(32)+BN+LReLU
+    │                     │                 │
+    ▼                     │                 │
+ Dense(256)+BN+LReLU      │                 │
     │                     │                 │
     └──────────┬──────────┴─────────────────┘
                ▼
-        Concatenate (224)
+        Concatenate (352)
                │
                ▼
           Dense(512)+BN+LReLU
@@ -72,17 +76,21 @@ Input (8,362)
           Dense(512)+BN+LReLU
                │
                ▼
-          Dense(224)+BN+LReLU
+          Dense(352)+BN+LReLU
                │
     ┌──────────┼──────────┬─────────────────┐
     │          │          │                 │
     ▼          ▼          ▼                 │  (separate Dense projections)
- Dense(128)   Dense(64)   Dense(32)         │
+ Dense(256)   Dense(64)   Dense(32)         │
  +BN+LReLU   +BN+LReLU   +BN+LReLU          │
     │          │          │                 │
     ▼          ▼          ▼                 │
  Dense(512)   Dense(128)  Dense(64)         │
  +BN+LReLU   +BN+LReLU   +BN+LReLU          │
+    │          │          │                 │
+    ▼          │          │                 │
+ Dense(1024)   │          │                 │
+ +BN+LReLU     │          │                 │
     │          │          │                 │
     ▼          ▼          ▼                 │
  Dense(8,193)  Dense(137)  Dense(33)        │  (k-mers + GC each, linear)
@@ -261,4 +269,17 @@ Try Option 1 first after current run completes - it directly addresses the capac
 - Updated `VAE.call()` to compute per-group MSE with equal weighting
 - Updated `VAEMetricsCallback` to log per-group MSE each epoch
 - Loss now gives equal weight to 7-mers, 4-mers, 3-mers, and GC regardless of feature count
+
+**2025-11-25 21:48** - Implemented Option 1 (Increase 7-mer branch width)
+- Encoder 7-mer branch: 8,194 → 512 → **256** (was 128)
+- Decoder shared layer: 512 → **352** (was 224)
+- Decoder 7-mer branch: **256** → 512 → outputs (was 128 → 512)
+- Concatenation now 256 + 64 + 32 = 352 (was 224)
+- 7-mer now has 32x compression (was 64x), doubling information capacity
+
+**2025-11-26 09:53** - Implemented Option 2 (Deeper 7-mer branch) + Learning Rate Scheduling
+- Encoder 7-mer branch: 8,194 → **1024** → **512** → 256 (was 512 → 256)
+- Decoder 7-mer branch: 256 → 512 → **1024** → outputs (was 256 → 512 → outputs)
+- Added `ReduceLROnPlateau` callback (factor=0.5, patience=20, min_lr=1e-6)
+- More depth = more non-linearity to capture complex 7-mer patterns
 

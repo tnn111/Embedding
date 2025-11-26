@@ -204,10 +204,10 @@ class VAE(Model):
         """Build multi-branch encoder for 7-mer, 4-mer, and 3-mer features.
 
         Architecture:
-            - 7-mer branch: 8,194 → 512 → 128 (57% of concat)
-            - 4-mer branch: 138 → 128 → 64 (29% of concat)
-            - 3-mer branch: 34 → 64 → 32 (14% of concat)
-            - Concatenate (224) → 512 → latent (256)
+            - 7-mer branch: 8,194 → 1024 → 512 → 256 (73% of concat)
+            - 4-mer branch: 138 → 128 → 64 (18% of concat)
+            - 3-mer branch: 34 → 64 → 32 (9% of concat)
+            - Concatenate (352) → 512 → latent (256)
         """
         encoder_inputs = keras.Input(shape = (INPUT_DIM,))
 
@@ -223,13 +223,16 @@ class VAE(Model):
         b_4 = layers.Concatenate(name = 'branch_4_input')([kmers_4, length, gc])  # (batch, 138)
         b_3 = layers.Concatenate(name = 'branch_3_input')([kmers_3, length, gc])  # (batch, 34)
 
-        # 7-mer branch: 8,194 → 512 → 128
-        x_7 = layers.Dense(512, name = 'enc_7mer_dense1')(b_7)
+        # 7-mer branch: 8,194 → 1024 → 512 → 256
+        x_7 = layers.Dense(1024, name = 'enc_7mer_dense1')(b_7)
         x_7 = layers.BatchNormalization(name = 'enc_7mer_bn1')(x_7)
         x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_7mer_relu1')(x_7)
-        x_7 = layers.Dense(128, name = 'enc_7mer_dense2')(x_7)
+        x_7 = layers.Dense(512, name = 'enc_7mer_dense2')(x_7)
         x_7 = layers.BatchNormalization(name = 'enc_7mer_bn2')(x_7)
         x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_7mer_relu2')(x_7)
+        x_7 = layers.Dense(256, name = 'enc_7mer_dense3')(x_7)
+        x_7 = layers.BatchNormalization(name = 'enc_7mer_bn3')(x_7)
+        x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_7mer_relu3')(x_7)
 
         # 4-mer branch: 138 → 128 → 64
         x_4 = layers.Dense(128, name = 'enc_4mer_dense1')(b_4)
@@ -247,10 +250,10 @@ class VAE(Model):
         x_3 = layers.BatchNormalization(name = 'enc_3mer_bn2')(x_3)
         x_3 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_3mer_relu2')(x_3)
 
-        # Concatenate branches: 128 + 64 + 32 = 224
+        # Concatenate branches: 256 + 64 + 32 = 352
         x = layers.Concatenate(name = 'enc_concat')([x_7, x_4, x_3])
 
-        # Shared layers: 224 → 512
+        # Shared layers: 352 → 512
         x = layers.Dense(512, name = 'enc_shared_dense')(x)
         x = layers.BatchNormalization(name = 'enc_shared_bn')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_shared_relu')(x)
@@ -267,9 +270,9 @@ class VAE(Model):
         """Build multi-branch decoder for 7-mer, 4-mer, and 3-mer features.
 
         Architecture:
-            - Latent (256) → 512 → 224 (shared)
+            - Latent (256) → 512 → 352 (shared)
             - Split to branches via separate Dense projections
-            - 7-mer branch: 128 → 512 → 8,192 k-mers + 1 GC
+            - 7-mer branch: 256 → 512 → 1024 → 8,192 k-mers + 1 GC
             - 4-mer branch: 64 → 128 → 136 k-mers + 1 GC
             - 3-mer branch: 32 → 64 → 32 k-mers + 1 GC
             - Average 3 GC predictions
@@ -277,21 +280,24 @@ class VAE(Model):
         """
         latent_inputs = keras.Input(shape = (self.latent_dim,))
 
-        # Shared layers: 256 → 512 → 224
+        # Shared layers: 256 → 512 → 352
         x = layers.Dense(512, name = 'dec_shared_dense1')(latent_inputs)
         x = layers.BatchNormalization(name = 'dec_shared_bn1')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_shared_relu1')(x)
-        x = layers.Dense(224, name = 'dec_shared_dense2')(x)
+        x = layers.Dense(352, name = 'dec_shared_dense2')(x)
         x = layers.BatchNormalization(name = 'dec_shared_bn2')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_shared_relu2')(x)
 
-        # 7-mer branch: 128 → 512 → outputs
-        x_7 = layers.Dense(128, name = 'dec_7mer_dense1')(x)
+        # 7-mer branch: 256 → 512 → 1024 → outputs
+        x_7 = layers.Dense(256, name = 'dec_7mer_dense1')(x)
         x_7 = layers.BatchNormalization(name = 'dec_7mer_bn1')(x_7)
         x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_7mer_relu1')(x_7)
         x_7 = layers.Dense(512, name = 'dec_7mer_dense2')(x_7)
         x_7 = layers.BatchNormalization(name = 'dec_7mer_bn2')(x_7)
         x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_7mer_relu2')(x_7)
+        x_7 = layers.Dense(1024, name = 'dec_7mer_dense3')(x_7)
+        x_7 = layers.BatchNormalization(name = 'dec_7mer_bn3')(x_7)
+        x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_7mer_relu3')(x_7)
         kmers_7 = layers.Dense(8192, activation = 'linear', name = 'dec_7mer_out')(x_7)
         gc_7 = layers.Dense(1, activation = 'linear', name = 'dec_gc_7')(x_7)
 
@@ -448,7 +454,14 @@ def main():
     callbacks = [
         KLWarmupCallback(warmup_epochs = 5, max_weight = 1.0, skip_warmup = resuming),
         vae_metrics,
-        VAECheckpoint(filepath_prefix = 'vae', monitor = 'val_loss', verbose = 0, initial_best = initial_best)
+        VAECheckpoint(filepath_prefix = 'vae', monitor = 'val_loss', verbose = 0, initial_best = initial_best),
+        keras.callbacks.ReduceLROnPlateau(
+            monitor = 'val_loss',
+            factor = 0.5,
+            patience = 20,
+            min_lr = 1e-6,
+            verbose = 1
+        )
     ]
 
     logger.info('Starting Training...')
