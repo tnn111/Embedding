@@ -6,6 +6,7 @@ Handles multi-dimensional inputs (INPUT_DIM features): sequence length, 7-mer, 4
 3-mer frequencies, and GC content. Optimized for Keras 3 / JAX with 2M+ sequences.
 """
 
+import argparse
 import os
 os.environ['KERAS_BACKEND'] = 'jax'
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
@@ -244,12 +245,18 @@ def load_data_log_space(file_path, expected_dim = INPUT_DIM):
 
 
 def main():
+    parser = argparse.ArgumentParser(description = 'Train a VAE on k-mer frequency data')
+    parser.add_argument('-i', '--input', required = True, help = 'Path to input .npy file with k-mer frequencies')
+    parser.add_argument('-e', '--epochs', type = int, default = 100, help = 'Number of training epochs (default: 100)')
+    parser.add_argument('-l', '--learning-rate', type = float, default = 1e-4, help = 'Learning rate (default: 1e-4)')
+    parser.add_argument('-b', '--batch-size', type = int, default = 4096, help = 'Batch size (default: 4096)')
+    args = parser.parse_args()
+
     np.random.seed(SEED)
     keras.utils.set_random_seed(SEED)
 
     # Load Log-Transformed Data
-    data_path = './Data/all_multimer_frequencies_l5000_shuffled.npy'
-    X = load_data_log_space(data_path)
+    X = load_data_log_space(args.input)
 
     # Split
     X_train, X_val = train_test_split(X, test_size = 0.2, random_state = SEED)
@@ -275,7 +282,7 @@ def main():
         vae = VAE(latent_dim = LATENT_DIM)
 
     # Always (re)compile to ensure consistent optimizer settings
-    vae.compile(optimizer = keras.optimizers.Adam(learning_rate = 1e-4))  # type: ignore[arg-type]
+    vae.compile(optimizer = keras.optimizers.Adam(learning_rate = args.learning_rate))  # type: ignore[arg-type]
 
     # Setup callbacks
     vae_metrics = VAEMetricsCallback(validation_data = (X_val, X_val), sample_size = 5000)
@@ -290,8 +297,8 @@ def main():
     history = vae.fit(
         X_train,
         X_train,  # Input = Output (Log Space)
-        epochs = 500,
-        batch_size = 4096,  # Large batch size for stability
+        epochs = args.epochs,
+        batch_size = args.batch_size,
         validation_data = (X_val, X_val),
         callbacks = callbacks,
         verbose = 0  # type: ignore[arg-type]
