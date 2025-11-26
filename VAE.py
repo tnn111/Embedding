@@ -33,9 +33,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Global constants
-INPUT_DIM = 8362  # sequence length + 7-mer + 4-mer + 3-mer frequencies + GC content
+INPUT_DIM = 8362   # sequence length + 7-mer + 4-mer + 3-mer frequencies + GC content
+OUTPUT_DIM = 8361  # decoder output (no length): 7-mers + 4-mers + 3-mers + GC
 LATENT_DIM = 256
 SEED = 42
+
+# Feature slice indices (for input tensor)
+# Input layout: [length(1), 7-mers(8192), 4-mers(136), 3-mers(32), GC(1)]
+LENGTH_SLICE = (0, 1)           # index 0
+KMER_7_SLICE = (1, 8193)        # indices 1-8192 (8,192 features)
+KMER_4_SLICE = (8193, 8329)     # indices 8193-8328 (136 features)
+KMER_3_SLICE = (8329, 8361)     # indices 8329-8360 (32 features)
+GC_SLICE = (8361, 8362)         # index 8361
 
 
 class VAEMetricsCallback(keras.callbacks.Callback):
@@ -64,7 +73,8 @@ class VAEMetricsCallback(keras.callbacks.Callback):
         weighted_kl = float(self.model.kl_weight) * kl_loss
 
         predictions = self.model(sample_x, training = False)
-        recon_loss = float(ops.mean(ops.sum(ops.square(sample_x - predictions), axis = 1)))  # type: ignore[arg-type]
+        target = sample_x[:, 1:]  # Skip length field
+        recon_loss = float(ops.mean(ops.sum(ops.square(target - predictions), axis = 1)))  # type: ignore[arg-type]
 
         val_loss = logs.get('val_loss')
         val_loss_str = f'{val_loss:.2f}' if val_loss is not None else 'N/A'
@@ -147,6 +157,23 @@ class ClipLayer(layers.Layer):
         return config
 
 
+class SliceLayer(layers.Layer):
+    """Slices a tensor along the last axis."""
+
+    def __init__(self, start, end, **kwargs):
+        super().__init__(**kwargs)
+        self.start = start
+        self.end = end
+
+    def call(self, inputs):
+        return inputs[:, self.start:self.end]
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({'start': self.start, 'end': self.end})
+        return config
+
+
 class VAE(Model):
     def __init__(self, latent_dim = LATENT_DIM, kl_weight = 0.0, **kwargs):
         super().__init__(**kwargs)
@@ -156,17 +183,61 @@ class VAE(Model):
         self.decoder = self._build_decoder()
 
     def _build_encoder(self):
-        encoder_inputs = keras.Input(shape = (INPUT_DIM,))
-        x = layers.Dense(4096)(encoder_inputs)
-        x = layers.BatchNormalization()(x)
-        x = layers.LeakyReLU(negative_slope = 0.2)(x)
-        x = layers.Dense(2048)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.LeakyReLU(negative_slope = 0.2)(x)
-        x = layers.Dense(1024)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.LeakyReLU(negative_slope = 0.2)(x)
+        """Build multi-branch encoder for 7-mer, 4-mer, and 3-mer features.
 
+        Architecture:
+            - 7-mer branch: 8,194 → 512 → 128 (57% of concat)
+            - 4-mer branch: 138 → 128 → 64 (29% of concat)
+            - 3-mer branch: 34 → 64 → 32 (14% of concat)
+            - Concatenate (224) → 512 → latent (256)
+        """
+        encoder_inputs = keras.Input(shape = (INPUT_DIM,))
+
+        # Extract features from input
+        length = SliceLayer(*LENGTH_SLICE, name = 'slice_length')(encoder_inputs)
+        kmers_7 = SliceLayer(*KMER_7_SLICE, name = 'slice_7mer')(encoder_inputs)
+        kmers_4 = SliceLayer(*KMER_4_SLICE, name = 'slice_4mer')(encoder_inputs)
+        kmers_3 = SliceLayer(*KMER_3_SLICE, name = 'slice_3mer')(encoder_inputs)
+        gc = SliceLayer(*GC_SLICE, name = 'slice_gc')(encoder_inputs)
+
+        # Build branch inputs: k-mers + length + GC
+        b_7 = layers.Concatenate(name = 'branch_7_input')([kmers_7, length, gc])  # (batch, 8194)
+        b_4 = layers.Concatenate(name = 'branch_4_input')([kmers_4, length, gc])  # (batch, 138)
+        b_3 = layers.Concatenate(name = 'branch_3_input')([kmers_3, length, gc])  # (batch, 34)
+
+        # 7-mer branch: 8,194 → 512 → 128
+        x_7 = layers.Dense(512, name = 'enc_7mer_dense1')(b_7)
+        x_7 = layers.BatchNormalization(name = 'enc_7mer_bn1')(x_7)
+        x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_7mer_relu1')(x_7)
+        x_7 = layers.Dense(128, name = 'enc_7mer_dense2')(x_7)
+        x_7 = layers.BatchNormalization(name = 'enc_7mer_bn2')(x_7)
+        x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_7mer_relu2')(x_7)
+
+        # 4-mer branch: 138 → 128 → 64
+        x_4 = layers.Dense(128, name = 'enc_4mer_dense1')(b_4)
+        x_4 = layers.BatchNormalization(name = 'enc_4mer_bn1')(x_4)
+        x_4 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_4mer_relu1')(x_4)
+        x_4 = layers.Dense(64, name = 'enc_4mer_dense2')(x_4)
+        x_4 = layers.BatchNormalization(name = 'enc_4mer_bn2')(x_4)
+        x_4 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_4mer_relu2')(x_4)
+
+        # 3-mer branch: 34 → 64 → 32
+        x_3 = layers.Dense(64, name = 'enc_3mer_dense1')(b_3)
+        x_3 = layers.BatchNormalization(name = 'enc_3mer_bn1')(x_3)
+        x_3 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_3mer_relu1')(x_3)
+        x_3 = layers.Dense(32, name = 'enc_3mer_dense2')(x_3)
+        x_3 = layers.BatchNormalization(name = 'enc_3mer_bn2')(x_3)
+        x_3 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_3mer_relu2')(x_3)
+
+        # Concatenate branches: 128 + 64 + 32 = 224
+        x = layers.Concatenate(name = 'enc_concat')([x_7, x_4, x_3])
+
+        # Shared layers: 224 → 512
+        x = layers.Dense(512, name = 'enc_shared_dense')(x)
+        x = layers.BatchNormalization(name = 'enc_shared_bn')(x)
+        x = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_shared_relu')(x)
+
+        # Latent space
         z_mean = layers.Dense(self.latent_dim, name = 'z_mean')(x)
         z_log_var = layers.Dense(self.latent_dim, name = 'z_log_var')(x)
         z_log_var = ClipLayer(name = 'z_log_var_clip')(z_log_var)
@@ -175,18 +246,62 @@ class VAE(Model):
         return Model(encoder_inputs, [z_mean, z_log_var, z], name = 'encoder')
 
     def _build_decoder(self):
+        """Build multi-branch decoder for 7-mer, 4-mer, and 3-mer features.
+
+        Architecture:
+            - Latent (256) → 512 → 224 (shared)
+            - Split to branches via separate Dense projections
+            - 7-mer branch: 128 → 512 → 8,192 k-mers + 1 GC
+            - 4-mer branch: 64 → 128 → 136 k-mers + 1 GC
+            - 3-mer branch: 32 → 64 → 32 k-mers + 1 GC
+            - Average 3 GC predictions
+            - Output: [7-mers, 4-mers, 3-mers, GC] = 8,361
+        """
         latent_inputs = keras.Input(shape = (self.latent_dim,))
 
-        x = layers.Dense(1024)(latent_inputs)
-        x = layers.BatchNormalization()(x)
-        x = layers.LeakyReLU(negative_slope = 0.2)(x)
-        x = layers.Dense(2048)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.LeakyReLU(negative_slope = 0.2)(x)
-        x = layers.Dense(4096)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.LeakyReLU(negative_slope = 0.2)(x)
-        decoder_outputs = layers.Dense(INPUT_DIM, activation = 'linear')(x)  # Linear activation for log-space prediction
+        # Shared layers: 256 → 512 → 224
+        x = layers.Dense(512, name = 'dec_shared_dense1')(latent_inputs)
+        x = layers.BatchNormalization(name = 'dec_shared_bn1')(x)
+        x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_shared_relu1')(x)
+        x = layers.Dense(224, name = 'dec_shared_dense2')(x)
+        x = layers.BatchNormalization(name = 'dec_shared_bn2')(x)
+        x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_shared_relu2')(x)
+
+        # 7-mer branch: 128 → 512 → outputs
+        x_7 = layers.Dense(128, name = 'dec_7mer_dense1')(x)
+        x_7 = layers.BatchNormalization(name = 'dec_7mer_bn1')(x_7)
+        x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_7mer_relu1')(x_7)
+        x_7 = layers.Dense(512, name = 'dec_7mer_dense2')(x_7)
+        x_7 = layers.BatchNormalization(name = 'dec_7mer_bn2')(x_7)
+        x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_7mer_relu2')(x_7)
+        kmers_7 = layers.Dense(8192, activation = 'linear', name = 'dec_7mer_out')(x_7)
+        gc_7 = layers.Dense(1, activation = 'linear', name = 'dec_gc_7')(x_7)
+
+        # 4-mer branch: 64 → 128 → outputs
+        x_4 = layers.Dense(64, name = 'dec_4mer_dense1')(x)
+        x_4 = layers.BatchNormalization(name = 'dec_4mer_bn1')(x_4)
+        x_4 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_4mer_relu1')(x_4)
+        x_4 = layers.Dense(128, name = 'dec_4mer_dense2')(x_4)
+        x_4 = layers.BatchNormalization(name = 'dec_4mer_bn2')(x_4)
+        x_4 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_4mer_relu2')(x_4)
+        kmers_4 = layers.Dense(136, activation = 'linear', name = 'dec_4mer_out')(x_4)
+        gc_4 = layers.Dense(1, activation = 'linear', name = 'dec_gc_4')(x_4)
+
+        # 3-mer branch: 32 → 64 → outputs
+        x_3 = layers.Dense(32, name = 'dec_3mer_dense1')(x)
+        x_3 = layers.BatchNormalization(name = 'dec_3mer_bn1')(x_3)
+        x_3 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_3mer_relu1')(x_3)
+        x_3 = layers.Dense(64, name = 'dec_3mer_dense2')(x_3)
+        x_3 = layers.BatchNormalization(name = 'dec_3mer_bn2')(x_3)
+        x_3 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_3mer_relu2')(x_3)
+        kmers_3 = layers.Dense(32, activation = 'linear', name = 'dec_3mer_out')(x_3)
+        gc_3 = layers.Dense(1, activation = 'linear', name = 'dec_gc_3')(x_3)
+
+        # Average GC predictions from all branches
+        gc_avg = layers.Average(name = 'dec_gc_avg')([gc_7, gc_4, gc_3])
+
+        # Concatenate outputs: [7-mers(8192), 4-mers(136), 3-mers(32), GC(1)] = 8,361
+        decoder_outputs = layers.Concatenate(name = 'dec_output')([kmers_7, kmers_4, kmers_3, gc_avg])
 
         return Model(latent_inputs, decoder_outputs, name = 'decoder')
 
@@ -194,7 +309,10 @@ class VAE(Model):
         z_mean, z_log_var, z = self.encoder(inputs, training = training)
         reconstruction = self.decoder(z, training = training)
 
-        recon_loss = ops.mean(ops.sum(ops.square(inputs - reconstruction), axis = 1))  # Sum over features
+        # Target is input without length field: [7-mers, 4-mers, 3-mers, GC] = 8,361 features
+        target = inputs[:, 1:]  # Skip index 0 (length)
+
+        recon_loss = ops.mean(ops.sum(ops.square(target - reconstruction), axis = 1))  # Sum over features
 
         kl_loss = -0.5 * ops.mean(ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1))
 
@@ -227,7 +345,8 @@ def load_data_log_space(file_path, expected_dim = INPUT_DIM):
     """
     logger.info(f'Loading data from {file_path}...')
 
-    data = np.load(file_path)
+    # Memory-map the file to avoid loading entire array into RAM at once
+    data = np.load(file_path, mmap_mode = 'r')
 
     # Validate input dimensions
     if data.ndim != 2:
@@ -236,10 +355,20 @@ def load_data_log_space(file_path, expected_dim = INPUT_DIM):
         raise ValueError(f'Expected {expected_dim} features, got {data.shape[1]}. '
                          f'Data shape: {data.shape}')
 
-    logger.info('Transforming data to Log-Space (Log(x + 1e-6))...')
-    data_log = np.log(data.astype(np.float32) + 1e-6)
+    logger.info(f'Found {len(data)} samples, transforming to Log-Space in chunks...')
 
-    logger.info(f'Loaded {len(data_log)} samples')
+    # Pre-allocate output array
+    data_log = np.empty(data.shape, dtype = np.float32)
+
+    # Process in chunks to reduce peak memory usage
+    chunk_size = 100_000
+    for start in range(0, len(data), chunk_size):
+        end = min(start + chunk_size, len(data))
+        data_log[start:end] = np.log(data[start:end].astype(np.float32) + 1e-6)
+        if (start // chunk_size) % 5 == 0:
+            logger.info(f'  Processed {end:,} / {len(data):,} samples')
+
+    logger.info(f'Loaded {len(data_log):,} samples')
     logger.info(f'Data stats: Min {data_log.min():.2f}, Max {data_log.max():.2f}, Mean {data_log.mean():.2f}')
     return data_log
 
@@ -268,7 +397,7 @@ def main():
 
     if resuming:
         logger.info('Loading existing model from vae_best.keras...')
-        vae = keras.models.load_model('vae_best.keras', custom_objects = {'VAE': VAE, 'Sampling': Sampling, 'ClipLayer': ClipLayer})
+        vae = keras.models.load_model('vae_best.keras', custom_objects = {'VAE': VAE, 'Sampling': Sampling, 'ClipLayer': ClipLayer, 'SliceLayer': SliceLayer})
         logger.info('Model loaded successfully. Recompiling and continuing training...')
         # Load previous best val_loss if history exists
         if os.path.exists('vae_history.pkl'):
