@@ -347,3 +347,101 @@ Only predict 7-mers; compute 4-mers by summing appropriate 7-mer subsets.
   - `%nz` percentage of 7-mers that are non-zero
 - Increased `LATENT_DIM` from 256 to **512** (reduces 7-mer bottleneck from 32x to 16x)
 
+---
+
+# Deep Analysis: Zero 7-mer Reconstruction Problem (2025-11-26)
+
+## Training Results (100 epochs)
+
+Final metrics:
+- Validation loss: **2840.51**
+- Non-zero 7-mer MSE: **0.40** ✅ (good)
+- Zero 7-mer MSE: **13.7** ❌ (34x worse than non-zero)
+- 59.1% of 7-mers are non-zero per sample
+- 4-mer MSE: 0.036, 3-mer MSE: 0.006, GC MSE: 0.0002 (all excellent)
+
+## Root Cause Analysis
+
+### The Architectural Mismatch
+
+The model is asked to solve **two different problems** with **one linear output layer**:
+
+1. **Classification**: Which 7-mers are present? (binary, 8192 decisions)
+2. **Regression**: What are the values of present 7-mers? (continuous)
+
+A linear activation cannot do both well. The model "hedges" by predicting intermediate values instead of confidently outputting zeros.
+
+### Why MSE ~13.7 for Zeros
+
+In log-space:
+- Zero 7-mers: `log(1e-6)` ≈ **-13.8**
+- Non-zero 7-mers: range from **-10 to 0**
+
+`sqrt(13.7) ≈ 3.7` error → model predicts **~-10** instead of **-13.8**
+
+### The 0.1x Down-weighting Backfires
+
+```python
+weights_7 = nonzero_mask + (1.0 - nonzero_mask) * 0.1
+```
+
+This reduces gradient signal for zeros by 10x. The model gets almost no feedback for bad zero predictions.
+
+### Information Theory Constraint
+
+- 8,192 possible 7-mers, ~59% non-zero per sample
+- Encoding which are zero requires encoding a binary pattern
+- 256 latent dims (with KL regularization) ≈ ~1,000-2,000 bits
+- Insufficient for arbitrary 8,192-bit patterns
+
+Patterns aren't arbitrary (correlate with length, GC, biology), but current architecture makes learning them hard.
+
+## Recommended Solution: Gated Sparsity Prediction
+
+Separate the two problems with an explicit sparsity gate:
+
+### Architecture Change
+
+```python
+# In decoder 7-mer branch:
+# Predict values (what to output if non-zero)
+values_7 = layers.Dense(8192, activation='linear', name='dec_7mer_values')(x_7)
+
+# Predict sparsity gate (probability each 7-mer is non-zero)
+gate_logits = layers.Dense(8192, name='dec_7mer_gate_logits')(x_7)
+gate = layers.Activation('sigmoid', name='dec_7mer_gate')(gate_logits)
+
+# Combine: interpolate between value and floor
+FLOOR_VALUE = -13.8  # log(1e-6)
+kmers_7 = gate * values_7 + (1.0 - gate) * FLOOR_VALUE
+```
+
+### Loss Function Change
+
+```python
+# BCE for sparsity (which 7-mers are present?)
+target_nonzero = ops.cast(target_7 > -10.0, 'float32')
+sparsity_bce = ops.mean(keras.losses.binary_crossentropy(target_nonzero, gate))
+
+# MSE only on non-zero targets (what are the values?)
+nonzero_count = ops.maximum(ops.sum(target_nonzero), 1.0)
+mse_7_values = ops.sum(target_nonzero * ops.square(target_7 - values_7)) / nonzero_count
+
+# Combined
+loss_7 = sparsity_bce + mse_7_values
+```
+
+### Why This Works
+
+- Sigmoid + BCE is designed for binary classification
+- MSE focuses only on meaningful value prediction
+- Clean separation of concerns
+- Gate naturally pushes outputs toward floor value when probability is low
+
+## Alternative Approaches (Lower Priority)
+
+1. **Asymmetric Zero Loss**: Heavy penalty for predicting non-zero when target is zero
+2. **Deeper Decoder**: More gradual 2x expansion (352→256→512→1024→2048→8192)
+3. **Increase Latent Dim**: 256→512 for more sparsity encoding capacity
+4. **Remove 0.1x Down-weighting**: Currently hurting zero prediction
+
