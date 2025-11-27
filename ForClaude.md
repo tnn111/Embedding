@@ -445,3 +445,19 @@ loss_7 = sparsity_bce + mse_7_values
 3. **Increase Latent Dim**: 256→512 for more sparsity encoding capacity
 4. **Remove 0.1x Down-weighting**: Currently hurting zero prediction
 
+**2025-11-26 18:30** - Implemented gated sparsity approach
+- Added `GatedCombineLayer` custom layer for `gate * values + (1 - gate) * floor`
+- Modified decoder to output three tensors: `[reconstruction, gate_7, values_7]`
+  - `values_7`: Dense(8192) linear - predicted log-frequencies for non-zero 7-mers
+  - `gate_7`: Dense(8192) sigmoid - probability each 7-mer is non-zero
+  - `reconstruction`: gated combination using floor_value = -13.8
+- Updated `VAE.call()` loss function:
+  - BCE loss for sparsity prediction (gate vs target_nonzero)
+  - MSE loss for value prediction (only on non-zero targets)
+  - Removed 0.1x down-weighting that was hurting zero prediction
+- Updated `VAEMetricsCallback` to track:
+  - `BCE`: sparsity binary cross-entropy
+  - `valMSE`: MSE on non-zero values only
+  - `gateAcc`: accuracy of gate at 0.5 threshold
+  - Still tracks `outMSE`, `nz`, `z` for the final gated output
+

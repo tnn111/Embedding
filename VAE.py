@@ -75,42 +75,63 @@ class VAEMetricsCallback(keras.callbacks.Callback):
 
         sample_x = self.validation_data[0][self._sample_idx]
 
-        z_mean, z_log_var, _ = self.model.encoder(sample_x, training = False)
+        z_mean, z_log_var, z = self.model.encoder(sample_x, training = False)
         kl_loss = -0.5 * float(ops.mean(ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1)))  # type: ignore[arg-type]
         weighted_kl = float(self.model.kl_weight) * kl_loss
 
-        predictions = self.model(sample_x, training = False)
+        # Get decoder outputs including gate and values
+        reconstruction, gate_7, values_7 = self.model.decoder(z, training = False)
         target = sample_x[:, 1:]  # Skip length field
 
-        # Per-group MSE for monitoring
+        # 7-mer metrics with gated sparsity
         target_7 = target[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]]
-        pred_7 = predictions[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]]
+        pred_7 = reconstruction[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]]
         sq_err_7 = ops.square(target_7 - pred_7)
 
-        # Separate zero vs non-zero 7-mer MSE (threshold at log(1e-5) ≈ -11.5)
-        nonzero_mask = ops.cast(target_7 > -10.0, 'float32')
-        zero_mask = 1.0 - nonzero_mask
-        nonzero_count = ops.maximum(ops.sum(nonzero_mask), 1.0)
+        # Sparsity classification metrics
+        target_nonzero = ops.cast(target_7 > -10.0, 'float32')
+        zero_mask = 1.0 - target_nonzero
+        nonzero_count = ops.maximum(ops.sum(target_nonzero), 1.0)
         zero_count = ops.maximum(ops.sum(zero_mask), 1.0)
 
-        mse_7_nonzero = float(ops.sum(sq_err_7 * nonzero_mask) / nonzero_count)  # type: ignore[arg-type]
+        # Gate accuracy: how well does gate predict zero vs non-zero?
+        gate_pred_nonzero = ops.cast(gate_7 > 0.5, 'float32')
+        gate_accuracy = float(ops.mean(ops.cast(gate_pred_nonzero == target_nonzero, 'float32')))  # type: ignore[arg-type]
+
+        # BCE for sparsity
+        gate_clipped = ops.clip(gate_7, 1e-7, 1.0 - 1e-7)
+        sparsity_bce = float(-ops.mean(
+            target_nonzero * ops.log(gate_clipped) +
+            (1.0 - target_nonzero) * ops.log(1.0 - gate_clipped)
+        ))  # type: ignore[arg-type]
+
+        # MSE on values (for non-zero targets only)
+        mse_7_values = float(ops.sum(target_nonzero * ops.square(target_7 - values_7)) / nonzero_count)  # type: ignore[arg-type]
+
+        # Overall 7-mer MSE (on gated output)
+        mse_7_nonzero = float(ops.sum(sq_err_7 * target_nonzero) / nonzero_count)  # type: ignore[arg-type]
         mse_7_zero = float(ops.sum(sq_err_7 * zero_mask) / zero_count)  # type: ignore[arg-type]
         mse_7 = float(ops.mean(sq_err_7))  # type: ignore[arg-type]
-        pct_nonzero = float(ops.sum(nonzero_mask) / (ops.shape(target_7)[0] * ops.shape(target_7)[1]) * 100)  # type: ignore[arg-type]
+        pct_nonzero = float(ops.sum(target_nonzero) / (ops.shape(target_7)[0] * ops.shape(target_7)[1]) * 100)  # type: ignore[arg-type]
 
         mse_4 = float(ops.mean(ops.square(target[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]] -
-                                          predictions[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]])))  # type: ignore[arg-type]
+                                          reconstruction[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]])))  # type: ignore[arg-type]
         mse_3 = float(ops.mean(ops.square(target[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]] -
-                                          predictions[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]])))  # type: ignore[arg-type]
+                                          reconstruction[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]])))  # type: ignore[arg-type]
         mse_gc = float(ops.mean(ops.square(target[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]] -
-                                           predictions[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]])))  # type: ignore[arg-type]
+                                           reconstruction[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]])))  # type: ignore[arg-type]
 
-        # Total recon loss (per-group weighted, scaled)
-        recon_loss = (mse_7 + mse_4 + mse_3 + mse_gc) * (OUTPUT_DIM / 4)
+        # Total recon loss (using new gated loss formulation)
+        loss_7 = sparsity_bce + mse_7_values
+        recon_loss = (loss_7 + mse_4 + mse_3 + mse_gc) * (OUTPUT_DIM / 4)
 
         val_loss = logs.get('val_loss')
         val_loss_str = f'{val_loss:.2f}' if val_loss is not None else 'N/A'
-        logger.info(f'Epoch {epoch + 1}/{self.params["epochs"]}: Recon: {recon_loss:.2f}, KL: {kl_loss:.2f} (w={weighted_kl:.2f}), Val: {val_loss_str} | 7mer={mse_7:.4f} (nz={mse_7_nonzero:.4f}, z={mse_7_zero:.4f}, {pct_nonzero:.1f}%nz), 4mer={mse_4:.4f}, 3mer={mse_3:.4f}, GC={mse_gc:.4f}')
+        logger.info(
+            f'Epoch {epoch + 1}/{self.params["epochs"]}: Recon: {recon_loss:.2f}, KL: {kl_loss:.2f} (w={weighted_kl:.2f}), Val: {val_loss_str} | '
+            f'7mer: BCE={sparsity_bce:.4f}, valMSE={mse_7_values:.4f}, gateAcc={gate_accuracy:.1%} | '
+            f'outMSE={mse_7:.4f} (nz={mse_7_nonzero:.4f}, z={mse_7_zero:.4f}, {pct_nonzero:.1f}%nz), 4mer={mse_4:.4f}, 3mer={mse_3:.4f}, GC={mse_gc:.4f}'
+        )
 
 
 class KLWarmupCallback(keras.callbacks.Callback):
@@ -205,6 +226,23 @@ class SliceLayer(layers.Layer):
         return config
 
 
+class GatedCombineLayer(layers.Layer):
+    """Combines gate and values: gate * values + (1 - gate) * floor_value."""
+
+    def __init__(self, floor_value = -13.8, **kwargs):
+        super().__init__(**kwargs)
+        self.floor_value = floor_value
+
+    def call(self, inputs):
+        gate, values = inputs
+        return gate * values + (1.0 - gate) * self.floor_value
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({'floor_value': self.floor_value})
+        return config
+
+
 class VAE(Model):
     def __init__(self, latent_dim = LATENT_DIM, kl_weight = 0.0, **kwargs):
         super().__init__(**kwargs)
@@ -277,16 +315,19 @@ class VAE(Model):
         return Model(encoder_inputs, [z_mean, z_log_var, z], name = 'encoder')
 
     def _build_decoder(self):
-        """Build multi-branch decoder for 7-mer, 4-mer, and 3-mer features.
+        """Build multi-branch decoder with gated sparsity for 7-mers.
 
         Architecture:
             - Latent (256) → 512 → 352 (shared)
             - Split to branches via separate Dense projections
-            - 7-mer branch: 256 → 512 → 8,192 k-mers + 1 GC
+            - 7-mer branch: 256 → 512 → values(8192) + gate(8192), gated output
             - 4-mer branch: 64 → 128 → 136 k-mers + 1 GC
             - 3-mer branch: 32 → 64 → 32 k-mers + 1 GC
             - Average 3 GC predictions
-            - Output: [7-mers, 4-mers, 3-mers, GC] = 8,361
+            - Output: ([7-mers, 4-mers, 3-mers, GC], gate_7) where gate_7 is sigmoid
+
+        The 7-mer gated output = gate * values + (1 - gate) * FLOOR_VALUE
+        This separates sparsity prediction (gate) from value prediction.
         """
         latent_inputs = keras.Input(shape = (self.latent_dim,))
 
@@ -298,14 +339,23 @@ class VAE(Model):
         x = layers.BatchNormalization(name = 'dec_shared_bn2')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_shared_relu2')(x)
 
-        # 7-mer branch: 256 → 512 → outputs
+        # 7-mer branch with gated sparsity: 256 → 512 → values + gate
         x_7 = layers.Dense(256, name = 'dec_7mer_dense1')(x)
         x_7 = layers.BatchNormalization(name = 'dec_7mer_bn1')(x_7)
         x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_7mer_relu1')(x_7)
         x_7 = layers.Dense(512, name = 'dec_7mer_dense2')(x_7)
         x_7 = layers.BatchNormalization(name = 'dec_7mer_bn2')(x_7)
         x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_7mer_relu2')(x_7)
-        kmers_7 = layers.Dense(8192, activation = 'linear', name = 'dec_7mer_out')(x_7)
+
+        # Gated sparsity: separate value and gate predictions
+        values_7 = layers.Dense(8192, activation = 'linear', name = 'dec_7mer_values')(x_7)
+        gate_logits_7 = layers.Dense(8192, name = 'dec_7mer_gate_logits')(x_7)
+        gate_7 = layers.Activation('sigmoid', name = 'dec_7mer_gate')(gate_logits_7)
+
+        # Gated output: gate * values + (1 - gate) * floor
+        # FLOOR_VALUE = log(1e-6) ≈ -13.8
+        kmers_7 = GatedCombineLayer(floor_value = -13.8, name = 'dec_7mer_gated_output')([gate_7, values_7])
+
         gc_7 = layers.Dense(1, activation = 'linear', name = 'dec_gc_7')(x_7)
 
         # 4-mer branch: 64 → 128 → outputs
@@ -334,18 +384,36 @@ class VAE(Model):
         # Concatenate outputs: [7-mers(8192), 4-mers(136), 3-mers(32), GC(1)] = 8,361
         decoder_outputs = layers.Concatenate(name = 'dec_output')([kmers_7, kmers_4, kmers_3, gc_avg])
 
-        return Model(latent_inputs, decoder_outputs, name = 'decoder')
+        # Return both reconstruction and gate for loss computation
+        return Model(latent_inputs, [decoder_outputs, gate_7, values_7], name = 'decoder')
 
     def call(self, inputs, training = None):
         z_mean, z_log_var, z = self.encoder(inputs, training = training)
-        reconstruction = self.decoder(z, training = training)
+        reconstruction, gate_7, values_7 = self.decoder(z, training = training)
 
         # Target is input without length field: [7-mers, 4-mers, 3-mers, GC] = 8,361 features
         target = inputs[:, 1:]  # Skip index 0 (length)
 
-        # Per-feature-group MSE (equal weight to each group regardless of size)
-        mse_7 = ops.mean(ops.square(target[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]] -
-                                    reconstruction[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]]))
+        # 7-mer gated sparsity loss: BCE for gate + MSE for values (on non-zeros only)
+        target_7 = target[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]]
+        target_nonzero = ops.cast(target_7 > -10.0, 'float32')  # 1 if non-zero, 0 if zero
+
+        # BCE loss for sparsity prediction (which 7-mers are present?)
+        # Clip gate to avoid log(0)
+        gate_clipped = ops.clip(gate_7, 1e-7, 1.0 - 1e-7)
+        sparsity_bce = -ops.mean(
+            target_nonzero * ops.log(gate_clipped) +
+            (1.0 - target_nonzero) * ops.log(1.0 - gate_clipped)
+        )
+
+        # MSE loss for value prediction (only on non-zero targets)
+        nonzero_count = ops.maximum(ops.sum(target_nonzero), 1.0)
+        mse_7_values = ops.sum(target_nonzero * ops.square(target_7 - values_7)) / nonzero_count
+
+        # Combined 7-mer loss (BCE and MSE have similar scales, ~0.5-1.0 each)
+        loss_7 = sparsity_bce + mse_7_values
+
+        # 4-mer, 3-mer, GC: standard MSE
         mse_4 = ops.mean(ops.square(target[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]] -
                                     reconstruction[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]]))
         mse_3 = ops.mean(ops.square(target[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]] -
@@ -353,8 +421,8 @@ class VAE(Model):
         mse_gc = ops.mean(ops.square(target[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]] -
                                      reconstruction[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]]))
 
-        # Average across groups, scale to similar magnitude as before (~8361 features summed)
-        recon_loss = (mse_7 + mse_4 + mse_3 + mse_gc) * (OUTPUT_DIM / 4)
+        # Scale reconstruction loss to similar magnitude as before
+        recon_loss = (loss_7 + mse_4 + mse_3 + mse_gc) * (OUTPUT_DIM / 4)
 
         kl_loss = -0.5 * ops.mean(ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1))
 
@@ -439,7 +507,10 @@ def main():
 
     if resuming:
         logger.info('Loading existing model from vae_best.keras...')
-        vae = keras.models.load_model('vae_best.keras', custom_objects = {'VAE': VAE, 'Sampling': Sampling, 'ClipLayer': ClipLayer, 'SliceLayer': SliceLayer})
+        vae = keras.models.load_model('vae_best.keras', custom_objects = {
+            'VAE': VAE, 'Sampling': Sampling, 'ClipLayer': ClipLayer,
+            'SliceLayer': SliceLayer, 'GatedCombineLayer': GatedCombineLayer
+        })
         logger.info('Model loaded successfully. Recompiling and continuing training...')
         # Load previous best val_loss if history exists
         if os.path.exists('vae_history.pkl'):
