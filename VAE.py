@@ -2,8 +2,11 @@
 """
 Log-Space Variational Autoencoder for multi-scale k-mer frequency distributions.
 
-Handles multi-dimensional inputs (INPUT_DIM features): sequence length, 7-mer, 4-mer,
-3-mer frequencies, and GC content. Optimized for Keras 3 / JAX with 2M+ sequences.
+Handles multi-dimensional inputs (INPUT_DIM features): sequence length, 6-mer, 5-mer,
+4-mer, 3-mer frequencies, and GC content. Optimized for Keras 3 / JAX with 2M+ sequences.
+
+Input format (from convert_txt_to_npy):
+    length(1) + 6-mers(2080) + 5-mers(512) + 4-mers(136) + 3-mers(32) + GC(1) = 2,762
 """
 
 import argparse
@@ -11,14 +14,14 @@ import os
 os.environ['KERAS_BACKEND'] = 'jax'
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 
-import  logging
-import  numpy                   as      np
-import  keras
-from    keras                   import  layers
-from    keras                   import  Model
-from    keras                   import  ops
-from    sklearn.model_selection import train_test_split
-import  pickle
+import logging
+import numpy as np
+import keras
+from keras import layers
+from keras import Model
+from keras import ops
+from sklearn.model_selection import train_test_split
+import pickle
 
 # Setup logging to both stdout and file
 logging.basicConfig(
@@ -33,25 +36,28 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Global constants
-INPUT_DIM = 8362   # sequence length + 7-mer + 4-mer + 3-mer frequencies + GC content
-OUTPUT_DIM = 8361  # decoder output (no length): 7-mers + 4-mers + 3-mers + GC
-LATENT_DIM = 512
+# Input: length(1) + 6-mers(2080) + 5-mers(512) + 4-mers(136) + 3-mers(32) + GC(1) = 2,762
+INPUT_DIM = 2762
+OUTPUT_DIM = 2761  # decoder output (no length): 6-mers + 5-mers + 4-mers + 3-mers + GC
+LATENT_DIM = 256
 SEED = 42
 
 # Feature slice indices (for input tensor)
-# Input layout: [length(1), 7-mers(8192), 4-mers(136), 3-mers(32), GC(1)]
-LENGTH_SLICE = (0, 1)           # index 0
-KMER_7_SLICE = (1, 8193)        # indices 1-8192 (8,192 features)
-KMER_4_SLICE = (8193, 8329)     # indices 8193-8328 (136 features)
-KMER_3_SLICE = (8329, 8361)     # indices 8329-8360 (32 features)
-GC_SLICE = (8361, 8362)         # index 8361
+# Input layout: [length(1), 6-mers(2080), 5-mers(512), 4-mers(136), 3-mers(32), GC(1)]
+LENGTH_SLICE = (0, 1)             # index 0
+KMER_6_SLICE = (1, 2081)          # indices 1-2080 (2,080 features)
+KMER_5_SLICE = (2081, 2593)       # indices 2081-2592 (512 features)
+KMER_4_SLICE = (2593, 2729)       # indices 2593-2728 (136 features)
+KMER_3_SLICE = (2729, 2761)       # indices 2729-2760 (32 features)
+GC_SLICE = (2761, 2762)           # index 2761
 
 # Output slice indices (no length field)
-# Output layout: [7-mers(8192), 4-mers(136), 3-mers(32), GC(1)]
-OUT_KMER_7_SLICE = (0, 8192)      # 8,192 features
-OUT_KMER_4_SLICE = (8192, 8328)   # 136 features
-OUT_KMER_3_SLICE = (8328, 8360)   # 32 features
-OUT_GC_SLICE = (8360, 8361)       # 1 feature
+# Output layout: [6-mers(2080), 5-mers(512), 4-mers(136), 3-mers(32), GC(1)]
+OUT_KMER_6_SLICE = (0, 2080)        # 2,080 features
+OUT_KMER_5_SLICE = (2080, 2592)     # 512 features
+OUT_KMER_4_SLICE = (2592, 2728)     # 136 features
+OUT_KMER_3_SLICE = (2728, 2760)     # 32 features
+OUT_GC_SLICE = (2760, 2761)         # 1 feature
 
 
 class VAEMetricsCallback(keras.callbacks.Callback):
@@ -76,64 +82,32 @@ class VAEMetricsCallback(keras.callbacks.Callback):
         sample_x = self.validation_data[0][self._sample_idx]
 
         z_mean, z_log_var, z = self.model.encoder(sample_x, training = False)
-        kl_loss = -0.5 * float(ops.mean(ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1)))  # type: ignore[arg-type]
+        kl_loss = -0.5 * float(ops.mean(ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1)))
         weighted_kl = float(self.model.kl_weight) * kl_loss
 
-        # Get decoder outputs including gate and values
-        reconstruction, gate_7, values_7 = self.model.decoder(z, training = False)
+        reconstruction = self.model.decoder(z, training = False)
         target = sample_x[:, 1:]  # Skip length field
 
-        # 7-mer metrics in LINEAR space
-        # Convert log targets to linear
-        target_7_log = target[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]]
-        target_7_linear = ops.exp(target_7_log)
-        pred_7_linear = reconstruction[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]]  # Already linear
-
-        # Presence mask (freq > 2e-4, appears ~1-2 times in 5kb sequence)
-        present_mask = ops.cast(target_7_linear > 2e-4, 'float32')
-        absent_mask = 1.0 - present_mask
-        present_count = ops.maximum(ops.sum(present_mask), 1.0)
-        absent_count = ops.maximum(ops.sum(absent_mask), 1.0)
-
-        # Gate accuracy: how well does gate predict present vs absent?
-        gate_pred_present = ops.cast(gate_7 > 0.5, 'float32')
-        gate_accuracy = float(ops.mean(ops.cast(gate_pred_present == present_mask, 'float32')))  # type: ignore[arg-type]
-
-        # BCE for presence prediction
-        gate_clipped = ops.clip(gate_7, 1e-7, 1.0 - 1e-7)
-        presence_bce = float(-ops.mean(
-            present_mask * ops.log(gate_clipped) +
-            (1.0 - present_mask) * ops.log(1.0 - gate_clipped)
-        ))  # type: ignore[arg-type]
-
-        # MSE on values (for present targets only, in LINEAR space)
-        mse_7_values = float(ops.sum(present_mask * ops.square(target_7_linear - values_7)) / present_count)  # type: ignore[arg-type]
-
-        # Overall 7-mer MSE (on gated output, linear space)
-        sq_err_7 = ops.square(target_7_linear - pred_7_linear)
-        mse_7_present = float(ops.sum(sq_err_7 * present_mask) / present_count)  # type: ignore[arg-type]
-        mse_7_absent = float(ops.sum(sq_err_7 * absent_mask) / absent_count)  # type: ignore[arg-type]
-        mse_7 = float(ops.mean(sq_err_7))  # type: ignore[arg-type]
-        avg_present_per_sample = float(ops.sum(present_mask) / ops.shape(target_7_linear)[0])  # type: ignore[arg-type]
-
-        # 4-mer, 3-mer, GC still in log space
+        # Per-group MSE (all in log space)
+        mse_6 = float(ops.mean(ops.square(target[:, OUT_KMER_6_SLICE[0]:OUT_KMER_6_SLICE[1]] -
+                                          reconstruction[:, OUT_KMER_6_SLICE[0]:OUT_KMER_6_SLICE[1]])))
+        mse_5 = float(ops.mean(ops.square(target[:, OUT_KMER_5_SLICE[0]:OUT_KMER_5_SLICE[1]] -
+                                          reconstruction[:, OUT_KMER_5_SLICE[0]:OUT_KMER_5_SLICE[1]])))
         mse_4 = float(ops.mean(ops.square(target[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]] -
-                                          reconstruction[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]])))  # type: ignore[arg-type]
+                                          reconstruction[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]])))
         mse_3 = float(ops.mean(ops.square(target[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]] -
-                                          reconstruction[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]])))  # type: ignore[arg-type]
+                                          reconstruction[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]])))
         mse_gc = float(ops.mean(ops.square(target[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]] -
-                                           reconstruction[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]])))  # type: ignore[arg-type]
+                                           reconstruction[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]])))
 
-        # Total recon loss (7-mer in linear space now)
-        loss_7 = presence_bce + mse_7_values
-        recon_loss = (loss_7 + mse_4 + mse_3 + mse_gc) * (OUTPUT_DIM / 4)
+        # Total reconstruction loss
+        recon_loss = float(ops.mean(ops.square(target - reconstruction))) * OUTPUT_DIM
 
         val_loss = logs.get('val_loss')
         val_loss_str = f'{val_loss:.2f}' if val_loss is not None else 'N/A'
         logger.info(
             f'Epoch {epoch + 1}/{self.params["epochs"]}: Recon: {recon_loss:.2f}, KL: {kl_loss:.2f} (w={weighted_kl:.2f}), Val: {val_loss_str} | '
-            f'7mer: BCE={presence_bce:.4f}, valMSE={mse_7_values:.6f}, gateAcc={gate_accuracy:.1%}, avgPresent={avg_present_per_sample:.0f} | '
-            f'outMSE={mse_7:.6f} (pres={mse_7_present:.6f}, abs={mse_7_absent:.6f}), 4mer={mse_4:.4f}, 3mer={mse_3:.4f}, GC={mse_gc:.4f}'
+            f'6mer={mse_6:.4f}, 5mer={mse_5:.4f}, 4mer={mse_4:.4f}, 3mer={mse_3:.4f}, GC={mse_gc:.4f}'
         )
 
 
@@ -229,55 +203,6 @@ class SliceLayer(layers.Layer):
         return config
 
 
-class GatedCombineLayer(layers.Layer):
-    """Combines gate and values: gate * values (for linear-space 7-mers).
-
-    In linear space, absent 7-mers are exactly 0, so gate * values naturally
-    produces 0 when gate ≈ 0 (no floor value needed).
-    """
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    def call(self, inputs):
-        gate, values = inputs
-        return gate * values
-
-    def get_config(self):
-        return super().get_config()
-
-
-class EmbeddingDotProduct(layers.Layer):
-    """Output = query @ learned_embeddings.T for parameter-efficient projection."""
-
-    def __init__(self, num_embeddings, embedding_dim, **kwargs):
-        super().__init__(**kwargs)
-        self.num_embeddings = num_embeddings
-        self.embedding_dim = embedding_dim
-
-    def build(self, input_shape):
-        self.embeddings = self.add_weight(
-            name = 'embeddings',
-            shape = (self.num_embeddings, self.embedding_dim),
-            initializer = 'glorot_uniform',
-            trainable = True
-        )
-
-    def call(self, query):
-        # query: (batch, embedding_dim)
-        # embeddings: (num_embeddings, embedding_dim)
-        # output: (batch, num_embeddings)
-        return ops.matmul(query, ops.transpose(self.embeddings))
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            'num_embeddings': self.num_embeddings,
-            'embedding_dim': self.embedding_dim
-        })
-        return config
-
-
 class VAE(Model):
     def __init__(self, latent_dim = LATENT_DIM, kl_weight = 0.0, **kwargs):
         super().__init__(**kwargs)
@@ -287,59 +212,20 @@ class VAE(Model):
         self.decoder = self._build_decoder()
 
     def _build_encoder(self):
-        """Build multi-branch encoder for 7-mer, 4-mer, and 3-mer features.
+        """Build simple encoder: input → hidden → latent.
 
         Architecture:
-            - 7-mer branch: 8,194 → 512 → 256 (73% of concat)
-            - 4-mer branch: 138 → 128 → 64 (18% of concat)
-            - 3-mer branch: 34 → 64 → 32 (9% of concat)
-            - Concatenate (352) → 512 → latent (256)
+            - Input (2,762) → 1024 → 512 → latent (256)
         """
         encoder_inputs = keras.Input(shape = (INPUT_DIM,))
 
-        # Extract features from input
-        length = SliceLayer(*LENGTH_SLICE, name = 'slice_length')(encoder_inputs)
-        kmers_7 = SliceLayer(*KMER_7_SLICE, name = 'slice_7mer')(encoder_inputs)
-        kmers_4 = SliceLayer(*KMER_4_SLICE, name = 'slice_4mer')(encoder_inputs)
-        kmers_3 = SliceLayer(*KMER_3_SLICE, name = 'slice_3mer')(encoder_inputs)
-        gc = SliceLayer(*GC_SLICE, name = 'slice_gc')(encoder_inputs)
+        x = layers.Dense(1024, name = 'enc_dense1')(encoder_inputs)
+        x = layers.BatchNormalization(name = 'enc_bn1')(x)
+        x = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_relu1')(x)
 
-        # Build branch inputs: k-mers + length + GC
-        b_7 = layers.Concatenate(name = 'branch_7_input')([kmers_7, length, gc])  # (batch, 8194)
-        b_4 = layers.Concatenate(name = 'branch_4_input')([kmers_4, length, gc])  # (batch, 138)
-        b_3 = layers.Concatenate(name = 'branch_3_input')([kmers_3, length, gc])  # (batch, 34)
-
-        # 7-mer branch: 8,194 → 512 → 256
-        x_7 = layers.Dense(512, name = 'enc_7mer_dense1')(b_7)
-        x_7 = layers.BatchNormalization(name = 'enc_7mer_bn1')(x_7)
-        x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_7mer_relu1')(x_7)
-        x_7 = layers.Dense(256, name = 'enc_7mer_dense2')(x_7)
-        x_7 = layers.BatchNormalization(name = 'enc_7mer_bn2')(x_7)
-        x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_7mer_relu2')(x_7)
-
-        # 4-mer branch: 138 → 128 → 64
-        x_4 = layers.Dense(128, name = 'enc_4mer_dense1')(b_4)
-        x_4 = layers.BatchNormalization(name = 'enc_4mer_bn1')(x_4)
-        x_4 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_4mer_relu1')(x_4)
-        x_4 = layers.Dense(64, name = 'enc_4mer_dense2')(x_4)
-        x_4 = layers.BatchNormalization(name = 'enc_4mer_bn2')(x_4)
-        x_4 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_4mer_relu2')(x_4)
-
-        # 3-mer branch: 34 → 64 → 32
-        x_3 = layers.Dense(64, name = 'enc_3mer_dense1')(b_3)
-        x_3 = layers.BatchNormalization(name = 'enc_3mer_bn1')(x_3)
-        x_3 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_3mer_relu1')(x_3)
-        x_3 = layers.Dense(32, name = 'enc_3mer_dense2')(x_3)
-        x_3 = layers.BatchNormalization(name = 'enc_3mer_bn2')(x_3)
-        x_3 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_3mer_relu2')(x_3)
-
-        # Concatenate branches: 256 + 64 + 32 = 352
-        x = layers.Concatenate(name = 'enc_concat')([x_7, x_4, x_3])
-
-        # Shared layers: 352 → 512
-        x = layers.Dense(512, name = 'enc_shared_dense')(x)
-        x = layers.BatchNormalization(name = 'enc_shared_bn')(x)
-        x = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_shared_relu')(x)
+        x = layers.Dense(512, name = 'enc_dense2')(x)
+        x = layers.BatchNormalization(name = 'enc_bn2')(x)
+        x = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_relu2')(x)
 
         # Latent space
         z_mean = layers.Dense(self.latent_dim, name = 'z_mean')(x)
@@ -350,122 +236,37 @@ class VAE(Model):
         return Model(encoder_inputs, [z_mean, z_log_var, z], name = 'encoder')
 
     def _build_decoder(self):
-        """Build multi-branch decoder with gated sparsity for 7-mers.
+        """Build simple decoder: latent → hidden → output.
 
         Architecture:
-            - Latent (256) → 512 → 352 (shared)
-            - Split to branches via separate Dense projections
-            - 7-mer branch: 256 → 512 → values(8192) + gate(8192), gated output
-            - 4-mer branch: 64 → 128 → 136 k-mers + 1 GC
-            - 3-mer branch: 32 → 64 → 32 k-mers + 1 GC
-            - Average 3 GC predictions
-            - Output: ([7-mers, 4-mers, 3-mers, GC], gate_7) where gate_7 is sigmoid
-
-        The 7-mer gated output = gate * values + (1 - gate) * FLOOR_VALUE
-        This separates sparsity prediction (gate) from value prediction.
+            - Latent (256) → 512 → 1024 → output (2,761)
         """
         latent_inputs = keras.Input(shape = (self.latent_dim,))
 
-        # Shared layers: 256 → 512 → 352
-        x = layers.Dense(512, name = 'dec_shared_dense1')(latent_inputs)
-        x = layers.BatchNormalization(name = 'dec_shared_bn1')(x)
-        x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_shared_relu1')(x)
-        x = layers.Dense(352, name = 'dec_shared_dense2')(x)
-        x = layers.BatchNormalization(name = 'dec_shared_bn2')(x)
-        x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_shared_relu2')(x)
+        x = layers.Dense(512, name = 'dec_dense1')(latent_inputs)
+        x = layers.BatchNormalization(name = 'dec_bn1')(x)
+        x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_relu1')(x)
 
-        # 7-mer VALUE branch: 352 → 512 → query(64) @ embeddings(8192,64) → softplus
-        # Output is in LINEAR space (raw frequencies), softplus ensures non-negative
-        x_7_val = layers.Dense(512, name = 'dec_7mer_val_dense1')(x)
-        x_7_val = layers.BatchNormalization(name = 'dec_7mer_val_bn1')(x_7_val)
-        x_7_val = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_7mer_val_relu1')(x_7_val)
-        val_query = layers.Dense(64, name = 'dec_7mer_val_query')(x_7_val)
-        values_7_logits = EmbeddingDotProduct(8192, 64, name = 'dec_7mer_values_logits')(val_query)
-        values_7 = layers.Activation('softplus', name = 'dec_7mer_values')(values_7_logits)
+        x = layers.Dense(1024, name = 'dec_dense2')(x)
+        x = layers.BatchNormalization(name = 'dec_bn2')(x)
+        x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_relu2')(x)
 
-        # 7-mer GATE branch: 352 → 256 → query(64) @ embeddings(8192,64)
-        x_7_gate = layers.Dense(256, name = 'dec_7mer_gate_dense1')(x)
-        x_7_gate = layers.BatchNormalization(name = 'dec_7mer_gate_bn1')(x_7_gate)
-        x_7_gate = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_7mer_gate_relu1')(x_7_gate)
-        gate_query = layers.Dense(64, name = 'dec_7mer_gate_query')(x_7_gate)
-        gate_logits_7 = EmbeddingDotProduct(8192, 64, name = 'dec_7mer_gate_logits')(gate_query)
-        gate_7 = layers.Activation('sigmoid', name = 'dec_7mer_gate')(gate_logits_7)
+        # Output layer: linear activation for log-space reconstruction
+        decoder_outputs = layers.Dense(OUTPUT_DIM, activation = 'linear', name = 'dec_output')(x)
 
-        # Gated output: gate * values (LINEAR space, zeros are naturally 0)
-        kmers_7 = GatedCombineLayer(name = 'dec_7mer_gated_output')([gate_7, values_7])
-
-        gc_7 = layers.Dense(1, activation = 'linear', name = 'dec_gc_7')(val_query)
-
-        # 4-mer branch: 64 → 128 → outputs
-        x_4 = layers.Dense(64, name = 'dec_4mer_dense1')(x)
-        x_4 = layers.BatchNormalization(name = 'dec_4mer_bn1')(x_4)
-        x_4 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_4mer_relu1')(x_4)
-        x_4 = layers.Dense(128, name = 'dec_4mer_dense2')(x_4)
-        x_4 = layers.BatchNormalization(name = 'dec_4mer_bn2')(x_4)
-        x_4 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_4mer_relu2')(x_4)
-        kmers_4 = layers.Dense(136, activation = 'linear', name = 'dec_4mer_out')(x_4)
-        gc_4 = layers.Dense(1, activation = 'linear', name = 'dec_gc_4')(x_4)
-
-        # 3-mer branch: 32 → 64 → outputs
-        x_3 = layers.Dense(32, name = 'dec_3mer_dense1')(x)
-        x_3 = layers.BatchNormalization(name = 'dec_3mer_bn1')(x_3)
-        x_3 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_3mer_relu1')(x_3)
-        x_3 = layers.Dense(64, name = 'dec_3mer_dense2')(x_3)
-        x_3 = layers.BatchNormalization(name = 'dec_3mer_bn2')(x_3)
-        x_3 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_3mer_relu2')(x_3)
-        kmers_3 = layers.Dense(32, activation = 'linear', name = 'dec_3mer_out')(x_3)
-        gc_3 = layers.Dense(1, activation = 'linear', name = 'dec_gc_3')(x_3)
-
-        # Average GC predictions from all branches
-        gc_avg = layers.Average(name = 'dec_gc_avg')([gc_7, gc_4, gc_3])
-
-        # Concatenate outputs: [7-mers(8192), 4-mers(136), 3-mers(32), GC(1)] = 8,361
-        decoder_outputs = layers.Concatenate(name = 'dec_output')([kmers_7, kmers_4, kmers_3, gc_avg])
-
-        # Return both reconstruction and gate for loss computation
-        return Model(latent_inputs, [decoder_outputs, gate_7, values_7], name = 'decoder')
+        return Model(latent_inputs, decoder_outputs, name = 'decoder')
 
     def call(self, inputs, training = None):
         z_mean, z_log_var, z = self.encoder(inputs, training = training)
-        reconstruction, gate_7, values_7 = self.decoder(z, training = training)
+        reconstruction = self.decoder(z, training = training)
 
-        # Target is input without length field: [7-mers, 4-mers, 3-mers, GC] = 8,361 features
+        # Target is input without length field: [6-mers, 5-mers, 4-mers, 3-mers, GC] = 2,761 features
         target = inputs[:, 1:]  # Skip index 0 (length)
 
-        # 7-mer LINEAR-SPACE loss: BCE for gate + MSE for values
-        # Convert log-space target to linear space for 7-mers
-        target_7_log = target[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]]
-        target_7_linear = ops.exp(target_7_log)  # Back to raw frequencies
+        # Simple MSE loss in log space
+        recon_loss = ops.mean(ops.square(target - reconstruction)) * OUTPUT_DIM
 
-        # Present mask: freq > 2e-4 (appears ~1-2 times in 5kb sequence)
-        present_mask = ops.cast(target_7_linear > 2e-4, 'float32')
-
-        # BCE loss for presence prediction (is this 7-mer present?)
-        gate_clipped = ops.clip(gate_7, 1e-7, 1.0 - 1e-7)
-        presence_bce = -ops.mean(
-            present_mask * ops.log(gate_clipped) +
-            (1.0 - present_mask) * ops.log(1.0 - gate_clipped)
-        )
-
-        # MSE loss for value prediction (only on present 7-mers, in LINEAR space)
-        # values_7 is softplus output (linear, non-negative)
-        present_count = ops.maximum(ops.sum(present_mask), 1.0)
-        mse_7_values = ops.sum(present_mask * ops.square(target_7_linear - values_7)) / present_count
-
-        # Combined 7-mer loss (BCE weighted 2x to push gate harder)
-        loss_7 = 2.0 * presence_bce + mse_7_values
-
-        # 4-mer, 3-mer, GC: standard MSE
-        mse_4 = ops.mean(ops.square(target[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]] -
-                                    reconstruction[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]]))
-        mse_3 = ops.mean(ops.square(target[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]] -
-                                    reconstruction[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]]))
-        mse_gc = ops.mean(ops.square(target[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]] -
-                                     reconstruction[:, OUT_GC_SLICE[0]:OUT_GC_SLICE[1]]))
-
-        # Scale reconstruction loss to similar magnitude as before
-        recon_loss = (loss_7 + mse_4 + mse_3 + mse_gc) * (OUTPUT_DIM / 4)
-
+        # KL divergence
         kl_loss = -0.5 * ops.mean(ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1))
 
         total_loss = recon_loss + (self.kl_weight * kl_loss)
@@ -551,8 +352,7 @@ def main():
         logger.info('Loading existing model from vae_best.keras...')
         vae = keras.models.load_model('vae_best.keras', custom_objects = {
             'VAE': VAE, 'Sampling': Sampling, 'ClipLayer': ClipLayer,
-            'SliceLayer': SliceLayer, 'GatedCombineLayer': GatedCombineLayer,
-            'EmbeddingDotProduct': EmbeddingDotProduct
+            'SliceLayer': SliceLayer
         })
         logger.info('Model loaded successfully. Recompiling and continuing training...')
         # Load previous best val_loss if history exists
@@ -567,7 +367,7 @@ def main():
         vae = VAE(latent_dim = LATENT_DIM)
 
     # Always (re)compile to ensure consistent optimizer settings
-    vae.compile(optimizer = keras.optimizers.Adam(learning_rate = args.learning_rate))  # type: ignore[arg-type]
+    vae.compile(optimizer = keras.optimizers.Adam(learning_rate = args.learning_rate))
 
     # Setup callbacks
     vae_metrics = VAEMetricsCallback(validation_data = (X_val, X_val), sample_size = 5000)
@@ -593,7 +393,7 @@ def main():
         batch_size = args.batch_size,
         validation_data = (X_val, X_val),
         callbacks = callbacks,
-        verbose = 0  # type: ignore[arg-type]
+        verbose = 0
     )
 
     # Save final models
