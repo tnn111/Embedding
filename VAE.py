@@ -83,8 +83,21 @@ class VAEMetricsCallback(keras.callbacks.Callback):
         target = sample_x[:, 1:]  # Skip length field
 
         # Per-group MSE for monitoring
-        mse_7 = float(ops.mean(ops.square(target[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]] -
-                                          predictions[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]])))  # type: ignore[arg-type]
+        target_7 = target[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]]
+        pred_7 = predictions[:, OUT_KMER_7_SLICE[0]:OUT_KMER_7_SLICE[1]]
+        sq_err_7 = ops.square(target_7 - pred_7)
+
+        # Separate zero vs non-zero 7-mer MSE (threshold at log(1e-5) ≈ -11.5)
+        nonzero_mask = ops.cast(target_7 > -10.0, 'float32')
+        zero_mask = 1.0 - nonzero_mask
+        nonzero_count = ops.maximum(ops.sum(nonzero_mask), 1.0)
+        zero_count = ops.maximum(ops.sum(zero_mask), 1.0)
+
+        mse_7_nonzero = float(ops.sum(sq_err_7 * nonzero_mask) / nonzero_count)  # type: ignore[arg-type]
+        mse_7_zero = float(ops.sum(sq_err_7 * zero_mask) / zero_count)  # type: ignore[arg-type]
+        mse_7 = float(ops.mean(sq_err_7))  # type: ignore[arg-type]
+        pct_nonzero = float(ops.sum(nonzero_mask) / (ops.shape(target_7)[0] * ops.shape(target_7)[1]) * 100)  # type: ignore[arg-type]
+
         mse_4 = float(ops.mean(ops.square(target[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]] -
                                           predictions[:, OUT_KMER_4_SLICE[0]:OUT_KMER_4_SLICE[1]])))  # type: ignore[arg-type]
         mse_3 = float(ops.mean(ops.square(target[:, OUT_KMER_3_SLICE[0]:OUT_KMER_3_SLICE[1]] -
@@ -97,7 +110,7 @@ class VAEMetricsCallback(keras.callbacks.Callback):
 
         val_loss = logs.get('val_loss')
         val_loss_str = f'{val_loss:.2f}' if val_loss is not None else 'N/A'
-        logger.info(f'Epoch {epoch + 1}/{self.params["epochs"]}: Recon: {recon_loss:.2f}, KL: {kl_loss:.2f} (w={weighted_kl:.2f}), Val: {val_loss_str} | 7mer={mse_7:.4f}, 4mer={mse_4:.4f}, 3mer={mse_3:.4f}, GC={mse_gc:.4f}')
+        logger.info(f'Epoch {epoch + 1}/{self.params["epochs"]}: Recon: {recon_loss:.2f}, KL: {kl_loss:.2f} (w={weighted_kl:.2f}), Val: {val_loss_str} | 7mer={mse_7:.4f} (nz={mse_7_nonzero:.4f}, z={mse_7_zero:.4f}, {pct_nonzero:.1f}%nz), 4mer={mse_4:.4f}, 3mer={mse_3:.4f}, GC={mse_gc:.4f}')
 
 
 class KLWarmupCallback(keras.callbacks.Callback):
@@ -204,7 +217,7 @@ class VAE(Model):
         """Build multi-branch encoder for 7-mer, 4-mer, and 3-mer features.
 
         Architecture:
-            - 7-mer branch: 8,194 → 1024 → 512 → 256 (73% of concat)
+            - 7-mer branch: 8,194 → 512 → 256 (73% of concat)
             - 4-mer branch: 138 → 128 → 64 (18% of concat)
             - 3-mer branch: 34 → 64 → 32 (9% of concat)
             - Concatenate (352) → 512 → latent (256)
@@ -223,16 +236,13 @@ class VAE(Model):
         b_4 = layers.Concatenate(name = 'branch_4_input')([kmers_4, length, gc])  # (batch, 138)
         b_3 = layers.Concatenate(name = 'branch_3_input')([kmers_3, length, gc])  # (batch, 34)
 
-        # 7-mer branch: 8,194 → 1024 → 512 → 256
-        x_7 = layers.Dense(1024, name = 'enc_7mer_dense1')(b_7)
+        # 7-mer branch: 8,194 → 512 → 256
+        x_7 = layers.Dense(512, name = 'enc_7mer_dense1')(b_7)
         x_7 = layers.BatchNormalization(name = 'enc_7mer_bn1')(x_7)
         x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_7mer_relu1')(x_7)
-        x_7 = layers.Dense(512, name = 'enc_7mer_dense2')(x_7)
+        x_7 = layers.Dense(256, name = 'enc_7mer_dense2')(x_7)
         x_7 = layers.BatchNormalization(name = 'enc_7mer_bn2')(x_7)
         x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_7mer_relu2')(x_7)
-        x_7 = layers.Dense(256, name = 'enc_7mer_dense3')(x_7)
-        x_7 = layers.BatchNormalization(name = 'enc_7mer_bn3')(x_7)
-        x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_7mer_relu3')(x_7)
 
         # 4-mer branch: 138 → 128 → 64
         x_4 = layers.Dense(128, name = 'enc_4mer_dense1')(b_4)
@@ -272,7 +282,7 @@ class VAE(Model):
         Architecture:
             - Latent (256) → 512 → 352 (shared)
             - Split to branches via separate Dense projections
-            - 7-mer branch: 256 → 512 → 1024 → 8,192 k-mers + 1 GC
+            - 7-mer branch: 256 → 512 → 8,192 k-mers + 1 GC
             - 4-mer branch: 64 → 128 → 136 k-mers + 1 GC
             - 3-mer branch: 32 → 64 → 32 k-mers + 1 GC
             - Average 3 GC predictions
@@ -288,16 +298,13 @@ class VAE(Model):
         x = layers.BatchNormalization(name = 'dec_shared_bn2')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_shared_relu2')(x)
 
-        # 7-mer branch: 256 → 512 → 1024 → outputs
+        # 7-mer branch: 256 → 512 → outputs
         x_7 = layers.Dense(256, name = 'dec_7mer_dense1')(x)
         x_7 = layers.BatchNormalization(name = 'dec_7mer_bn1')(x_7)
         x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_7mer_relu1')(x_7)
         x_7 = layers.Dense(512, name = 'dec_7mer_dense2')(x_7)
         x_7 = layers.BatchNormalization(name = 'dec_7mer_bn2')(x_7)
         x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_7mer_relu2')(x_7)
-        x_7 = layers.Dense(1024, name = 'dec_7mer_dense3')(x_7)
-        x_7 = layers.BatchNormalization(name = 'dec_7mer_bn3')(x_7)
-        x_7 = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_7mer_relu3')(x_7)
         kmers_7 = layers.Dense(8192, activation = 'linear', name = 'dec_7mer_out')(x_7)
         gc_7 = layers.Dense(1, activation = 'linear', name = 'dec_gc_7')(x_7)
 

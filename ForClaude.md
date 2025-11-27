@@ -23,7 +23,7 @@ Review this and ask any questions you wish. Do not write any code yet. If possib
 
 ### Resolved Design Decisions
 
-1. **Latent dimension**: 256 (current `LATENT_DIM` constant)
+1. **Latent dimension**: 512 (increased from 256 to reduce 7-mer bottleneck)
 2. **Decoder output**: 8,361 features (no length) - `[7-mers, 4-mers, 3-mers, GC]`
 3. **GC handling**: Each decoder branch predicts GC; average the 3 predictions
 4. **Decoder split**: Separate Dense layers project from shared representation to each branch
@@ -282,4 +282,68 @@ Try Option 1 first after current run completes - it directly addresses the capac
 - Decoder 7-mer branch: 256 → 512 → **1024** → outputs (was 256 → 512 → outputs)
 - Added `ReduceLROnPlateau` callback (factor=0.5, patience=20, min_lr=1e-6)
 - More depth = more non-linearity to capture complex 7-mer patterns
+
+---
+
+# Fresh Analysis (2025-11-26)
+
+## Core Problem: 7-mer Loss is Dominated by Zeros
+
+With 8,192 possible 7-mers and ~5,000bp sequences, expected count per 7-mer is **~0.6**. Most 7-mers have **zero frequency**.
+
+In log-space:
+- Zero frequency → `log(1e-6)` ≈ **-13.8**
+- Non-zero (0.001) → `log(0.001)` ≈ **-6.9**
+
+The MSE is dominated by predicting which 7-mers are exactly zero vs nearly zero. The model spends capacity on **noise in the sparse tail**, not biologically meaningful signal.
+
+## Information Bottleneck
+
+256 latent dimensions → 8,192 output features = **32x expansion**
+
+With KL regularization, each dimension carries limited information. 256 dimensions cannot faithfully encode 8,192 continuous values.
+
+Comparison:
+- 7-mers: 8192 features / 256 latent = 32x expansion (severe bottleneck)
+- 4-mers: 136 features / 256 latent = 0.5x (overcomplete, easy)
+- 3-mers: 32 features / 256 latent = 0.125x (very overcomplete, trivial)
+
+## Hierarchical Redundancy Ignored
+
+4-mer frequencies are **mathematically derivable** from 7-mer frequencies. Every 4-mer appears as a substring of specific 7-mers. The model predicts them independently.
+
+## Equal Group Weighting Creates Gradient Imbalance
+
+Current loss: `(mse_7 + mse_4 + mse_3 + mse_gc) * scale`
+
+Per-feature gradient signal:
+- Each 7-mer feature: 0.003% of gradient
+- Each 3-mer feature: 0.78% of gradient (**256x more**)
+
+## Improvement Ideas
+
+### 1. Diagnostic: Zero vs Non-zero 7-mer MSE
+Compute MSE separately to understand where the error comes from.
+
+### 2. Masked/Weighted Loss for 7-mers
+Focus on reconstructing non-zero (present) k-mers rather than zeros (absent).
+
+### 3. Clip Log Transform Floor
+Use `clip(log(x + 1e-6), -10, None)` to reduce dynamic range.
+
+### 4. Increase Latent Dimension
+256 → 512 or 768 to give more capacity for 7-mer information.
+
+### 5. Cosine Similarity Loss
+K-mer frequencies are compositional. Cosine similarity measures distribution "shape".
+
+### 6. Derive 4-mers from 7-mers
+Only predict 7-mers; compute 4-mers by summing appropriate 7-mer subsets.
+
+**2025-11-26 15:04** - Implemented diagnostic logging + increased latent dimension
+- Added zero vs non-zero 7-mer MSE breakdown in `VAEMetricsCallback`
+  - `nz=` MSE on non-zero 7-mers (target > -10 in log-space)
+  - `z=` MSE on zero 7-mers (target <= -10)
+  - `%nz` percentage of 7-mers that are non-zero
+- Increased `LATENT_DIM` from 256 to **512** (reduces 7-mer bottleneck from 32x to 16x)
 
