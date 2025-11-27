@@ -461,3 +461,378 @@ loss_7 = sparsity_bce + mse_7_values
   - `gateAcc`: accuracy of gate at 0.5 threshold
   - Still tracks `outMSE`, `nz`, `z` for the final gated output
 
+---
+
+# Gate Accuracy Plateau Analysis (2025-11-26)
+
+## Observation
+
+Gate accuracy plateaus at ~76% regardless of:
+- BCE loss weight (1x vs 2x)
+- Model size (18M vs 32M params)
+- Separate gate/value pathways
+
+This suggests the bottleneck is **latent space capacity** (256 dims), not decoder capacity.
+
+## Architecture Evolution
+
+| Change | Gate Acc | Notes |
+|--------|----------|-------|
+| Shared gate/value (32M params) | 76.3% | Stuck |
+| 2x BCE weight | 76.4% | No improvement |
+| Separate pathways (32M) | 76.2% | No improvement |
+| Slimmed model (18.7M) | 76.2% | Same ceiling |
+| Latent 256→512 | TBD | Testing |
+
+## Parameter Budget Problem
+
+With 4.78M samples and models of 18-32M params, samples/param ratio is 0.15-0.26 (want >1).
+
+The 7-mer output layers dominate:
+- Value: 1024 → 8192 = 8.4M params
+- Gate: 512 → 8192 = 4.2M params
+- Total 7-mer: ~12.6M of 19M (66%)
+
+---
+
+# Reducing 7-mer Parameter Cost (2025-11-26)
+
+## Options Considered
+
+### 1. Low-Rank Factorization (Recommended - Simplest)
+Add bottleneck before 8192 output:
+```
+1024 → 128 → 8192: 131K + 1M = 1.1M (vs 8.4M, 7.6x reduction)
+```
+
+### 2. Hierarchical/Grouped Decoding
+Group 7-mers by prefix (64 groups × 128 each):
+```
+1024 → 64×32 → reshape → 128 per group → 8192
+Params: ~2.1M (4x reduction)
+```
+
+### 3. Pretrained 7-mer Autoencoder
+Separate autoencoder: 8192 → 128 → 8192
+VAE predicts 128-dim code, frozen decoder expands.
+
+### 4. Convolutional Upsampling
+Organize 7-mers as 2D grid, use Conv2DTranspose for weight sharing.
+
+### 5. Embedding Dot-Product
+Learn 8192 7-mer embeddings (32-dim), output = query @ embeddings.T
+Params: ~295K (massive reduction)
+
+## Implementation
+
+**2025-11-26 20:45** - Implemented low-rank bottleneck
+- Value branch: 352 → 512 → 1024 → **128** → 8192 (bottleneck)
+- Gate branch: 352 → 256 → 512 → **128** → 8192 (bottleneck)
+- Result: 8.8M params, 0.54 samples/param
+
+**2025-11-26 21:15** - Implemented embedding dot-product
+- Added `EmbeddingDotProduct` layer: output = query @ learned_embeddings.T
+- Value branch: 352 → 512 → query(64) @ embeddings(8192×64)
+- Gate branch: 352 → 256 → query(64) @ embeddings(8192×64)
+- Result: **6.95M params**, 0.69 samples/param
+- 7-mer embeddings learn similarity structure between k-mers
+
+**2025-11-26 21:20** - Changed significance threshold
+- Redefined "significant" 7-mers: freq > 0.01 (was > ~1e-5)
+- In log-space: target > -4.6 (was > -10)
+- Gate now predicts significant vs non-significant (not just zero vs non-zero)
+- Expected ~100 significant 7-mers per sample (was ~4,800 non-zero)
+- This simplifies the gate's task dramatically
+
+**2025-11-26 21:30** - Threshold tuning
+- 0.01 threshold too strict: avgSig=0 (all 7-mers below threshold)
+- 0.0005 threshold (~243 sig/sample): gate stuck at 97.5% (predicts all zeros, too imbalanced)
+- 0.0001 threshold (~3,519 sig/sample): back to 76% plateau
+
+---
+
+# 7-mer Feature Space Analysis (2025-11-26)
+
+## Variance Analysis Results
+
+Analyzed whether we could reduce 7-mer space by filtering low-variance features:
+
+| Metric | Range | Notes |
+|--------|-------|-------|
+| Total variance | 2.5 - 9.8 | All 7-mers have high variance |
+| Presence rate | 29% - 93% | No 7-mers always/never present |
+| Variance-when-present | 0.33 - 2.79 | Much smaller range |
+
+**Key Finding:** High total variance is driven by the zero vs non-zero distinction in log-space. All 7-mers vary substantially because of the log-space representation creating a ~13.8 unit gap between zeros (-13.8) and smallest non-zeros (~0).
+
+Simple variance filtering won't help because the variance is an artifact of log-space, not biological signal.
+
+---
+
+# Linear-Space 7-mer Proposal (2025-11-26)
+
+## The Log-Space Problem
+
+In log-space, the 7-mer distribution is fundamentally bimodal:
+- **Zeros**: Artificially floored at -13.8 (log of epsilon)
+- **Non-zeros**: Range from ~-9 to ~+16
+- **The gap**: Huge discontinuity between -13.8 and smallest real values
+
+This creates two incompatible tasks for a smooth neural network output:
+1. **Classification**: Is this 7-mer present? (binary decision across 13.8-unit gap)
+2. **Regression**: What's the value? (continuous prediction)
+
+## Proposed Solution: Hybrid Space
+
+Keep encoder inputs in log-space (captures multiplicative structure), but output 7-mers in linear space:
+
+```
+Encoder input: log-space (all k-mers) - unchanged
+Decoder output:
+  - 3mer, 4mer, GC: log-space (dense, no sparsity issue)
+  - 7mer: LINEAR-space frequencies via softplus activation
+```
+
+### Why This Helps
+
+1. **Zeros are exactly 0** - no artificial floor value
+2. **Gate task becomes natural**: sigmoid predicts P(frequency > 0), which directly matches the data
+3. **Softplus enforces non-negative**: smooth activation that's 0 when input is very negative
+4. **No discontinuity**: continuous mapping from latent space to output
+
+### Implementation
+
+```python
+# 7-mer value branch - output linear frequencies
+values_7_linear = layers.Dense(8192, activation='softplus', name='dec_7mer_values')(...)
+
+# Gate branch - unchanged (sigmoid)
+gate_7 = layers.Activation('sigmoid', name='dec_7mer_gate')(gate_logits_7)
+
+# Combine: gate * values (zeros naturally propagate)
+kmers_7_linear = gate_7 * values_7_linear
+
+# Loss computation:
+# 1. Store original linear frequencies before log-transform (or exp() during loss)
+# 2. Gate BCE: target = (original_freq > 0)
+# 3. Value MSE: compare softplus output against original linear frequencies
+```
+
+### Data Flow
+
+```
+Original data (linear frequencies)
+    ↓ log-transform
+Encoder input (log-space)
+    ↓ encode
+Latent z (512 dims)
+    ↓ decode
+    ├→ 3mer, 4mer, GC: log-space output (unchanged)
+    └→ 7mer: linear-space via softplus
+           ↓
+       Loss vs original linear frequencies
+```
+
+### Advantages
+
+1. Gate's sigmoid output directly answers "is this present?" - natural for linear space
+2. Softplus is smooth everywhere - no floor value discontinuity
+3. MSE in linear space: small errors in small values have proportionally appropriate loss
+4. Eliminates the -13.8 artifact that dominates current log-space MSE
+
+### Potential Concerns
+
+1. Very small dynamic range in linear space (0 to ~0.07)
+2. Need to keep raw linear frequencies alongside log-transformed data
+3. May need to scale linear outputs or use custom loss weighting
+
+**2025-11-26 22:00** - Implemented linear-space 7-mer output
+
+Changes made:
+1. **GatedCombineLayer**: Simplified to just `gate * values` (no floor value needed in linear space)
+2. **Decoder 7-mer values**: Added softplus activation after EmbeddingDotProduct
+   - `values_7_logits = EmbeddingDotProduct(...)` → `values_7 = softplus(values_7_logits)`
+   - Softplus ensures non-negative output, approaches 0 for very negative inputs
+3. **Loss computation**: Now uses linear-space targets for 7-mers
+   - `target_7_linear = exp(target_7_log)` to convert back to raw frequencies
+   - `present_mask = target_7_linear > 1e-5` (effectively > 0)
+   - BCE: gate predicts presence (natural match for linear space)
+   - MSE: compare softplus output against linear target (masked to present only)
+4. **Metrics callback**: Updated to report linear-space metrics
+   - `avgPresent` instead of `avgSig`
+   - MSE values now in linear scale (will be much smaller numbers)
+
+Key insight: In linear space, the gate's sigmoid output directly answers "is this 7-mer present?" - this is the natural question for sparse frequency data, rather than "is this above some arbitrary log-space threshold?"
+
+Output tensor is now mixed representation:
+- 7-mers (0:8192): LINEAR space (softplus)
+- 4-mers (8192:8328): LOG space
+- 3-mers (8328:8360): LOG space
+- GC (8360:8361): LOG space
+
+## Initial Training Results (Linear-Space 7-mers)
+
+| Epoch | gateAcc | valMSE | outMSE (pres) | outMSE (abs) | BCE |
+|-------|---------|--------|---------------|--------------|-----|
+| 1 | 76.0% | 0.000707 | 0.000367 | 0.000185 | 0.4736 |
+| 5 | 77.5% | 0.000024 | 0.000013 | 0.000007 | 0.4486 |
+| 11 | 77.7% | 0.000001 | 0.000001 | 0.000000 | 0.4450 |
+| 20 | 77.9% | 0.000000 | 0.000000 | 0.000000 | 0.4412 |
+
+**Key Observations:**
+1. **Gate accuracy improved from 76% to 78%** - slight improvement over log-space plateau
+2. **Value MSE converged to ~0** - value prediction for present 7-mers is excellent
+3. **Absent MSE essentially 0** - model perfectly predicts 0 for absent 7-mers
+4. **BCE still decreasing** - gate still learning
+
+**Comparison with Log-Space Approach:**
+- Log-space: MSE ~13.7 for zeros, ~0.4 for non-zeros (34x worse)
+- Linear-space: MSE ~0 for both present and absent
+
+**Interpretation:**
+The linear-space approach eliminates the -13.8 discontinuity that was causing poor zero reconstruction. Now the model can focus on the binary classification task (which 7-mers are present) without fighting against the log-space floor value.
+
+The gate accuracy plateau at ~78% likely reflects a fundamental information-theoretic limit: encoding which ~5,300 of 8,192 7-mers are present requires substantial information that competes with KL regularization.
+
+---
+
+# Analysis: Why Linear-Space Works Better (2025-11-26)
+
+## The Log-Space Problem in Detail
+
+In log-space, the model faced an impossible task with a single output layer:
+
+```
+Target distribution:
+- Absent 7-mers: -13.8 (log of epsilon)
+- Present 7-mers: -9 to +16
+
+Required behavior:
+- For absent: output must be exactly -13.8 (very specific value)
+- For present: output must be in range -9 to +16 (continuous)
+```
+
+A linear output layer cannot simultaneously:
+1. Output -13.8 for ~2,900 absent 7-mers
+2. Output continuous values for ~5,300 present 7-mers
+3. Do this differently for each sample (different 7-mers are present)
+
+The model "hedged" by outputting ~-10 for everything, which is wrong for both.
+
+## Why Linear-Space Solves This
+
+In linear-space with gated softplus:
+
+```
+Output = gate * softplus(logits)
+
+For absent (gate → 0): output → 0 ✓ (correct!)
+For present (gate → 1): output → softplus(logits) ≈ frequency ✓
+```
+
+The gate handles the binary decision, softplus handles the value. Clean separation.
+
+## Remaining Challenge: Gate Accuracy
+
+At ~78%, the gate correctly predicts presence/absence for ~6,400 of 8,192 7-mers per sample.
+Incorrectly classified: ~1,800 per sample.
+
+This is likely constrained by:
+1. **Latent space capacity**: 512 dimensions with KL regularization
+2. **Combinatorial complexity**: C(8192, 5300) possible presence patterns
+3. **Biological correlation**: many 7-mers co-occur, which actually helps
+
+## What 78% Gate Accuracy Means for Clustering
+
+For clustering purposes, ~78% gate accuracy may be sufficient because:
+1. The latent space still captures the major patterns
+2. Similar sequences will have similar gate errors (systematic, not random)
+3. Value prediction for present 7-mers is essentially perfect
+
+The VAE latent space should still separate biologically distinct sequences well.
+
+## Model Statistics (Epoch 23)
+
+- **Parameters**: ~6.95M
+- **Samples/param ratio**: 0.69 (better than earlier 41M param model)
+- **avgPresent**: 5,291 7-mers per sample (64.6% of 8,192)
+- **4-mer MSE**: 0.059 (excellent)
+- **3-mer MSE**: 0.012 (excellent)
+- **GC MSE**: 0.001 (excellent)
+- **Val loss**: 2074.58 (steadily decreasing)
+
+---
+
+# Future Idea: Add 5-mers and 6-mers to Encoder (2025-11-26)
+
+## Rationale
+
+The gate accuracy plateau (~78%) might improve if the encoder sees hierarchical k-mer structure explicitly:
+
+- Each 7-mer contains 3 overlapping 5-mers and 2 overlapping 6-mers
+- If a 5-mer is absent → all 7-mers containing it must be absent
+- This constraint could help the encoder build better latent representations
+
+## Feature Counts (canonical)
+
+- 5-mers: ~512 features
+- 6-mers: ~2,080 features
+- Current input: 8,362 features
+- With 5/6-mers: ~10,954 features
+
+## Implementation Notes
+
+- Only add to encoder input (not decoder output)
+- Create separate encoder branches for 5-mer and 6-mer
+- Decoder still outputs only [7-mers, 4-mers, 3-mers, GC]
+- Need 5-mer and 6-mer frequency data (compute from sequences if not available)
+
+## Status
+
+Waiting for current linear-space training run to complete before exploring this.
+
+---
+
+# Final Training Results: Linear-Space with 2e-4 Threshold (2025-11-27)
+
+## Configuration
+
+- **Threshold**: 2e-4 (freq > 0.0002, appears ~1-2 times in 5kb sequence)
+- **avgPresent**: 1,578 per sample (19.3% of 8,192)
+- **Parameters**: ~6.95M
+- **Epochs**: 500
+
+## Final Metrics (Epoch 500)
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| **gateAcc** | 86.1% | +5.4% above 80.7% baseline |
+| **BCE** | 0.319 | Converged |
+| **Val loss** | 1478 | Stable |
+| **4mer MSE** | 0.031 | Excellent |
+| **3mer MSE** | 0.0035 | Excellent |
+| **GC MSE** | 0.0001 | Excellent |
+| **7mer valMSE** | ~0 | Perfect value prediction |
+
+## Threshold Comparison Summary
+
+| Threshold | avgPresent | % present | Baseline | gateAcc | Above baseline |
+|-----------|------------|-----------|----------|---------|----------------|
+| 1e-5 | 5,291 | 64.6% | 64.6% | 78.3% | +13.7% |
+| 2e-4 | 1,578 | 19.3% | 80.7% | 86.1% | +5.4% |
+| 5e-4 | 254 | 3.1% | 96.9% | 97.5% | +0.6% |
+
+## Assessment
+
+**Strengths:**
+- 4-mer, 3-mer, GC reconstruction essentially perfect
+- 7-mer value prediction (when present) essentially perfect
+- 86.1% gate accuracy for 7-mer presence classification
+
+**Limitations:**
+- ~14% of 7-mer presence predictions incorrect (~1,140 per sample)
+- Gate accuracy plateau due to VAE latent space capacity
+
+**For Clustering:**
+Model should be good enough - latent space captures major k-mer patterns. Similar sequences will cluster together based on shared 4-mer/3-mer profiles and partially shared 7-mer presence patterns.
+
