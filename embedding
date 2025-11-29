@@ -1,0 +1,107 @@
+#!/usr/bin/env -S uv run --quiet --script
+"""
+Generate VAE latent embeddings from k-mer frequency data.
+Pure filter: reads stdin, writes stdout, messages to stderr.
+
+Input: NumPy array from stdin (from convert_txt_to_npy)
+    2,762 columns: length + 6-mers(2080) + 5-mers(512) + 4-mers(136) + 3-mers(32) + GC
+
+Output: NumPy array with 256 columns (latent embeddings, z)
+
+Usage:
+    cat input.npy | embedding > embeddings.npy
+    embedding < input.npy > embeddings.npy
+"""
+# /// script
+# dependencies = [
+#   "numpy",
+#   "keras",
+#   "jax[cuda12]",
+# ]
+# ///
+
+import sys
+import os
+os.environ['KERAS_BACKEND'] = 'jax'
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+
+import numpy as np
+import keras
+import io
+
+
+# Custom layers required for loading the encoder
+SEED = 42
+
+
+@keras.saving.register_keras_serializable()
+class ClipLayer(keras.layers.Layer):
+    """Clips tensor values to a specified range."""
+
+    def __init__(self, min_value = -20, max_value = 2, **kwargs):
+        super().__init__(**kwargs)
+        self.min_value = min_value
+        self.max_value = max_value
+
+    def call(self, inputs):
+        return keras.ops.clip(inputs, self.min_value, self.max_value)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({'min_value': self.min_value, 'max_value': self.max_value})
+        return config
+
+
+@keras.saving.register_keras_serializable()
+class Sampling(keras.layers.Layer):
+    """Reparameterization trick: sample z = mean + exp(log_var/2) * epsilon."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.seed_generator = keras.random.SeedGenerator(SEED)
+
+    def call(self, inputs):
+        z_mean, z_log_var = inputs
+        batch = keras.ops.shape(z_mean)[0]
+        dim = keras.ops.shape(z_mean)[1]
+        epsilon = keras.random.normal(shape = (batch, dim), seed = self.seed_generator)
+        return z_mean + keras.ops.exp(0.5 * z_log_var) * epsilon
+
+    def get_config(self):
+        return super().get_config()
+
+
+def main():
+    # Load encoder
+    print('Loading encoder...', file = sys.stderr)
+    encoder = keras.saving.load_model(
+        'vae_encoder_final.keras',
+        custom_objects = {'ClipLayer': ClipLayer, 'Sampling': Sampling}
+    )
+
+    # Read numpy array from stdin
+    print('Loading data from stdin...', file = sys.stderr)
+    data = np.load(sys.stdin.buffer)
+
+    # Skip column 0 (length), keep columns 1-2761 (k-mer frequencies + GC)
+    data = data[:, 1:].astype(np.float32)
+
+    print(f'Loaded {data.shape[0]} sequences with {data.shape[1]} features', file = sys.stderr)
+
+    # Get embeddings
+    print('Generating embeddings...', file = sys.stderr)
+    z_mean, z_log_var, z = encoder.predict(data, batch_size = 8192, verbose = 0)
+
+    print(f'Output shape: {z.shape}', file = sys.stderr)
+
+    # Write to stdout as NumPy binary format
+    buffer = io.BytesIO()
+    np.save(buffer, z)
+    buffer.seek(0)
+    sys.stdout.buffer.write(buffer.read())
+
+    print('Done', file = sys.stderr)
+
+
+if __name__ == '__main__':
+    main()
