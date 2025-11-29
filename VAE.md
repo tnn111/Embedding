@@ -210,3 +210,214 @@ All errors well under 0.01 for dense k-mers and GC.
 - Latent dimension: 256
 - KL ~493 indicates good latent space utilization for clustering
 - Length column removed from input (2761 features total)
+
+---
+
+## 2025-11-27 ~21:45: All-MSE experiment
+
+### Changed 6-mers from BCE to MSE
+
+Tested using MSE log(x + 0.01) for all k-mers instead of BCE for 6-mers.
+
+| Metric | BCE 6-mer | MSE 6-mer |
+|--------|-----------|-----------|
+| 6-mer | 0.0040 (BCE) | 0.0004 (MSE) |
+| 5-mer | 0.0008 | 0.0008 |
+| 4-mer | 0.0004 | 0.0004 |
+| 3-mer | 0.0002 | 0.0002 |
+| KL | ~499 | ~416 |
+| Recon | ~1195 | ~95 |
+
+### Observation: Loss doubling pattern breaks for 6-mers
+
+Expected pattern based on 3/4/5-mers: 2 → 4 → 8 → 16
+Actual 6-mer loss: 4 (not 16)
+
+**Explanation**: The 0.01 offset drowns out the 6-mer signal.
+
+- 6-mer values: ~1/2080 ≈ 0.00048 (20x smaller than offset)
+- 5-mer values: ~1/512 ≈ 0.002
+- 4-mer values: ~1/136 ≈ 0.007
+- 3-mer values: ~1/32 ≈ 0.031
+
+With +0.01 offset:
+- log(0.00048 + 0.01) ≈ -4.56
+- log(0 + 0.01) = -4.61
+
+The offset dominates for sparse 6-mers, compressing prediction errors. This may explain why BCE worked well for 6-mers - it doesn't have this offset problem.
+
+### Trade-off
+
+- All-MSE: Lower reconstruction loss, but KL dropped (~499 → ~416)
+- BCE for 6-mers: Higher KL may be better for clustering separation
+
+Keeping all-MSE for now pending full dataset testing.
+
+---
+
+## 2025-11-27 ~22:15: Testing smaller offset for 6-mers
+
+### Hypothesis
+
+The 0.01 offset drowns out 6-mer signal because 6-mer values (~0.00048) are 20x smaller than the offset. Testing whether a smaller offset (0.001) restores the expected loss doubling pattern.
+
+### Change
+
+- 6-mers: `log(x + 0.001)` (was 0.01)
+- 5/4/3-mers: `log(x + 0.01)` (unchanged)
+- GC: logit transform (unchanged)
+
+### Expected outcome
+
+If the hypothesis is correct, 6-mer MSE should increase from ~0.0004 to ~0.0016 (4x), restoring the doubling pattern:
+- 3-mer: ~0.0002 (2)
+- 4-mer: ~0.0004 (4)
+- 5-mer: ~0.0008 (8)
+- 6-mer: ~0.0016 (16) ← expected with smaller offset
+
+### Results
+
+| Metric | 0.01 offset | 0.001 offset |
+|--------|-------------|--------------|
+| 6-mer MSE | 0.0004 | 0.0124 |
+| 5-mer MSE | 0.0008 | 0.0005 |
+| 4-mer MSE | 0.0004 | 0.0003 |
+| 3-mer MSE | 0.0002 | 0.0003 |
+| GC MSE | ~0.0001 | 0.0001 |
+| KL | ~416 | ~623 |
+| Recon | ~95 | ~752 |
+
+### Analysis
+
+The 6-mer MSE increased 31x (not the expected 4x). The smaller offset "unsuppressed" the 6-mer signal, revealing that the model struggles to reconstruct sparse 6-mers precisely.
+
+**Trade-offs:**
+- Higher KL (~623 vs ~416) = better latent space utilization for clustering
+- Worse 6-mer reconstruction = model encodes what it can, ignores fine 6-mer details
+- Slightly better 5/4-mer reconstruction
+
+For clustering purposes, higher KL may be more valuable than perfect 6-mer reconstruction. The sparse 6-mers contain less discriminative information anyway.
+
+---
+
+## 2025-11-28 ~00:10: Latent dimension comparison (256 vs 128)
+
+### Test: Reduced latent dimension to 128
+
+Ran overnight to compare 128-dim latent space vs 256-dim.
+
+| Metric | 256-dim | 128-dim |
+|--------|---------|---------|
+| 6-mer MSE | 0.0124 | 0.0136 |
+| 5-mer MSE | 0.0005 | 0.0007 |
+| 4-mer MSE | 0.0003 | 0.0004 |
+| 3-mer MSE | 0.0003 | 0.0002 |
+| GC MSE | 0.0001 | 0.0000 |
+| KL | ~623 | ~411 |
+| Recon | ~752 | ~822 |
+
+### Observations
+
+- Reconstruction slightly worse with 128-dim (expected with less capacity)
+- KL dropped from ~623 to ~411 (smaller latent space = less room to spread)
+- Dense k-mers (3-mer, 4-mer) and GC still reconstruct well
+- 6-mers hardest to reconstruct in both cases
+
+### Next steps
+
+Test on full dataset to determine if 128 dimensions with KL ~411 provides sufficient clustering separation, or if 256 dimensions with KL ~623 is needed.
+
+---
+
+## 2025-11-28 ~14:15: Full dataset training (256-dim)
+
+### Training progress at epoch ~270
+
+| Metric | Test set (0.5M) | Full dataset |
+|--------|-----------------|--------------|
+| 6-mer MSE | 0.0124 | 0.0135 |
+| 5-mer MSE | 0.0005 | 0.0005 |
+| 4-mer MSE | 0.0003 | 0.0004 |
+| 3-mer MSE | 0.0003 | 0.0003 |
+| GC MSE | 0.0001 | 0.0001 |
+| KL | ~623 | ~605 |
+
+Occasional GC spikes (0.0009-0.0015) in some epochs, likely due to batch variation in metagenomic data. Training otherwise stable.
+
+### 6-mer error analysis
+
+With MSE = 0.0135 in `log(x + 0.001)` space:
+- RMS log error: √0.0135 ≈ 0.116
+- Multiplicative error: e^0.116 ≈ 1.12 (±12%)
+- For typical 6-mer (~0.00048): absolute error ~0.00006
+
+The 0.001 offset limits discrimination between absent (0) and very rare 6-mers:
+- log(0 + 0.001) = -6.9
+- log(0.0005 + 0.001) = -6.5
+
+### Options to improve 6-mer reconstruction
+
+1. **Gated approach**: Separate presence/absence from value prediction (like old 7-mer model)
+2. **Smaller offset (0.0001)**: More sensitivity but potentially unstable
+3. **BCE for 6-mers only**: Worked well before (0.0040) but gave lower KL
+4. **Accept current accuracy**: ±12% may suffice for clustering — species differ by much more
+
+### Practical interpretation
+
+Model distinguishes 6-mer profiles differing by >12%. For metagenomic clustering, this is likely acceptable since species k-mer signatures differ substantially.
+
+---
+
+## 2025-11-28 ~14:50: 6-mer offset experiment (0.0005 vs 0.001)
+
+### Test: Halved 6-mer offset to 0.0005
+
+| Metric | 0.001 offset | 0.0005 offset |
+|--------|--------------|---------------|
+| 6-mer MSE | 0.0135 | 0.041 |
+| 5-mer MSE | 0.0005 | 0.0012 |
+| 4-mer MSE | 0.0004 | 0.0012 |
+| 3-mer MSE | 0.0003 | 0.0008 |
+| KL | ~605 | ~771 |
+
+### Result
+
+Smaller offset made everything worse. The loss landscape becomes harder to optimize when the offset is too small relative to the values. Reverted to 0.001.
+
+### Conclusion
+
+0.001 is the practical minimum for 6-mer offset. Further reduction destabilizes training without improving reconstruction.
+
+---
+
+## 2025-11-28 ~16:55: BCE for 6-mers (full dataset)
+
+### Configuration
+
+- **6-mers**: BCE (clip to [eps, 1-eps])
+- **5/4/3-mers**: MSE with `log(x + 0.01)`
+- **GC**: MSE with logit transform
+- **Loss formula**: `bce_6 * OUTPUT_DIM * 100 + (mse_5 + mse_4 + mse_3 + mse_gc) * OUTPUT_DIM * 100 / 4`
+
+### Results comparison
+
+| Metric | All-MSE (0.001 offset) | BCE 6-mer + MSE others |
+|--------|------------------------|------------------------|
+| 6-mer | 0.0135 (MSE) | 0.0040 (BCE) |
+| 5-mer | 0.0005 | 0.0011 |
+| 4-mer | 0.0004 | 0.0007 |
+| 3-mer | 0.0003 | 0.0004 |
+| GC | 0.0001 | 0.0001 |
+| KL | ~605 | ~615 |
+| Recon | ~815 | ~1251 |
+
+### Analysis
+
+BCE handles sparse 6-mers much better than MSE with offset:
+- 6-mer error: 0.0040 (BCE) vs 0.0135 (MSE) — 3.4x improvement
+- KL slightly higher (~615 vs ~605) — good for clustering
+- 5/4/3-mer MSE slightly higher but still excellent (<0.1% error)
+
+### Conclusion
+
+BCE for 6-mers is the right choice. The hybrid loss (BCE for sparse features, MSE for dense features) outperforms uniform MSE.

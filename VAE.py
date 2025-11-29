@@ -86,12 +86,10 @@ class VAEMetricsCallback(keras.callbacks.Callback):
         eps = 1e-7
         pred_clipped = ops.clip(reconstruction, eps, 1.0 - eps)
 
-        def bce(t, p):
-            return -ops.mean(t * ops.log(p) + (1.0 - t) * ops.log(1.0 - p))
-
-        # BCE for 6-mers, 5-mers, 4-mers
-        bce_6 = float(bce(target[:, KMER_6_SLICE[0]:KMER_6_SLICE[1]],
-                         pred_clipped[:, KMER_6_SLICE[0]:KMER_6_SLICE[1]]))
+        # BCE loss for 6-mers
+        target_6 = ops.clip(target[:, KMER_6_SLICE[0]:KMER_6_SLICE[1]], eps, 1.0 - eps)
+        pred_6 = ops.clip(reconstruction[:, KMER_6_SLICE[0]:KMER_6_SLICE[1]], eps, 1.0 - eps)
+        bce_6 = float(-ops.mean(target_6 * ops.log(pred_6) + (1.0 - target_6) * ops.log(1.0 - pred_6)))
         # MSE in log-space for 5-mers (add 0.01 offset)
         target_5 = target[:, KMER_5_SLICE[0]:KMER_5_SLICE[1]]
         pred_5 = reconstruction[:, KMER_5_SLICE[0]:KMER_5_SLICE[1]]
@@ -279,10 +277,9 @@ class VAE(Model):
 
         eps = 1e-7
 
-        # BCE loss for 6-mers, 5-mers, 4-mers (scaled 100x)
-        pred_clipped = ops.clip(reconstruction, eps, 1.0 - eps)
-        target_6 = target[:, KMER_6_SLICE[0]:KMER_6_SLICE[1]]
-        pred_6 = pred_clipped[:, KMER_6_SLICE[0]:KMER_6_SLICE[1]]
+        # BCE loss for 6-mers
+        target_6 = ops.clip(target[:, KMER_6_SLICE[0]:KMER_6_SLICE[1]], eps, 1.0 - eps)
+        pred_6 = ops.clip(reconstruction[:, KMER_6_SLICE[0]:KMER_6_SLICE[1]], eps, 1.0 - eps)
         bce_6 = -ops.mean(target_6 * ops.log(pred_6) + (1.0 - target_6) * ops.log(1.0 - pred_6))
 
         # MSE loss for 5-mers in log-space (add 0.01 offset)
@@ -306,7 +303,7 @@ class VAE(Model):
         pred_gc = ops.clip(reconstruction[:, GC_SLICE[0]:GC_SLICE[1]], eps, 1.0 - eps)
         mse_gc = ops.mean(ops.square(ops.log(target_gc / (1.0 - target_gc)) - ops.log(pred_gc / (1.0 - pred_gc))))
 
-        # Combined loss: BCE for 6-mers, MSE for 5/4/3-mers and GC
+        # Combined loss: BCE for 6-mers, MSE for others
         recon_loss = bce_6 * OUTPUT_DIM * 100 + (mse_5 + mse_4 + mse_3 + mse_gc) * OUTPUT_DIM * 100 / 4
 
         # KL divergence
