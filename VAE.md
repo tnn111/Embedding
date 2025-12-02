@@ -395,3 +395,145 @@ Using `keras.utils.PyDataset` subclass that:
 ### Memory usage
 
 JAX backend uses only ~30% of RAM (~154 GB) for the full dataset, compared to ~90% (~460 GB) with TensorFlow. Much more efficient.
+
+---
+
+## 2025-12-01 ~19:55: Convolutional VAE working
+
+### Architecture implemented
+
+Successfully implemented the Conv1D VAE architecture as specified:
+
+**Encoder:**
+```
+Input (8192, 1)
+    → Conv1D(64, kernel=7) → BN → LeakyReLU → MaxPool(4) → (2048, 64)
+    → Conv1D(64, kernel=15) → BN → LeakyReLU → MaxPool(4) → (512, 64)
+    → MaxPool(4) → (128, 64)
+    → Flatten → 8192
+    → Dense(1024) → BN → LeakyReLU
+    → z_mean(256), z_log_var(256)
+```
+
+**Decoder:**
+```
+(256) latent
+    → Dense(1024) → BN → LeakyReLU
+    → Dense(8192) → BN → LeakyReLU → Reshape(128, 64)
+    → UpSample(4) → (512, 64)
+    → Conv1DTranspose(64, kernel=15) → BN → LeakyReLU → UpSample(4) → (2048, 64)
+    → Conv1DTranspose(1, kernel=7, sigmoid) → UpSample(4) → (8192, 1)
+```
+
+### Parameters
+- Encoder: ~9M parameters
+- Decoder: ~8.7M parameters
+- Total: ~17.7M parameters
+
+### Test results (50k samples, 10 epochs)
+
+| Epoch | BCE | Val Loss | KL |
+|-------|-----|----------|-----|
+| 1 | 0.371 | 3038 | 39.8 |
+| 5 | 0.009 | 82.9 | 74.7 |
+| 10 | 0.003 | 29.7 | 49.5 |
+
+BCE reduced by ~100x over 10 epochs. Model is learning well.
+
+### Fixes applied
+
+1. **VAEMetricsCallback OOM**: The callback was processing 5000 validation samples at once, causing GPU OOM. Fixed by processing encoder and decoder in batches of 256.
+
+### Notes
+
+- Using JAX backend
+- Training speed: ~1 minute per 10 epochs for 50k samples
+- Ready for full dataset training
+
+---
+
+## 2025-12-01 ~21:40: Posterior collapse observed
+
+### Problem
+
+During full dataset training, KL divergence collapsed from ~11 to <1 after epoch 5:
+
+| Epoch | KL | w = KL × 0.1 |
+|-------|-----|--------------|
+| 6 | 1.86 | 0.19 |
+| 8 | 1.05 | 0.11 |
+| 10 | 0.58 | 0.06 |
+| 11 | 0.77 | 0.08 |
+
+This indicates **posterior collapse** - the encoder outputs near-zero variance, making all latent codes nearly identical. The decoder is powerful enough to reconstruct without using the latent space meaningfully.
+
+### Fix: Reduced decoder capacity
+
+Changed conv layers from 64 filters (kernel 7/15) to 32 filters (kernel 5/5):
+
+**Encoder:**
+```
+Input (8192, 1)
+    → Conv1D(32, kernel=5) → MaxPool(4) → (2048, 32)
+    → Conv1D(32, kernel=5) → MaxPool(4) → (512, 32)
+    → MaxPool(4) → (128, 32)
+    → Flatten → 4096
+    → Dense(1024) → z_mean(256), z_log_var(256)
+```
+
+**Decoder:**
+```
+(256) latent
+    → Dense(1024) → Dense(4096) → Reshape(128, 32)
+    → UpSample(4) → (512, 32)
+    → Conv1DTranspose(32, kernel=5) → UpSample(4) → (2048, 32)
+    → Conv1DTranspose(1, kernel=5, sigmoid) → UpSample(4) → (8192, 1)
+```
+
+This reduces parameter count and forces the model to rely more on the latent space for reconstruction.
+
+---
+
+## 2025-12-02 ~09:58: First full training completed (with posterior collapse)
+
+The 200-epoch training completed with the 64-filter architecture:
+
+- **Final KL**: 0.56 (very low - indicates posterior collapse)
+- **Final BCE**: 0.001202
+- **Final Val loss**: 9.92
+
+The model reconstructs well but the latent space is likely not useful for clustering due to posterior collapse.
+
+---
+
+## 2025-12-02 ~10:00: Further architecture reduction
+
+Per Torben's request, reduced architecture further:
+
+**Encoder:**
+```
+Input (8192, 1)
+    → Conv1D(16, kernel=3) → MaxPool(4) → (2048, 16)
+    → Conv1D(32, kernel=5) → MaxPool(16) → (128, 32)
+    → Flatten → 4096
+    → Dense(1024) → z_mean(256), z_log_var(256)
+```
+
+**Decoder:**
+```
+(256) latent
+    → Dense(1024) → Dense(4096) → Reshape(128, 32)
+    → UpSample(16) → (2048, 32)
+    → Conv1DTranspose(16, kernel=5) → UpSample(4) → (8192, 16)
+    → Conv1DTranspose(1, kernel=3, sigmoid) → (8192, 1)
+```
+
+### Changes from previous
+- First conv: 32 filters → 16 filters, kernel 5 → 3
+- Combined two MaxPool(4) into one MaxPool(16)
+- Mirrored changes in decoder
+
+### Parameters
+- Encoder: 4.7M
+- Decoder: 4.5M
+- Total: ~9.2M (same as before - dense layers dominate)

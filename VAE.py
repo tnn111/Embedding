@@ -61,11 +61,29 @@ class VAEMetricsCallback(keras.callbacks.Callback):
 
         sample_x = self.validation_data[0][self._sample_idx]
 
-        z_mean, z_log_var, z = self.model.encoder(sample_x, training = False)
+        # Process in batches to avoid GPU OOM
+        batch_size = 256
+        n_samples = len(sample_x)
+        z_means, z_log_vars, zs = [], [], []
+        for i in range(0, n_samples, batch_size):
+            batch = sample_x[i:i + batch_size]
+            zm, zlv, z_batch = self.model.encoder(batch, training = False)
+            z_means.append(zm)
+            z_log_vars.append(zlv)
+            zs.append(z_batch)
+        z_mean = ops.concatenate(z_means, axis = 0)
+        z_log_var = ops.concatenate(z_log_vars, axis = 0)
+        z = ops.concatenate(zs, axis = 0)
         kl_loss = -0.5 * float(ops.mean(ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1)))
         weighted_kl = float(self.model.kl_weight) * kl_loss
 
-        reconstruction = self.model.decoder(z, training = False)
+        # Decode in batches to avoid GPU OOM
+        reconstructions = []
+        for i in range(0, n_samples, batch_size):
+            z_batch = z[i:i + batch_size]
+            recon_batch = self.model.decoder(z_batch, training = False)
+            reconstructions.append(recon_batch)
+        reconstruction = ops.concatenate(reconstructions, axis = 0)
         target = sample_x
 
         # BCE loss
@@ -167,25 +185,34 @@ class VAE(Model):
         self.decoder = self._build_decoder()
 
     def _build_encoder(self):
-        """Build fully-connected encoder (no convolutions to avoid CUDA issues).
+        """Build convolutional encoder.
 
         Architecture:
-            Input (8192,) flattened
-            → Dense(1024) → Dense(512) → Dense(256) z_mean, z_log_var
+            Input (8192, 1)
+            → Conv1D(16, kernel=3) → MaxPool(4) → (2048, 16)
+            → Conv1D(32, kernel=5) → MaxPool(16) → (128, 32)
+            → Flatten → 4096
+            → Dense(1024) → z_mean(256), z_log_var(256)
         """
         encoder_inputs = keras.Input(shape = (INPUT_DIM, 1), name = 'encoder_input')
 
-        # Flatten input
-        x = layers.Flatten(name = 'enc_flatten')(encoder_inputs)
-
-        # Dense layers
-        x = layers.Dense(1024, name = 'enc_dense1')(x)
+        # First conv block
+        x = layers.Conv1D(16, kernel_size = 3, padding = 'same', name = 'enc_conv1')(encoder_inputs)
         x = layers.BatchNormalization(name = 'enc_bn1')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_relu1')(x)
+        x = layers.MaxPooling1D(pool_size = 4, name = 'enc_pool1')(x)  # (2048, 16)
 
-        x = layers.Dense(512, name = 'enc_dense2')(x)
+        # Second conv block
+        x = layers.Conv1D(32, kernel_size = 5, padding = 'same', name = 'enc_conv2')(x)
         x = layers.BatchNormalization(name = 'enc_bn2')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_relu2')(x)
+        x = layers.MaxPooling1D(pool_size = 16, name = 'enc_pool2')(x)  # (128, 32)
+
+        # Flatten and dense
+        x = layers.Flatten(name = 'enc_flatten')(x)  # 4096
+        x = layers.Dense(1024, name = 'enc_dense1')(x)
+        x = layers.BatchNormalization(name = 'enc_bn3')(x)
+        x = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_relu3')(x)
 
         # Latent space
         z_mean = layers.Dense(self.latent_dim, name = 'z_mean')(x)
@@ -196,31 +223,42 @@ class VAE(Model):
         return Model(encoder_inputs, [z_mean, z_log_var, z], name = 'encoder')
 
     def _build_decoder(self):
-        """Build fully-connected decoder (mirror of encoder).
+        """Build convolutional decoder (mirror of encoder).
 
         Architecture:
             Input (256)
-            → Dense(512) → Dense(1024) → Dense(8192) sigmoid
-            → Output (8192, 1)
+            → Dense(1024) → Dense(4096) → Reshape(128, 32)
+            → UpSample(16) → (2048, 32)
+            → Conv1DTranspose(16, kernel=5) → UpSample(4) → (8192, 16)
+            → Conv1DTranspose(1, kernel=3, sigmoid) → (8192, 1)
         """
         latent_inputs = keras.Input(shape = (self.latent_dim,), name = 'decoder_input')
 
-        # Dense layers
-        x = layers.Dense(512, name = 'dec_dense1')(latent_inputs)
+        # Dense layers to expand
+        x = layers.Dense(1024, name = 'dec_dense1')(latent_inputs)
         x = layers.BatchNormalization(name = 'dec_bn1')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_relu1')(x)
 
-        x = layers.Dense(1024, name = 'dec_dense2')(x)
+        x = layers.Dense(128 * 32, name = 'dec_dense2')(x)  # 4096
         x = layers.BatchNormalization(name = 'dec_bn2')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_relu2')(x)
 
-        # Output layer
-        x = layers.Dense(INPUT_DIM, activation = 'sigmoid', name = 'dec_output')(x)
+        # Reshape to start conv transpose
+        x = layers.Reshape((128, 32), name = 'dec_reshape')(x)
 
-        # Reshape to match input shape
-        decoder_outputs = layers.Reshape((INPUT_DIM, 1), name = 'dec_reshape')(x)
+        # First upsample (mirror of enc_pool2 with size=16)
+        x = layers.UpSampling1D(size = 16, name = 'dec_upsample1')(x)  # (2048, 32)
 
-        return Model(latent_inputs, decoder_outputs, name = 'decoder')
+        # First conv transpose block (mirror of enc_conv2)
+        x = layers.Conv1DTranspose(16, kernel_size = 5, padding = 'same', name = 'dec_conv1')(x)
+        x = layers.BatchNormalization(name = 'dec_bn3')(x)
+        x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_relu3')(x)
+        x = layers.UpSampling1D(size = 4, name = 'dec_upsample2')(x)  # (8192, 16)
+
+        # Second conv transpose block (mirror of enc_conv1, output)
+        x = layers.Conv1DTranspose(1, kernel_size = 3, padding = 'same', activation = 'sigmoid', name = 'dec_conv2')(x)
+
+        return Model(latent_inputs, x, name = 'decoder')
 
     def call(self, inputs, training = None):
         z_mean, z_log_var, z = self.encoder(inputs, training = training)
