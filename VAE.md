@@ -1,423 +1,397 @@
-# VAE.py Development Log
+# VAE Request
 
-## 2025-11-27 ~14:00: Rewrite for new k-mer format (6-mer, 5-mer based)
+I would like you to build a new VAE. You can edit the old VAE.py file as a skeleton.
+
+As a first cut, use just the 7-mers from Data/all_mkers.npy.
+
+I would like you to build the VAE starting with two 1D convolutional layers and one fully connected layer before going to a 256-dimensional latent space. 
+
+Ask me any questions you need to and put a copy of the questions in this file as well as in the terminal. I will add my answers here or in the terminal. You should keep a running log of your decisions - data and time stamped - in this file.
+
+---
+
+## 2025-12-01 Questions from Claude
+
+1. **Conv1D input shape**: The 7-mer data has 8,192 features. For 1D convolution, should I treat this as a 1D signal of length 8192 with 1 channel, or reshape it differently (e.g., 128×64)?
+
+2. **Kernel sizes**: What kernel sizes would you like for the two conv layers? Common choices are 3, 5, 7, or larger for capturing longer-range patterns.
+
+3. **Number of filters**: How many filters per conv layer? (e.g., 64, 128, 256)
+
+4. **Pooling**: Should I use pooling (max or average) between/after conv layers to reduce dimensionality before the fully connected layer?
+
+5. **Decoder architecture**: Should the decoder mirror the encoder (transposed convolutions / upsampling), or use a simpler fully-connected decoder?
+
+6. **Loss function**: The old VAE used BCE for 6-mers. For 7-mers, would you prefer:
+   - BCE (treats frequencies as independent probabilities)
+   - MSE (standard regression)
+   - MSE in log-space (better for small values)
+   - Something else?
+
+## Answers from Torben
+
+First of all, please remember to add a *timestamp* as well as a date to your entries here. It can be approximate.
+
+- Treat it as a 1D signal of length 8,192 with 1 channel.
+
+- For the first layer, use a filter length of 7 and 256 filters. For the second, use a filter length of 15 and 512 filters. Put
+  a max pooling layer in between.
+
+- Mirror the encoder in the decoder.
+
+- Use BCE for the loss function.
+
+This is an experiment to see what happens if we add in 1D convolutional layers and I fully expect to iterate several times.
+
+---
+
+## 2025-12-01 ~14:30: Design decisions
+
+Based on Torben's answers, the architecture will be:
+
+### Encoder
+1. Input: (8192, 1) - 7-mer frequencies as 1D signal
+2. Conv1D: 256 filters, kernel size 7, padding='same'
+3. MaxPooling1D: pool size 2 → (4096, 256)
+4. Conv1D: 512 filters, kernel size 15, padding='same'
+5. Flatten → 4096 × 512 = 2,097,152
+6. Dense → 256 (latent space)
+
+**Issue**: The flattened size (2M) is very large. Will add a second pooling layer or use global pooling to reduce dimensionality before the dense layer. Need to clarify with Torben.
+
+### Decoder (mirror of encoder)
+1. Dense: latent → flattened size
+2. Reshape → (pooled_length, 512)
+3. Conv1DTranspose: 256 filters, kernel size 15
+4. Upsample
+5. Conv1DTranspose: 1 filter, kernel size 7
+6. Output: (8192, 1) with sigmoid
+
+### Loss
+- BCE (binary cross-entropy) for reconstruction
+
+---
+
+## 2025-12-01 ~14:45: Revised architecture
+
+After discussion, revised to reduce parameter count:
+
+### Encoder
+```
+Input (8192, 1)
+    │
+    ▼
+Conv1D (128 filters, kernel=7, padding='same')
+    │
+    ▼
+MaxPooling1D (pool=4)
+    │
+    ▼
+(2048, 128)
+    │
+    ▼
+Conv1D (256 filters, kernel=15, padding='same')
+    │
+    ▼
+MaxPooling1D (pool=4)
+    │
+    ▼
+(512, 256)
+    │
+    ▼
+Flatten
+    │
+    ▼
+(131,072)
+    │
+    ▼
+Dense (1024)
+    │
+    ▼
+Dense (z_mean: 256)  Dense (z_log_var: 256)
+    │                      │
+    └──────────┬───────────┘
+               ▼
+         Sampling (z)
+               │
+               ▼
+           (256) latent
+```
+
+### Decoder
+```
+Input (256) latent
+    │
+    ▼
+Dense (1024)
+    │
+    ▼
+Dense (131,072)
+    │
+    ▼
+Reshape (512, 256)
+    │
+    ▼
+UpSampling1D (size=4)
+    │
+    ▼
+(2048, 256)
+    │
+    ▼
+Conv1DTranspose (128 filters, kernel=15, padding='same')
+    │
+    ▼
+UpSampling1D (size=4)
+    │
+    ▼
+(8192, 128)
+    │
+    ▼
+Conv1DTranspose (1 filter, kernel=7, padding='same', activation='sigmoid')
+    │
+    ▼
+Output (8192, 1)
+```
+
+### Parameter count estimate
+- Conv1D 1: 7 × 1 × 128 + 128 = 1,024
+- Conv1D 2: 15 × 128 × 256 + 256 = 491,776
+- Dense (flatten→1024): 131,072 × 1024 + 1024 = 134M
+- Dense (1024→256): 1024 × 256 × 2 + 512 = 525K (z_mean + z_log_var)
+- Decoder mirrors: ~134M
+
+Total: ~270M parameters (dominated by flatten→dense connection)
+
+---
+
+## 2025-12-01 ~15:00: Final architecture
+
+Revised to get flatten layer down to 8,192 using three pooling layers:
+
+### Encoder
+```
+Input (8192, 1)
+    │
+    ▼
+Conv1D (64 filters, kernel=7, padding='same')
+    │
+    ▼
+MaxPooling1D (pool=4) → (2048, 64)
+    │
+    ▼
+Conv1D (64 filters, kernel=15, padding='same')
+    │
+    ▼
+MaxPooling1D (pool=4) → (512, 64)
+    │
+    ▼
+MaxPooling1D (pool=4) → (128, 64)
+    │
+    ▼
+Flatten → 8,192
+    │
+    ▼
+Dense (1024)
+    │
+    ▼
+Dense (z_mean: 256)  Dense (z_log_var: 256)
+    │                      │
+    └──────────┬───────────┘
+               ▼
+         Sampling (z)
+               │
+               ▼
+           (256) latent
+```
+
+### Decoder
+```
+Input (256) latent
+    │
+    ▼
+Dense (1024)
+    │
+    ▼
+Dense (8,192)
+    │
+    ▼
+Reshape (128, 64)
+    │
+    ▼
+UpSampling1D (size=4) → (512, 64)
+    │
+    ▼
+UpSampling1D (size=4) → (2048, 64)
+    │
+    ▼
+Conv1DTranspose (64 filters, kernel=15, padding='same')
+    │
+    ▼
+UpSampling1D (size=4) → (8192, 64)
+    │
+    ▼
+Conv1DTranspose (1 filter, kernel=7, padding='same', activation='sigmoid')
+    │
+    ▼
+Output (8192, 1)
+```
+
+### Parameter count estimate
+- Conv1D 1: 7 × 1 × 64 + 64 = 512
+- Conv1D 2: 15 × 64 × 64 + 64 = 61,504
+- Dense (8192→1024): 8,192 × 1024 + 1024 = 8.4M
+- Dense (1024→256×2): 1024 × 512 + 512 = 525K
+- Decoder Dense (256→1024): 256 × 1024 + 1024 = 263K
+- Decoder Dense (1024→8192): 1024 × 8192 + 8192 = 8.4M
+- Conv1DTranspose 1: 15 × 64 × 64 + 64 = 61,504
+- Conv1DTranspose 2: 7 × 64 × 1 + 1 = 449
+
+Total: ~18M parameters
+
+---
+
+## 2025-12-01 ~16:40: Switched to fully-connected architecture
+
+### Problem
+
+Conv1D layers caused CUDA errors:
+1. OOM errors even with small batch sizes (JAX/TF allocator issues)
+2. Integer overflow in CUDA kernel: `work_element_count >= 0 (-1673527296 vs. 0)`
+
+The 8192-length 1D convolutions were too large for stable CUDA computation.
+
+### Solution
+
+Switched to fully-connected architecture:
+
+**Encoder:**
+```
+Input (8192, 1) → Flatten
+    → Dense(1024) → BN → LeakyReLU
+    → Dense(512) → BN → LeakyReLU
+    → z_mean(256), z_log_var(256)
+```
+
+**Decoder:**
+```
+(256) latent
+    → Dense(512) → BN → LeakyReLU
+    → Dense(1024) → BN → LeakyReLU
+    → Dense(8192, sigmoid)
+    → Reshape(8192, 1)
+```
+
+### Initial results
+
+Training with 100k samples, batch size 512:
+- Epoch 1: BCE 0.131 → Epoch 11: BCE 0.0015
+- Loss dropping rapidly, model learning well
+
+### Notes
+
+- Using TensorFlow backend (not JAX) with `TF_GPU_ALLOCATOR=cuda_malloc_async`
+- Will revisit Conv1D approach later with smaller kernel sizes or different architecture
+
+---
+
+## 2025-12-01 ~17:45: Memory leak diagnosis
+
+### Problem
+
+Training on full dataset (~4.8M samples) causes memory to grow until system runs out of RAM (~200GB consumed, then silent crash).
+
+### Investigation with test_memory_scale.py
+
+Created diagnostic script to track memory at different scales:
+
+| Scale | Batches | Memory after 1 epoch |
+|-------|---------|---------------------|
+| 100k  | 195     | 10.15 GB            |
+| 500k  | 976     | 26.36 GB            |
+| 1M    | 1953    | (still growing)     |
+
+Memory grows approximately linearly with number of batches processed. This is NOT related to:
+- Memory-mapped file access (stays at ~0.03 GB)
+- VAE model creation (~1 GB)
+- Batch loading (~0.03 GB per batch)
+
+### Root cause
+
+TensorFlow/Keras accumulates internal state during training:
+1. Gradient history for optimizer (Adam stores momentum/velocity)
+2. XLA compilation cache grows
+3. Potential tensor reference leaks in graph mode
+
+### Solutions investigated
+
+1. **`run_eagerly=True`**: Works (memory stable) but 10x slower (58ms vs 4ms per step)
+2. **Clear `vae.losses`**: No effect
+3. **`tf.function` with fixed signature**: No effect
+4. **Manual training loop**: Same leak - ~21MB per batch
+
+### Root cause found
+
+The leak occurs when converting numpy arrays to TensorFlow tensors inside the training loop:
+```python
+batch = data[row_start:row_end, ...].astype(np.float32)  # Creates new Python object
+train_step(batch)  # TF graph holds reference to this object
+```
+
+When using `tf.data.Dataset.from_tensor_slices` with pre-loaded data, memory is **stable**:
+- 500k samples preloaded: 36.76 GB initial
+- After creating dataset: 52.51 GB
+- During training: 68.62 GB (stable throughout all 900 batches!)
+
+### Solution
+
+Pre-load data into memory as a single numpy array, then create `tf.data.Dataset.from_tensor_slices`. For full dataset (~4.8M samples × 8192 features × 4 bytes = ~157GB), this fits in 512GB RAM.
+
+### Verified fix
+
+Tested with 1M samples over 3 epochs:
+- After loading data: 31.60 GB
+- After dataset creation: 63.13 GB
+- After epoch 1: 96.28 GB
+- After epoch 2: 96.29 GB
+- After epoch 3: 96.29 GB
+
+Memory is **stable** during training - no more leak!
+
+Updated VAE.py to use:
+- `load_data_to_memory()` - loads data into numpy array
+- `create_dataset()` - creates `tf.data.Dataset.from_tensor_slices()`
+
+Expected memory for full dataset:
+- Load ~4.3M train samples: ~140 GB
+- Load ~0.5M val samples: ~16 GB
+- TF dataset overhead: ~2x array size
+- Training overhead: ~30 GB
+- Total: ~350 GB (fits in 512 GB)
+
+**Actual observation**: ~90% of 512 GB (~460 GB) during full dataset training. Higher than estimated due to TensorFlow's internal buffering for `prefetch` and `shuffle`. Memory is stable (no growth) during training.
+
+Note: Added `with tf.device('/CPU:0')` to `create_dataset()` to prevent TensorFlow from trying to copy the entire dataset to GPU memory.
+
+---
+
+## 2025-12-01 ~19:00: Switched to JAX backend
+
+Changed from TensorFlow to JAX backend for potentially better performance.
 
 ### Changes
 
-Rewrote VAE.py to use the new data format from `calculate_kmer_frequencies`:
+1. Set `KERAS_BACKEND = 'jax'` instead of `'tensorflow'`
+2. Replaced `tf.data.Dataset` with `NumpyBatchDataset(keras.utils.PyDataset)` - a simple indexed batch loader that works with any backend
+3. Removed TensorFlow-specific environment variables and device placement code
 
-- **Input**: length(1) + 6-mers(2080) + 5-mers(512) + 4-mers(136) + 3-mers(32) + GC(1) = 2,762 features
-- **Output**: 2,761 features (excludes length)
+### Data loading approach
 
-### Architecture (Simple baseline)
+Using `keras.utils.PyDataset` subclass that:
+- Holds pre-loaded numpy data in memory
+- Returns batches via `__getitem__(idx)`
+- Shuffles indices on `on_epoch_end()` if shuffle=True
+- No TensorFlow dependency
 
-- Encoder: 2,762 → 1024 → 512 → latent(256)
-- Decoder: 256 → 512 → 1024 → 2,761
-- Loss: Simple MSE in log-space + KL divergence
-- Latent dimension: 256
+### Memory usage
 
-### Slice indices
-
-```
-Input layout: [length(1), 6-mers(2080), 5-mers(512), 4-mers(136), 3-mers(32), GC(1)]
-
-LENGTH_SLICE = (0, 1)
-KMER_6_SLICE = (1, 2081)      # 2,080 features
-KMER_5_SLICE = (2081, 2593)   # 512 features
-KMER_4_SLICE = (2593, 2729)   # 136 features
-KMER_3_SLICE = (2729, 2761)   # 32 features
-GC_SLICE = (2761, 2762)       # 1 feature
-
-Output layout (no length): [6-mers(2080), 5-mers(512), 4-mers(136), 3-mers(32), GC(1)]
-
-OUT_KMER_6_SLICE = (0, 2080)
-OUT_KMER_5_SLICE = (2080, 2592)
-OUT_KMER_4_SLICE = (2592, 2728)
-OUT_KMER_3_SLICE = (2728, 2760)
-OUT_GC_SLICE = (2760, 2761)
-```
-
-### Rationale for 6-mer/5-mer
-
-Previous version used 7-mers (8,192 features) which suffered from:
-1. **Sparsity**: Most 7-mers absent in typical 5kb sequences
-2. **Information bottleneck**: 8,192 features through 256-512 latent dims
-3. **Gated complexity**: Needed separate gate + value prediction
-
-6-mers (2,080 features) and 5-mers (512 features) should have much better coverage - nearly all should appear in typical sequences, making simple log-space MSE viable without gating.
-
-### Parameter count
-
-Rough estimate for simple architecture:
-- Encoder: 2,762×1024 + 1024×512 + 512×256×2 ≈ 3.6M
-- Decoder: 256×512 + 512×1024 + 1024×2761 ≈ 3.4M
-- Total: ~7M parameters
-
----
-
-## Previous Work Summary (7-mer experiments, archived)
-
-The previous VAE used 7-mers and developed several techniques to handle sparsity:
-
-1. **Gated sparsity**: Separate sigmoid gate (presence prediction) + softplus values
-2. **Linear-space output**: 7-mers output in linear space, others in log-space
-3. **Final results**: 86.1% gate accuracy, 0.031 4-mer MSE, 0.0035 3-mer MSE
-
-Key learnings:
-- Log-space works well for dense k-mers (3-mer, 4-mer)
-- Sparse features need special handling
-- Gate accuracy plateau around 78-86% due to latent space capacity
-
-These techniques may be revisited if 6-mers show sparsity issues.
-
----
-
-## 2025-11-27 ~16:30: Hybrid BCE + log-MSE experiments
-
-### Current architecture
-
-- **Loss**: Hybrid BCE (6/5/4-mers) + log-space MSE (3-mers, GC)
-- **Scaling**: Both scaled by `OUTPUT_DIM * 100`
-- **Parameters**: ~7.1M total (encoder ~3.6M, decoder ~3.5M)
-- **Length input**: Log-transformed (advisory only, not reconstructed)
-
-### Results on 0.5M test samples
-
-Training showed instability:
-- Recon oscillating: 9,479 to 23,782
-- KL: ~500-565
-- BCE stable: 6mer=0.0040, 5mer=0.0137, 4mer=0.0420
-- MSE unstable: 3mer=0.0286-0.1305, GC=0.0003-0.0026
-
-### Observations
-
-1. BCE components (6/5/4-mers) are stable
-2. Log-MSE components (3-mers, GC) cause oscillation
-3. Likely gradient scale mismatch between BCE and log-MSE
-
-### Ideas to try with full dataset
-
-1. **Reduce MSE weight**: Log-MSE may need 10-100x smaller weight than BCE
-2. **All-BCE or all-MSE**: Remove hybrid approach
-3. **Gradient clipping**: Limit per-batch updates
-4. **Lower learning rate**: Reduce oscillation
-
-Waiting for full training data before further experiments.
-
----
-
-## 2025-11-27 ~19:00: Length removal and loss refinements
-
-### Removed length from model
-
-Length was previously an advisory input to the encoder. Removed entirely:
-- INPUT_DIM = OUTPUT_DIM = 2761 (no length column)
-- Data loading skips column 0 (length) from the 2762-column file
-- Simpler architecture, no separate input/output slices needed
-
-Results improved significantly:
-- 3-mer MSE: 0.012 → 0.0053
-- Training stability: No more oscillation
-- KL: ~183 at convergence
-
-### BCE for 3-mers experiment
-
-Tried BCE loss for 3-mers instead of MSE. Result:
-- 3-mer BCE: ~0.135 (much higher than other k-mers due to denser distribution)
-- KL dropped to ~53 (latent space compressed)
-- Overall loss doubled
-
-BCE naturally gives higher values for denser distributions. For 3-mers (~0.03 each), BCE ≈ 0.135. For 6-mers (~0.0005 each), BCE ≈ 0.004. This is mathematically expected, not a bug.
-
-Reverted to MSE for 3-mers since clustering needs higher KL (more spread in latent space).
-
-### Log offset change: eps → 0.5
-
-Changed log-space MSE from `log(x + eps)` to `log(x + 0.5)`:
-- Old range: log(eps) to log(1) ≈ -16 to 0
-- New range: log(0.5) to log(1.5) ≈ -0.69 to 0.41
-
-Results:
-- 3-mer MSE: 0.0053 → 0.0001
-- GC MSE: ~0.0000
-- KL: ~183 → ~25 (too compressed)
-
-The tighter log range reduces MSE contribution, causing KL to drop.
-
-### β-VAE with β=0.1
-
-To encourage latent space spread for clustering, reduced KL weight from 1.0 to 0.1.
-This allows the model to use more of the latent space without being penalized heavily.
-
-Current settings:
-- KLWarmupCallback: max_weight = 0.1
-- Loss: BCE for 6/5/4-mers, MSE with +0.5 offset for 3-mers and GC
-
----
-
-## 2025-11-27 ~20:00: Final loss configuration
-
-### Loss functions by feature group
-
-| Feature | Count | Loss | Transform |
-|---------|-------|------|-----------|
-| 6-mers | 2080 | BCE | clip to [eps, 1-eps] |
-| 5-mers | 512 | BCE | clip to [eps, 1-eps] |
-| 4-mers | 136 | MSE | log(x + 0.01) |
-| 3-mers | 32 | MSE | log(x + 0.01) |
-| GC | 1 | MSE | logit: log(x / (1-x)) |
-
-### Loss formula
-
-```python
-recon_loss = (bce_6 + bce_5) * OUTPUT_DIM * 100 / 2 + (mse_4 + mse_3 + mse_gc) * OUTPUT_DIM * 100 / 3
-```
-
-### Converged values (test dataset, ~500 epochs)
-
-| Metric | Value |
-|--------|-------|
-| 6-mer BCE | 0.0040 |
-| 5-mer BCE | 0.0136 |
-| 4-mer MSE | 0.0004 |
-| 3-mer MSE | 0.0002 |
-| GC MSE | 0.0001 |
-| KL | ~493 |
-| Recon | ~2480 |
-
-### Reconstruction error analysis
-
-**4-mers (MSE = 0.0004):**
-- Typical value: ~0.0074 (1/136)
-- RMS log error: ~0.02
-- Absolute error: ~0.0003 (~4% relative)
-
-**3-mers (MSE = 0.0002):**
-- Typical value: ~0.031 (1/32)
-- RMS log error: ~0.014
-- Absolute error: ~0.0004 (~1.4% relative)
-
-**GC (MSE = 0.0001 with logit):**
-- Typical value: 0.2-0.7
-- RMS logit error: ~0.01
-- Absolute error: ~0.002-0.003 (<1% relative)
-
-All errors well under 0.01 for dense k-mers and GC.
-
-### Key settings
-
-- β-VAE with β = 0.1 (KL weight)
-- Latent dimension: 256
-- KL ~493 indicates good latent space utilization for clustering
-- Length column removed from input (2761 features total)
-
----
-
-## 2025-11-27 ~21:45: All-MSE experiment
-
-### Changed 6-mers from BCE to MSE
-
-Tested using MSE log(x + 0.01) for all k-mers instead of BCE for 6-mers.
-
-| Metric | BCE 6-mer | MSE 6-mer |
-|--------|-----------|-----------|
-| 6-mer | 0.0040 (BCE) | 0.0004 (MSE) |
-| 5-mer | 0.0008 | 0.0008 |
-| 4-mer | 0.0004 | 0.0004 |
-| 3-mer | 0.0002 | 0.0002 |
-| KL | ~499 | ~416 |
-| Recon | ~1195 | ~95 |
-
-### Observation: Loss doubling pattern breaks for 6-mers
-
-Expected pattern based on 3/4/5-mers: 2 → 4 → 8 → 16
-Actual 6-mer loss: 4 (not 16)
-
-**Explanation**: The 0.01 offset drowns out the 6-mer signal.
-
-- 6-mer values: ~1/2080 ≈ 0.00048 (20x smaller than offset)
-- 5-mer values: ~1/512 ≈ 0.002
-- 4-mer values: ~1/136 ≈ 0.007
-- 3-mer values: ~1/32 ≈ 0.031
-
-With +0.01 offset:
-- log(0.00048 + 0.01) ≈ -4.56
-- log(0 + 0.01) = -4.61
-
-The offset dominates for sparse 6-mers, compressing prediction errors. This may explain why BCE worked well for 6-mers - it doesn't have this offset problem.
-
-### Trade-off
-
-- All-MSE: Lower reconstruction loss, but KL dropped (~499 → ~416)
-- BCE for 6-mers: Higher KL may be better for clustering separation
-
-Keeping all-MSE for now pending full dataset testing.
-
----
-
-## 2025-11-27 ~22:15: Testing smaller offset for 6-mers
-
-### Hypothesis
-
-The 0.01 offset drowns out 6-mer signal because 6-mer values (~0.00048) are 20x smaller than the offset. Testing whether a smaller offset (0.001) restores the expected loss doubling pattern.
-
-### Change
-
-- 6-mers: `log(x + 0.001)` (was 0.01)
-- 5/4/3-mers: `log(x + 0.01)` (unchanged)
-- GC: logit transform (unchanged)
-
-### Expected outcome
-
-If the hypothesis is correct, 6-mer MSE should increase from ~0.0004 to ~0.0016 (4x), restoring the doubling pattern:
-- 3-mer: ~0.0002 (2)
-- 4-mer: ~0.0004 (4)
-- 5-mer: ~0.0008 (8)
-- 6-mer: ~0.0016 (16) ← expected with smaller offset
-
-### Results
-
-| Metric | 0.01 offset | 0.001 offset |
-|--------|-------------|--------------|
-| 6-mer MSE | 0.0004 | 0.0124 |
-| 5-mer MSE | 0.0008 | 0.0005 |
-| 4-mer MSE | 0.0004 | 0.0003 |
-| 3-mer MSE | 0.0002 | 0.0003 |
-| GC MSE | ~0.0001 | 0.0001 |
-| KL | ~416 | ~623 |
-| Recon | ~95 | ~752 |
-
-### Analysis
-
-The 6-mer MSE increased 31x (not the expected 4x). The smaller offset "unsuppressed" the 6-mer signal, revealing that the model struggles to reconstruct sparse 6-mers precisely.
-
-**Trade-offs:**
-- Higher KL (~623 vs ~416) = better latent space utilization for clustering
-- Worse 6-mer reconstruction = model encodes what it can, ignores fine 6-mer details
-- Slightly better 5/4-mer reconstruction
-
-For clustering purposes, higher KL may be more valuable than perfect 6-mer reconstruction. The sparse 6-mers contain less discriminative information anyway.
-
----
-
-## 2025-11-28 ~00:10: Latent dimension comparison (256 vs 128)
-
-### Test: Reduced latent dimension to 128
-
-Ran overnight to compare 128-dim latent space vs 256-dim.
-
-| Metric | 256-dim | 128-dim |
-|--------|---------|---------|
-| 6-mer MSE | 0.0124 | 0.0136 |
-| 5-mer MSE | 0.0005 | 0.0007 |
-| 4-mer MSE | 0.0003 | 0.0004 |
-| 3-mer MSE | 0.0003 | 0.0002 |
-| GC MSE | 0.0001 | 0.0000 |
-| KL | ~623 | ~411 |
-| Recon | ~752 | ~822 |
-
-### Observations
-
-- Reconstruction slightly worse with 128-dim (expected with less capacity)
-- KL dropped from ~623 to ~411 (smaller latent space = less room to spread)
-- Dense k-mers (3-mer, 4-mer) and GC still reconstruct well
-- 6-mers hardest to reconstruct in both cases
-
-### Next steps
-
-Test on full dataset to determine if 128 dimensions with KL ~411 provides sufficient clustering separation, or if 256 dimensions with KL ~623 is needed.
-
----
-
-## 2025-11-28 ~14:15: Full dataset training (256-dim)
-
-### Training progress at epoch ~270
-
-| Metric | Test set (0.5M) | Full dataset |
-|--------|-----------------|--------------|
-| 6-mer MSE | 0.0124 | 0.0135 |
-| 5-mer MSE | 0.0005 | 0.0005 |
-| 4-mer MSE | 0.0003 | 0.0004 |
-| 3-mer MSE | 0.0003 | 0.0003 |
-| GC MSE | 0.0001 | 0.0001 |
-| KL | ~623 | ~605 |
-
-Occasional GC spikes (0.0009-0.0015) in some epochs, likely due to batch variation in metagenomic data. Training otherwise stable.
-
-### 6-mer error analysis
-
-With MSE = 0.0135 in `log(x + 0.001)` space:
-- RMS log error: √0.0135 ≈ 0.116
-- Multiplicative error: e^0.116 ≈ 1.12 (±12%)
-- For typical 6-mer (~0.00048): absolute error ~0.00006
-
-The 0.001 offset limits discrimination between absent (0) and very rare 6-mers:
-- log(0 + 0.001) = -6.9
-- log(0.0005 + 0.001) = -6.5
-
-### Options to improve 6-mer reconstruction
-
-1. **Gated approach**: Separate presence/absence from value prediction (like old 7-mer model)
-2. **Smaller offset (0.0001)**: More sensitivity but potentially unstable
-3. **BCE for 6-mers only**: Worked well before (0.0040) but gave lower KL
-4. **Accept current accuracy**: ±12% may suffice for clustering — species differ by much more
-
-### Practical interpretation
-
-Model distinguishes 6-mer profiles differing by >12%. For metagenomic clustering, this is likely acceptable since species k-mer signatures differ substantially.
-
----
-
-## 2025-11-28 ~14:50: 6-mer offset experiment (0.0005 vs 0.001)
-
-### Test: Halved 6-mer offset to 0.0005
-
-| Metric | 0.001 offset | 0.0005 offset |
-|--------|--------------|---------------|
-| 6-mer MSE | 0.0135 | 0.041 |
-| 5-mer MSE | 0.0005 | 0.0012 |
-| 4-mer MSE | 0.0004 | 0.0012 |
-| 3-mer MSE | 0.0003 | 0.0008 |
-| KL | ~605 | ~771 |
-
-### Result
-
-Smaller offset made everything worse. The loss landscape becomes harder to optimize when the offset is too small relative to the values. Reverted to 0.001.
-
-### Conclusion
-
-0.001 is the practical minimum for 6-mer offset. Further reduction destabilizes training without improving reconstruction.
-
----
-
-## 2025-11-28 ~16:55: BCE for 6-mers (full dataset)
-
-### Configuration
-
-- **6-mers**: BCE (clip to [eps, 1-eps])
-- **5/4/3-mers**: MSE with `log(x + 0.01)`
-- **GC**: MSE with logit transform
-- **Loss formula**: `bce_6 * OUTPUT_DIM * 100 + (mse_5 + mse_4 + mse_3 + mse_gc) * OUTPUT_DIM * 100 / 4`
-
-### Results comparison
-
-| Metric | All-MSE (0.001 offset) | BCE 6-mer + MSE others |
-|--------|------------------------|------------------------|
-| 6-mer | 0.0135 (MSE) | 0.0040 (BCE) |
-| 5-mer | 0.0005 | 0.0011 |
-| 4-mer | 0.0004 | 0.0007 |
-| 3-mer | 0.0003 | 0.0004 |
-| GC | 0.0001 | 0.0001 |
-| KL | ~605 | ~615 |
-| Recon | ~815 | ~1251 |
-
-### Analysis
-
-BCE handles sparse 6-mers much better than MSE with offset:
-- 6-mer error: 0.0040 (BCE) vs 0.0135 (MSE) — 3.4x improvement
-- KL slightly higher (~615 vs ~605) — good for clustering
-- 5/4/3-mer MSE slightly higher but still excellent (<0.1% error)
-
-### Conclusion
-
-BCE for 6-mers is the right choice. The hybrid loss (BCE for sparse features, MSE for dense features) outperforms uniform MSE.
+JAX backend uses only ~30% of RAM (~154 GB) for the full dataset, compared to ~90% (~460 GB) with TensorFlow. Much more efficient.

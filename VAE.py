@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
 """
-Variational Autoencoder for multi-scale k-mer frequency distributions using BCE loss.
+Variational Autoencoder for 7-mer frequency distributions using 1D convolutions.
 
-K-mer frequencies are normalized distributions (sum to 1 within each group), making them
-suitable for BCE loss which treats each frequency as a probability.
+Input: 7-mer frequencies (8,192 canonical k-mers) as a 1D signal.
+Output: Reconstructed 7-mer frequencies with sigmoid activation.
+Loss: BCE (binary cross-entropy) for reconstruction.
 
-Input format (from convert_txt_to_npy):
-    length(1) + 6-mers(2080) + 5-mers(512) + 4-mers(136) + 3-mers(32) + GC(1) = 2,762
-
-Length column is skipped during loading - only k-mer frequencies and GC are used.
+Architecture uses two Conv1D layers with three pooling stages to compress
+the signal before a dense layer leading to the 256-dimensional latent space.
 """
 
 import argparse
 import os
 os.environ['KERAS_BACKEND'] = 'jax'
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 
 import logging
 import numpy as np
@@ -22,7 +20,6 @@ import keras
 from keras import layers
 from keras import Model
 from keras import ops
-from sklearn.model_selection import train_test_split
 import pickle
 
 # Setup logging to both stdout and file
@@ -38,24 +35,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Global constants
-# Input/Output: 6-mers(2080) + 5-mers(512) + 4-mers(136) + 3-mers(32) + GC(1) = 2,761
-# (length column from data file is skipped during loading)
-INPUT_DIM = 2761
-OUTPUT_DIM = 2761
+INPUT_DIM = 8192  # 7-mer canonical frequencies
 LATENT_DIM = 256
 SEED = 42
 
-# Feature slice indices
-# Layout: [6-mers(2080), 5-mers(512), 4-mers(136), 3-mers(32), GC(1)]
-KMER_6_SLICE = (0, 2080)        # 2,080 features
-KMER_5_SLICE = (2080, 2592)     # 512 features
-KMER_4_SLICE = (2592, 2728)     # 136 features
-KMER_3_SLICE = (2728, 2760)     # 32 features
-GC_SLICE = (2760, 2761)         # 1 feature
-
 
 class VAEMetricsCallback(keras.callbacks.Callback):
-    """Track VAE metrics outside of JIT-compiled code (Keras 3 compatible)."""
+    """Track VAE metrics outside of JIT-compiled code."""
 
     def __init__(self, validation_data: tuple[np.ndarray, np.ndarray], sample_size: int = 5000):
         super().__init__()
@@ -80,44 +66,20 @@ class VAEMetricsCallback(keras.callbacks.Callback):
         weighted_kl = float(self.model.kl_weight) * kl_loss
 
         reconstruction = self.model.decoder(z, training = False)
-        target = sample_x  # Input and output are now the same (no length)
+        target = sample_x
 
-        # Per-group metrics
+        # BCE loss
         eps = 1e-7
+        target_clipped = ops.clip(target, eps, 1.0 - eps)
         pred_clipped = ops.clip(reconstruction, eps, 1.0 - eps)
+        bce = float(-ops.mean(target_clipped * ops.log(pred_clipped) + (1.0 - target_clipped) * ops.log(1.0 - pred_clipped)))
 
-        # BCE loss for 6-mers
-        target_6 = ops.clip(target[:, KMER_6_SLICE[0]:KMER_6_SLICE[1]], eps, 1.0 - eps)
-        pred_6 = ops.clip(reconstruction[:, KMER_6_SLICE[0]:KMER_6_SLICE[1]], eps, 1.0 - eps)
-        bce_6 = float(-ops.mean(target_6 * ops.log(pred_6) + (1.0 - target_6) * ops.log(1.0 - pred_6)))
-        # MSE in log-space for 5-mers (add 0.01 offset)
-        target_5 = target[:, KMER_5_SLICE[0]:KMER_5_SLICE[1]]
-        pred_5 = reconstruction[:, KMER_5_SLICE[0]:KMER_5_SLICE[1]]
-        mse_5 = float(ops.mean(ops.square(ops.log(target_5 + 0.01) - ops.log(pred_5 + 0.01))))
-
-        # MSE in log-space for 4-mers (add 0.01 offset)
-        target_4 = target[:, KMER_4_SLICE[0]:KMER_4_SLICE[1]]
-        pred_4 = reconstruction[:, KMER_4_SLICE[0]:KMER_4_SLICE[1]]
-        mse_4 = float(ops.mean(ops.square(ops.log(target_4 + 0.01) - ops.log(pred_4 + 0.01))))
-
-        # MSE in log-space for 3-mers (add 0.01 offset)
-        target_3 = target[:, KMER_3_SLICE[0]:KMER_3_SLICE[1]]
-        pred_3 = reconstruction[:, KMER_3_SLICE[0]:KMER_3_SLICE[1]]
-        mse_3 = float(ops.mean(ops.square(ops.log(target_3 + 0.01) - ops.log(pred_3 + 0.01))))
-
-        # MSE for GC using logit transform: log(x / (1-x))
-        target_gc = ops.clip(target[:, GC_SLICE[0]:GC_SLICE[1]], eps, 1.0 - eps)
-        pred_gc = ops.clip(reconstruction[:, GC_SLICE[0]:GC_SLICE[1]], eps, 1.0 - eps)
-        mse_gc = float(ops.mean(ops.square(ops.log(target_gc / (1.0 - target_gc)) - ops.log(pred_gc / (1.0 - pred_gc)))))
-
-        # Total reconstruction loss (approximate)
-        recon_loss = bce_6 * OUTPUT_DIM * 100 + (mse_5 + mse_4 + mse_3 + mse_gc) * OUTPUT_DIM * 100 / 4
+        recon_loss = bce * INPUT_DIM
 
         val_loss = logs.get('val_loss')
         val_loss_str = f'{val_loss:.2f}' if val_loss is not None else 'N/A'
         logger.info(
-            f'Epoch {epoch + 1}/{self.params["epochs"]}: Recon: {recon_loss:.2f}, KL: {kl_loss:.2f} (w={weighted_kl:.2f}), Val: {val_loss_str} | '
-            f'6mer={bce_6:.4f}, 5mer={mse_5:.4f}, 4mer={mse_4:.4f}, 3mer={mse_3:.4f}, GC={mse_gc:.4f}'
+            f'Epoch {epoch + 1}/{self.params["epochs"]}: Recon: {recon_loss:.2f}, KL: {kl_loss:.2f} (w={weighted_kl:.2f}), Val: {val_loss_str}, BCE: {bce:.6f}'
         )
 
 
@@ -196,23 +158,6 @@ class ClipLayer(layers.Layer):
         return config
 
 
-class SliceLayer(layers.Layer):
-    """Slices a tensor along the last axis."""
-
-    def __init__(self, start, end, **kwargs):
-        super().__init__(**kwargs)
-        self.start = start
-        self.end = end
-
-    def call(self, inputs):
-        return inputs[:, self.start:self.end]
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({'start': self.start, 'end': self.end})
-        return config
-
-
 class VAE(Model):
     def __init__(self, latent_dim = LATENT_DIM, kl_weight = 0.0, **kwargs):
         super().__init__(**kwargs)
@@ -222,16 +167,19 @@ class VAE(Model):
         self.decoder = self._build_decoder()
 
     def _build_encoder(self):
-        """Build simple encoder: input → hidden → latent.
-
-        Length is included as advisory input but not reconstructed.
+        """Build fully-connected encoder (no convolutions to avoid CUDA issues).
 
         Architecture:
-            - Input (2,762) → 1024 → 512 → latent (256)
+            Input (8192,) flattened
+            → Dense(1024) → Dense(512) → Dense(256) z_mean, z_log_var
         """
-        encoder_inputs = keras.Input(shape = (INPUT_DIM,))
+        encoder_inputs = keras.Input(shape = (INPUT_DIM, 1), name = 'encoder_input')
 
-        x = layers.Dense(1024, name = 'enc_dense1')(encoder_inputs)
+        # Flatten input
+        x = layers.Flatten(name = 'enc_flatten')(encoder_inputs)
+
+        # Dense layers
+        x = layers.Dense(1024, name = 'enc_dense1')(x)
         x = layers.BatchNormalization(name = 'enc_bn1')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_relu1')(x)
 
@@ -248,13 +196,16 @@ class VAE(Model):
         return Model(encoder_inputs, [z_mean, z_log_var, z], name = 'encoder')
 
     def _build_decoder(self):
-        """Build simple decoder: latent → hidden → output with sigmoid.
+        """Build fully-connected decoder (mirror of encoder).
 
         Architecture:
-            - Latent (256) → 512 → 1024 → output (2,761) with sigmoid
+            Input (256)
+            → Dense(512) → Dense(1024) → Dense(8192) sigmoid
+            → Output (8192, 1)
         """
-        latent_inputs = keras.Input(shape = (self.latent_dim,))
+        latent_inputs = keras.Input(shape = (self.latent_dim,), name = 'decoder_input')
 
+        # Dense layers
         x = layers.Dense(512, name = 'dec_dense1')(latent_inputs)
         x = layers.BatchNormalization(name = 'dec_bn1')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_relu1')(x)
@@ -263,8 +214,11 @@ class VAE(Model):
         x = layers.BatchNormalization(name = 'dec_bn2')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_relu2')(x)
 
-        # Output layer: sigmoid activation for BCE loss
-        decoder_outputs = layers.Dense(OUTPUT_DIM, activation = 'sigmoid', name = 'dec_output')(x)
+        # Output layer
+        x = layers.Dense(INPUT_DIM, activation = 'sigmoid', name = 'dec_output')(x)
+
+        # Reshape to match input shape
+        decoder_outputs = layers.Reshape((INPUT_DIM, 1), name = 'dec_reshape')(x)
 
         return Model(latent_inputs, decoder_outputs, name = 'decoder')
 
@@ -272,39 +226,12 @@ class VAE(Model):
         z_mean, z_log_var, z = self.encoder(inputs, training = training)
         reconstruction = self.decoder(z, training = training)
 
-        # Input and output are now the same (no length field)
-        target = inputs
-
+        # BCE loss
         eps = 1e-7
-
-        # BCE loss for 6-mers
-        target_6 = ops.clip(target[:, KMER_6_SLICE[0]:KMER_6_SLICE[1]], eps, 1.0 - eps)
-        pred_6 = ops.clip(reconstruction[:, KMER_6_SLICE[0]:KMER_6_SLICE[1]], eps, 1.0 - eps)
-        bce_6 = -ops.mean(target_6 * ops.log(pred_6) + (1.0 - target_6) * ops.log(1.0 - pred_6))
-
-        # MSE loss for 5-mers in log-space (add 0.01 offset)
-        target_5 = target[:, KMER_5_SLICE[0]:KMER_5_SLICE[1]]
-        pred_5 = reconstruction[:, KMER_5_SLICE[0]:KMER_5_SLICE[1]]
-        mse_5 = ops.mean(ops.square(ops.log(target_5 + 0.01) - ops.log(pred_5 + 0.01)))
-
-        # MSE loss for 4-mers in log-space (add 0.01 offset)
-        target_4 = target[:, KMER_4_SLICE[0]:KMER_4_SLICE[1]]
-        pred_4 = reconstruction[:, KMER_4_SLICE[0]:KMER_4_SLICE[1]]
-        mse_4 = ops.mean(ops.square(ops.log(target_4 + 0.01) - ops.log(pred_4 + 0.01)))
-
-        # MSE loss for 3-mers in log-space (add 0.01 offset)
-        target_3 = target[:, KMER_3_SLICE[0]:KMER_3_SLICE[1]]
-        pred_3 = reconstruction[:, KMER_3_SLICE[0]:KMER_3_SLICE[1]]
-        mse_3 = ops.mean(ops.square(ops.log(target_3 + 0.01) - ops.log(pred_3 + 0.01)))
-
-        # MSE loss for GC using logit transform: log(x / (1-x))
-        eps = 1e-7
-        target_gc = ops.clip(target[:, GC_SLICE[0]:GC_SLICE[1]], eps, 1.0 - eps)
-        pred_gc = ops.clip(reconstruction[:, GC_SLICE[0]:GC_SLICE[1]], eps, 1.0 - eps)
-        mse_gc = ops.mean(ops.square(ops.log(target_gc / (1.0 - target_gc)) - ops.log(pred_gc / (1.0 - pred_gc))))
-
-        # Combined loss: BCE for 6-mers, MSE for others
-        recon_loss = bce_6 * OUTPUT_DIM * 100 + (mse_5 + mse_4 + mse_3 + mse_gc) * OUTPUT_DIM * 100 / 4
+        target = ops.clip(inputs, eps, 1.0 - eps)
+        pred = ops.clip(reconstruction, eps, 1.0 - eps)
+        bce = -ops.mean(target * ops.log(pred) + (1.0 - target) * ops.log(1.0 - pred))
+        recon_loss = bce * INPUT_DIM
 
         # KL divergence
         kl_loss = -0.5 * ops.mean(ops.sum(1 + z_log_var - ops.square(z_mean) - ops.exp(z_log_var), axis = 1))
@@ -323,58 +250,112 @@ class VAE(Model):
         return config
 
 
-def load_data(file_path):
-    """Load k-mer frequency data, skipping the length column.
+def load_data_to_memory(file_path: str, start_idx: int, end_idx: int) -> np.ndarray:
+    """Load a subset of the data into memory as float32.
+
+    This avoids memory leaks caused by repeated numpy->TensorFlow conversions
+    in the training loop.
 
     Args:
-        file_path: Path to the .npy file containing frequency data.
-            Expected format: length(1) + 6-mers(2080) + 5-mers(512) + 4-mers(136) + 3-mers(32) + GC(1) = 2,762 columns
+        file_path: Path to the .npy file
+        start_idx: First row index to load
+        end_idx: Last row index (exclusive)
 
     Returns:
-        Data as float32 array with 2,761 features (length column removed).
-
-    Raises:
-        ValueError: If the data dimensions are unexpected.
+        numpy array of shape (n_samples, INPUT_DIM, 1) as float32
     """
-    logger.info(f'Loading data from {file_path}...')
+    logger.info(f'Loading data[{start_idx}:{end_idx}] into memory...')
+    data_mmap = np.load(file_path, mmap_mode = 'r')
+    data = data_mmap[start_idx:end_idx, 1:8193].astype(np.float32).reshape(-1, INPUT_DIM, 1)
+    logger.info(f'Loaded {data.shape[0]:,} samples ({data.nbytes / 1024**3:.1f} GB)')
+    return data
 
-    # Memory-map the file to avoid loading entire array into RAM at once
-    data = np.load(file_path)
 
-    # Validate input dimensions
+class NumpyBatchDataset(keras.utils.PyDataset):
+    """PyDataset that yields batches from pre-loaded numpy data.
+
+    Works with JAX backend - no TensorFlow dependency.
+    Uses indexed access (__getitem__) instead of iteration for Keras compatibility.
+    """
+
+    def __init__(self, data: np.ndarray, batch_size: int, shuffle: bool = True, **kwargs):
+        super().__init__(**kwargs)
+        self.data = data
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.n_samples = len(data)
+        self.n_batches = self.n_samples // batch_size
+        self.indices = np.arange(self.n_samples)
+        if shuffle:
+            np.random.shuffle(self.indices)
+
+    def __len__(self):
+        return self.n_batches
+
+    def __getitem__(self, idx):
+        start = idx * self.batch_size
+        end = start + self.batch_size
+        batch_indices = self.indices[start:end]
+        batch = self.data[batch_indices]
+        return batch, batch  # Autoencoder: input = target
+
+    def on_epoch_end(self):
+        if self.shuffle:
+            np.random.shuffle(self.indices)
+
+
+def get_data_info(file_path, max_samples = None):
+    """Get data info and split ranges without loading data.
+
+    Uses contiguous ranges for train/val to enable efficient sequential reads.
+    The file should already be shuffled.
+
+    Args:
+        file_path: Path to the .npy file.
+        max_samples: If set, only use this many samples.
+
+    Returns:
+        Tuple of (n_samples, train_end, val_start, val_end).
+    """
+    logger.info(f'Reading data info from {file_path}...')
+
+    # Memory-map to get shape without loading
+    data = np.load(file_path, mmap_mode = 'r')
+
     if data.ndim != 2:
         raise ValueError(f'Expected 2D array, got {data.ndim}D array with shape {data.shape}')
-    if data.shape[1] != 2762:
-        raise ValueError(f'Expected 2762 features (with length), got {data.shape[1]}. '
-                         f'Data shape: {data.shape}')
 
-    logger.info(f'Found {len(data)} samples, skipping length column...')
+    n_total = len(data)
+    logger.info(f'Found {n_total:,} samples with {data.shape[1]} features')
 
-    # Skip column 0 (length) and convert to float32
-    data_f32 = data[:, 1:].astype(np.float32)
+    # Limit samples if requested
+    if max_samples is not None and max_samples < n_total:
+        logger.info(f'Limiting to {max_samples:,} samples')
+        n_total = max_samples
 
-    logger.info(f'Loaded {len(data_f32):,} samples with {data_f32.shape[1]} features')
-    logger.info(f'Data stats: Min {data_f32.min():.6f}, Max {data_f32.max():.6f}, Mean {data_f32.mean():.6f}')
-    return data_f32
+    # Use first 90% for train, last 10% for val (contiguous ranges)
+    train_end = int(n_total * 0.9)
+    val_start = train_end
+    val_end = n_total
+
+    logger.info(f'Train: 0-{train_end:,} ({train_end:,}), Val: {val_start:,}-{val_end:,} ({val_end - val_start:,})')
+    return n_total, train_end, val_start, val_end
 
 
 def main():
-    parser = argparse.ArgumentParser(description = 'Train a VAE on k-mer frequency data')
+    parser = argparse.ArgumentParser(description = 'Train a convolutional VAE on 7-mer frequency data')
     parser.add_argument('-i', '--input', required = True, help = 'Path to input .npy file with k-mer frequencies')
     parser.add_argument('-e', '--epochs', type = int, default = 100, help = 'Number of training epochs (default: 100)')
     parser.add_argument('-l', '--learning-rate', type = float, default = 1e-4, help = 'Learning rate (default: 1e-4)')
-    parser.add_argument('-b', '--batch-size', type = int, default = 4096, help = 'Batch size (default: 4096)')
+    parser.add_argument('-b', '--batch-size', type = int, default = 1024, help = 'Batch size (default: 1024)')
+    parser.add_argument('-n', '--max-samples', type = int, default = None, help = 'Max samples to load (for testing)')
     args = parser.parse_args()
 
     np.random.seed(SEED)
     keras.utils.set_random_seed(SEED)
 
-    # Load data (no log transform for BCE)
-    X = load_data(args.input)
-
-    # Split
-    X_train, X_val = train_test_split(X, test_size = 0.1, random_state = SEED)
-    logger.info(f'Training on {X_train.shape[0]} samples, validating on {X_val.shape[0]} samples')
+    # Get data info and split ranges (no loading)
+    n_samples, train_end, val_start, val_end = get_data_info(args.input, max_samples = args.max_samples)
 
     # Load existing model if available, otherwise create new one
     resuming = os.path.exists('vae_best.keras')
@@ -383,11 +364,9 @@ def main():
     if resuming:
         logger.info('Loading existing model from vae_best.keras...')
         vae = keras.models.load_model('vae_best.keras', custom_objects = {
-            'VAE': VAE, 'Sampling': Sampling, 'ClipLayer': ClipLayer,
-            'SliceLayer': SliceLayer
+            'VAE': VAE, 'Sampling': Sampling, 'ClipLayer': ClipLayer
         })
         logger.info('Model loaded successfully. Recompiling and continuing training...')
-        # Load previous best val_loss if history exists
         if os.path.exists('vae_history.pkl'):
             with open('vae_history.pkl', 'rb') as f:
                 prev_history = pickle.load(f)
@@ -398,16 +377,41 @@ def main():
         logger.info('No existing model found. Creating new VAE...')
         vae = VAE(latent_dim = LATENT_DIM)
 
+    # Print model summary
+    vae.encoder.summary(print_fn = logger.info)
+    vae.decoder.summary(print_fn = logger.info)
+
+    logger.info('Compiling model...')
+
     # Always (re)compile to ensure consistent optimizer settings
     vae.compile(optimizer = keras.optimizers.Adam(learning_rate = args.learning_rate))
 
+    logger.info('Model compiled successfully.')
+
+    # Load all data into memory
+    # For 4.8M samples: ~157GB RAM needed
+    logger.info('Loading training data into memory...')
+    train_data = load_data_to_memory(args.input, 0, train_end)
+
+    logger.info('Loading validation data into memory...')
+    val_data = load_data_to_memory(args.input, val_start, val_end)
+
+    # Create batch datasets (works with JAX backend)
+    logger.info('Creating batch datasets...')
+    train_dataset = NumpyBatchDataset(train_data, args.batch_size, shuffle = True)
+    val_dataset = NumpyBatchDataset(val_data, args.batch_size, shuffle = False)
+
+    # Use a subset of validation data for the metrics callback
+    val_sample = val_data[:min(5000, len(val_data))]
+    logger.info(f'Validation sample: {val_sample.shape}')
+
     # Setup callbacks
-    vae_metrics = VAEMetricsCallback(validation_data = (X_val, X_val), sample_size = 5000)
+    vae_metrics = VAEMetricsCallback(validation_data = (val_sample, val_sample), sample_size = 5000)
 
     callbacks = [
         KLWarmupCallback(warmup_epochs = 5, max_weight = 0.1, skip_warmup = resuming),
         vae_metrics,
-        VAECheckpoint(filepath_prefix = 'vae', monitor = 'val_loss', verbose = 0, initial_best = initial_best),
+        VAECheckpoint(filepath_prefix = 'vae', monitor = 'val_loss', verbose = 1, initial_best = initial_best),
         keras.callbacks.ReduceLROnPlateau(
             monitor = 'val_loss',
             factor = 0.5,
@@ -417,13 +421,14 @@ def main():
         )
     ]
 
+    n_train_batches = len(train_data) // args.batch_size
+    n_val_batches = len(val_data) // args.batch_size
+    logger.info(f'Train batches: {n_train_batches}, Val batches: {n_val_batches}')
     logger.info('Starting Training...')
     history = vae.fit(
-        X_train,
-        X_train,
+        train_dataset,
         epochs = args.epochs,
-        batch_size = args.batch_size,
-        validation_data = (X_val, X_val),
+        validation_data = val_dataset,
         callbacks = callbacks,
         verbose = 0
     )
@@ -437,6 +442,7 @@ def main():
 
     logger.info(f'Training complete. Final val_loss: {history.history["val_loss"][-1]:.4f}')
     logger.info('Models saved: vae_final.keras, vae_encoder_final.keras, vae_decoder_final.keras')
+
 
 if __name__ == '__main__':
     main()
