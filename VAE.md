@@ -537,3 +537,99 @@ Input (8192, 1)
 - Encoder: 4.7M
 - Decoder: 4.5M
 - Total: ~9.2M (same as before - dense layers dominate)
+
+---
+
+## 2025-12-02 ~14:20: Switched to fully-connected with MSE loss
+
+Conv1D architecture still showing posterior collapse. Reverted to simpler fully-connected architecture with MSE loss to establish a working baseline.
+
+**Encoder:**
+```
+Input (8192, 1) → Flatten
+    → Dense(1024) → BN → LeakyReLU
+    → Dense(512) → BN → LeakyReLU
+    → z_mean(256), z_log_var(256)
+```
+
+**Decoder:**
+```
+(256) latent
+    → Dense(512) → BN → LeakyReLU
+    → Dense(1024) → BN → LeakyReLU
+    → Dense(8192) → Reshape(8192, 1)
+```
+
+### Changes
+- Removed all Conv1D/Conv1DTranspose layers
+- Changed loss from BCE to MSE
+- No sigmoid activation on output (raw values for MSE)
+
+### Parameters
+- Encoder: 9.2M
+- Decoder: 9.1M
+- Total: ~18.2M
+
+---
+
+## 2025-12-02 ~14:30: Added CLR transformation
+
+Added Centered Log-Ratio (CLR) transformation to preprocessing.
+
+### What is CLR?
+CLR is appropriate for compositional data (like k-mer frequencies that sum to 1):
+```
+CLR(x_i) = log(x_i / geometric_mean(x))
+```
+
+### Why use CLR?
+- K-mer frequencies are compositional (constrained to sum to 1)
+- Standard Euclidean methods assume unconstrained space
+- CLR removes the sum-to-one constraint
+- Makes data more symmetric/Gaussian
+- MSE in CLR space is meaningful
+
+### Implementation
+- Added `clr_transform_inplace()` function with pseudocount=1e-6 to avoid log(0)
+- Applied in `load_data_to_memory()` before reshaping
+- Uses in-place operations to minimize memory usage
+
+---
+
+## 2025-12-02 ~14:37: Fixed memory issue with CLR
+
+### Problem
+Original CLR implementation created copies of the data during transformation, exhausting memory when loading the full dataset.
+
+### Solution
+Changed `clr_transform()` to `clr_transform_inplace()`:
+- Uses `data += pseudocount` instead of `data + pseudocount`
+- Uses `np.log(data, out=data)` for in-place log
+- Uses `data -= log_geom_mean` for in-place subtraction
+
+### Test Results (50k samples, 3 epochs)
+Training with CLR shows promising KL behavior:
+- Epoch 1: KL=2735.71, MSE=24.08
+- Epoch 2: KL=656.45, MSE=3.71
+- Epoch 3: KL=396.78, MSE=2.97
+
+KL is staying meaningful (not collapsing to ~0) while reconstruction loss decreases.
+
+---
+
+## 2025-12-02 ~15:50: Added MAPE metric for interpretability
+
+### Problem
+MSE in CLR space is hard to interpret. An MSE of 3.82 doesn't directly tell you how accurate the frequency reconstruction is.
+
+### Solution
+Added Mean Absolute Percentage Error (MAPE) in original frequency space:
+1. Added `inverse_clr()` function to convert CLR back to normalized frequencies
+   - `freq_i = exp(clr_i) / sum(exp(clr))`
+2. Modified `VAEMetricsCallback` to compute MAPE after each epoch
+3. MAPE shows average percentage error in reconstructed frequencies
+
+### Interpretation
+- MAPE of 10% means on average, each k-mer frequency is off by 10% of its true value
+- More intuitive than MSE in CLR space
+- Frequencies are normalized (sum to 1), so this measures relative accuracy
