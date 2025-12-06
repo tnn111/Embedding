@@ -32,3 +32,29 @@ Successfully loaded **4,776,770 sequences** into ChromaDB collection `shrub_of_l
 - Distance metric: cosine similarity
 - Batch size used: 5,000 (ChromaDB max is 5,461)
 - Metadata: sequence length for each entry
+
+---
+
+## 2025-12-03 ~14:15: Updated for new data format
+
+### Changes
+
+Rewrote script to use new input format from `calculate_kmer_frequencies`:
+
+**Old input:** Single text file with ID, length, and k-mer columns
+**New input:** Two files:
+- IDs file: Text file with one ID per line
+- K-mers file: NumPy .npy with length at column 0, 6-mer through 1-mer frequencies at columns 1-2772
+
+### New usage
+
+```bash
+./create_and_load_db -id Data/all_ids.txt -k Data/all_kmers.npy
+```
+
+### Other changes
+
+- Now uses VAEMulti encoder (`vae_multi_encoder_best.keras`) with 384-dim latent space
+- Applies CLR transformation before encoding
+- Uses argparse for cleaner CLI
+- Memory-maps .npy file for efficient batch processing

@@ -12,6 +12,9 @@ wheels/
 # Bulky data.
 Data/
 
+# Database
+.chroma
+
 # Generated outputs
 *.npy
 *.png

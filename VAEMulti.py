@@ -3,17 +3,18 @@
 Variational Autoencoder for multi-scale k-mer frequency distributions.
 
 Input: 6-mer through 1-mer frequencies (2,772 canonical k-mers), CLR-transformed.
-       - 6-mers: 2,080 features (cols 8193-10272)
-       - 5-mers: 512 features (cols 10273-10784)
-       - 4-mers: 136 features (cols 10785-10920)
-       - 3-mers: 32 features (cols 10921-10952)
-       - 2-mers: 10 features (cols 10953-10962)
-       - 1-mers: 2 features (cols 10963-10964)
+       - Column 0: sequence length (skipped)
+       - Columns 1-2080: 6-mers (2,080 features)
+       - Columns 2081-2592: 5-mers (512 features)
+       - Columns 2593-2728: 4-mers (136 features)
+       - Columns 2729-2760: 3-mers (32 features)
+       - Columns 2761-2770: 2-mers (10 features)
+       - Columns 2771-2772: 1-mers (2 features)
 
 Output: Reconstructed CLR-transformed frequencies.
 Loss: MSE (mean squared error) for reconstruction.
 
-Fully-connected architecture with 256-dimensional latent space.
+Fully-connected architecture with 384-dimensional latent space.
 """
 
 import argparse
@@ -42,12 +43,12 @@ logger = logging.getLogger(__name__)
 
 # Global constants
 INPUT_DIM = 2772  # 6-mer through 1-mer canonical frequencies (2080+512+136+32+10+2)
-LATENT_DIM = 256
+LATENT_DIM = 384
 SEED = 42
 
-# Column ranges in all_kmers.npy (0-indexed, col 0 is row index)
-COL_START = 8193  # Start of 6-mers (after row index and 7-mers)
-COL_END = 10965   # End of 1-mers (exclusive)
+# Column ranges in k-mers.npy (0-indexed, col 0 is sequence length)
+COL_START = 1     # Start of 6-mers (after length column)
+COL_END = 2773    # End of 1-mers (exclusive)
 
 # K-mer sizes within the INPUT_DIM features (local indices, 0-based)
 KMER_SIZES = {
@@ -311,7 +312,7 @@ def load_data_to_memory(file_path: str, start_idx: int, end_idx: int) -> np.ndar
     """
     logger.info(f'Loading data[{start_idx}:{end_idx}] into memory...')
     data_mmap = np.load(file_path, mmap_mode = 'r')
-    # Load columns for 6-mers through 1-mers (columns 8193-10964)
+    # Load columns for 6-mers through 1-mers (columns 1-2772, skipping length at col 0)
     data = data_mmap[start_idx:end_idx, COL_START:COL_END].astype(np.float32)
 
     # Apply CLR transformation in-place to save memory
@@ -459,7 +460,7 @@ def main():
     vae_metrics = VAEMetricsCallback(validation_data = (val_sample, val_sample), sample_size = 5000)
 
     callbacks = [
-        KLWarmupCallback(warmup_epochs = 5, max_weight = 0.1, skip_warmup = resuming),
+        KLWarmupCallback(warmup_epochs = 5, max_weight = 0.05, skip_warmup = resuming),
         vae_metrics,
         VAECheckpoint(filepath_prefix = 'vae_multi', monitor = 'val_loss', verbose = 1, initial_best = initial_best),
         keras.callbacks.ReduceLROnPlateau(

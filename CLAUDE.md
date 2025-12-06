@@ -84,6 +84,19 @@ The `create_and_load_db` script loads VAE embeddings into ChromaDB:
 - `vae_decoder_best.keras` / `vae_decoder_final.keras`: Decoder only
 - `vae_history.pkl`: Training history
 
+## Mandatory Logging (CRITICAL)
+
+Whenever making changes to a Python file (X.py), you MUST update the corresponding notes file (X.md) in the SAME response or immediately after. Do NOT wait to be asked. This includes:
+- Architecture changes
+- Bug fixes
+- New features
+- Design decisions
+- Training observations
+- Parameter changes
+- Discussions about trade-offs or future directions
+
+Never skip this step. If you forget, add the notes as soon as you realize.
+
 ## Development Notes
 
 - Uses JAX backend for Keras (`KERAS_BACKEND = 'jax'`)

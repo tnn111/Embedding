@@ -196,3 +196,35 @@ counts = np.bincount(canonical_indices, minlength=n_canonical)
 ### Performance
 
 Processed 4,776,770 sequences in ~1 hour. Output: (4776770, 10965) float32 array.
+
+---
+
+## 2025-12-03 ~14:00: Removed 7-mers from output
+
+### Rationale
+
+Based on VAEMulti analysis, 7-mers are not needed for the vector DB use case:
+- 6-mers already dominate reconstruction error (95% of MSE)
+- Information redundancy - 7-mers contain constituent 6-mers
+- 7-mers mainly help with strain-level differentiation (not needed for species/plasmid/virus separation)
+- Removing 7-mers reduces features from 10,965 to 2,773 (75% reduction)
+
+### New output format
+
+NumPy array shape: `(n_sequences, 2773)`
+
+| Column(s) | Content | Count |
+|-----------|---------|-------|
+| 0 | Sequence length | 1 |
+| 1-2080 | 6-mer frequencies | 2,080 |
+| 2081-2592 | 5-mer frequencies | 512 |
+| 2593-2728 | 4-mer frequencies | 136 |
+| 2729-2760 | 3-mer frequencies | 32 |
+| 2761-2770 | 2-mer frequencies | 10 |
+| 2771-2772 | 1-mer frequencies | 2 |
+
+### Changes
+
+- `range(1, 8)` → `range(1, 7)` for k-mer mappings
+- `range(7, 0, -1)` → `range(6, 0, -1)` for k-mer counting
+- Updated docstring to reflect new feature count (2,773)

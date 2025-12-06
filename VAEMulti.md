@@ -126,3 +126,257 @@ Recon: 3366.99, KL: 681.81 (w=0.1000), Val: 3397.95, MSE: 1.21 [6mer=1.56, 5mer=
 - Lower beta (e.g., 0.075 instead of 0.1) → better reconstruction but less structured latent space
 - Higher beta → more regularized latent space but worse reconstruction
 - At beta=0, just a regular autoencoder (no KL term)
+
+---
+
+## 2025-12-02 ~16:25: Increased latent dimension to 384
+
+Changed LATENT_DIM from 256 to 384 to improve 6-mer reconstruction while maintaining structured latent space.
+
+---
+
+## 2025-12-02 ~16:30: Decision to focus on 6-mers and below (not 7-mers)
+
+### Use case
+- Separate organisms to ~species level
+- Separate plasmids and viruses from chromosomal DNA
+
+### Why 6-mers through 1-mers are sufficient
+
+**For species-level taxonomy:**
+- Studies show 4-6 mers capture most taxonomic signal
+- Species have distinct GC content, codon usage, oligonucleotide frequencies
+
+**For plasmids:**
+- Different compositional signatures than host chromosomes
+- 4-6 mers commonly used in plasmid detection tools
+
+**For viruses:**
+- Distinctive k-mer profiles due to codon adaptation, compact genomes
+- Often extreme GC content
+- Phages cluster near bacterial hosts
+
+### Why NOT add 7-mers
+1. 6-mers already dominate reconstruction error (95% of MSE)
+2. Information redundancy - 7-mers contain constituent 6-mers
+3. Would nearly 4x input dimension (2,772 → 10,964)
+4. 7-mers mainly help with strain-level differentiation (not needed)
+
+### Expected latent space structure
+- Bacteria clustering by phylum/class, species as sub-clusters
+- Plasmids clustering separately or near typical hosts
+- Viruses forming distinct clusters
+
+---
+
+## 2025-12-02 ~16:40: Systematic parameter exploration
+
+### Run 1: Latent=384, Beta=0.1 (500 epochs)
+
+**Final results:**
+```
+Val loss: 3001.15, KL: 1059, MSE: 1.054
+[6mer=1.351, 5mer=0.203, 4mer=0.054, 3mer=0.015, 2mer=0.009, 1mer=0.006]
+```
+
+**Comparison to 256 latent (at epoch ~100):**
+- 6mer MSE: 1.56 → 1.35 (13% improvement)
+- KL: 680 → 1060 (more informative latent space)
+- Larger latent dimension helped capture more 6-mer information
+
+### Run 2: Latent=384, Beta=0.2 (500 epochs)
+
+**Final results:**
+```
+Val loss: 3077.12, KL: 814, MSE: 1.063
+[6mer=1.361, 5mer=0.207, 4mer=0.057, 3mer=0.015, 2mer=0.009, 1mer=0.006]
+```
+
+**Comparison to Beta=0.1:**
+| Metric | Beta=0.1 | Beta=0.2 |
+|--------|----------|----------|
+| Val loss | 3001 | 3077 |
+| KL | 1059 | 814 |
+| MSE | 1.054 | 1.063 |
+| 6mer | 1.351 | 1.361 |
+
+- Higher beta → lower KL (more regularized latent space)
+- Slightly worse reconstruction (as expected)
+- Differences are small - both runs converged well
+
+### Run 3: Latent=384, Beta=0.05 (500 epochs)
+
+**Final results:**
+```
+Val loss: 2899.36, KL: 1261, MSE: 1.030
+[6mer=1.319, 5mer=0.203, 4mer=0.053, 3mer=0.015, 2mer=0.008, 1mer=0.005]
+```
+
+**Comparison across all beta values:**
+| Metric | Beta=0.05 | Beta=0.1 | Beta=0.2 |
+|--------|-----------|----------|----------|
+| Val loss | 2899 | 3001 | 3077 |
+| KL | 1261 | 1059 | 814 |
+| MSE | 1.030 | 1.054 | 1.063 |
+| 6mer | 1.319 | 1.351 | 1.361 |
+
+**Key findings:**
+- Beta=0.05 gives best reconstruction (lowest MSE, lowest 6mer error)
+- KL is healthy at 1261 (not collapsed, very expressive latent space)
+- Lower beta → more informative latent space + better reconstruction
+- For vector DB retrieval, beta=0.05 looks optimal
+
+**Use case clarification:**
+- Goal: Insert into vector DB, find N closest sequences to a query
+- Not clustering per se - nearest-neighbor retrieval
+- Need meaningful local distances, not necessarily global structure
+
+### Run 4: Latent=384, Beta=0.03 (500 epochs - not fully converged)
+
+**Final results:**
+```
+Val loss: 2914.22 (best: 2910.42), KL: 1613, MSE: 1.042
+[6mer=1.333, 5mer=0.208, 4mer=0.061, 3mer=0.017, 2mer=0.010, 1mer=0.009]
+```
+
+**Comparison:**
+| Metric | Beta=0.03 | Beta=0.05 | Beta=0.1 | Beta=0.2 |
+|--------|-----------|-----------|----------|----------|
+| Val loss | 2910* | 2899 | 3001 | 3077 |
+| KL | 1613 | 1261 | 1059 | 814 |
+| MSE | 1.040* | 1.030 | 1.054 | 1.063 |
+| 6mer | 1.331 | 1.319 | 1.351 | 1.361 |
+
+*Still improving at epoch 500, not fully converged
+
+**Observations:**
+- More variance in metrics compared to beta=0.05 (still improving at epoch 498)
+- KL jumped to ~1600 (very expressive, approaching autoencoder territory)
+- MSE slightly worse than beta=0.05 despite lower regularization
+- May need more epochs to converge, or loss landscape is noisier with low beta
+
+**Interpretation:**
+Beta=0.05 appears to be near optimal - lower beta (0.03) doesn't improve reconstruction and makes training less stable.
+
+---
+
+## 2025-12-03 ~12:45: Local distance analysis
+
+### Concern
+Does the latent space preserve local structure? For vector DB retrieval, we need:
+- Close in latent space → similar k-mer profiles
+- Distance ranking to be meaningful
+
+### How beta affects local distances
+
+**With beta=0.05 (KL~1260):**
+- Encoder uses latent dimensions expressively
+- Similar k-mer profiles → similar latent vectors
+- Distances reflect reconstruction similarity
+
+**Potential concerns with low beta:**
+1. Discontinuities/holes in latent space (less regularization)
+2. Non-uniform density (okay for retrieval)
+3. Distance scale variation across regions
+
+**Why probably okay for retrieval:**
+- Finding N closest neighbors (not using distance threshold)
+- Ranking by distance should work
+- KL=1260 is still substantial regularization
+
+### Verification script: verify_local_distances.py
+Tests whether "close in latent space" = "similar k-mer profiles" by:
+1. Taking random sequences from validation set
+2. Finding K nearest neighbors in latent space
+3. Computing actual k-mer MSE between query and neighbors
+4. Checking correlation between latent distance and k-mer similarity
+
+### Results (beta=0.03 model, 10k samples)
+```
+Pearson correlation:  r = 0.9231 (p = 0.00e+00)
+Spearman correlation: r = 0.9579 (p = 0.00e+00)
+
+K-mer MSE by neighbor rank (latent space):
+  Top  1 neighbors: MSE = 2.03 ± 1.26
+  Top  5 neighbors: MSE = 2.09 ± 1.28
+  Top 10 neighbors: MSE = 2.12 ± 1.28
+  Top 20 neighbors: MSE = 2.16 ± 1.29
+  Top 50 neighbors: MSE = 2.24 ± 1.33
+
+Random baseline: MSE = 6.19 ± 3.36
+```
+
+**Random pairs MSE distribution:**
+| Stat | Value |
+|------|-------|
+| Min | 0.17 |
+| Max | 25.91 |
+| Mean | 6.16 |
+| Median | 5.50 |
+| Std | 3.31 |
+
+**Interpretation:**
+- **STRONG correlation (r=0.96)** - latent distances reliably predict k-mer similarity
+- Nearest neighbors (MSE ~2.0) are much better than median random pair (5.5)
+- Random pairs range from 0.17 (lucky match) to 25.91 (very dissimilar - likely different domains of life)
+- MSE increases gradually with rank (as expected)
+- Local structure is well-preserved for retrieval
+
+### Comparison: Local distance quality across beta values
+
+| Metric | Beta=0.03 | Beta=0.05 | Beta=0.1 |
+|--------|-----------|-----------|----------|
+| Spearman r | 0.958 | 0.950 | 0.954 |
+| Pearson r | 0.923 | 0.902 | 0.901 |
+| Top 1 MSE | 2.03 | 2.06 | 2.05 |
+| Top 50 MSE | 2.24 | 2.30 | 2.32 |
+
+All models have excellent local structure (r > 0.95). Differences are negligible.
+
+### Final Recommendation: Beta=0.05
+
+**Best overall configuration: Latent=384, Beta=0.05**
+
+| Criterion | Beta=0.05 |
+|-----------|-----------|
+| Reconstruction MSE | 1.030 (best) |
+| 6mer MSE | 1.319 (best) |
+| Training stability | Stable |
+| Local structure (Spearman r) | 0.950 (excellent) |
+| KL divergence | 1261 (healthy, expressive) |
+
+Beta=0.05 provides the best balance of reconstruction quality, training stability, and local structure preservation for vector DB retrieval.
+
+---
+
+## 2025-12-03 ~13:00: Reset beta to 0.05 in VAEMulti.py
+
+Reverted beta from 0.03 back to 0.05 in VAEMulti.py to match the optimal configuration determined through systematic testing. The code now uses `max_weight = 0.05` in the KLWarmupCallback.
+
+---
+
+## 2025-12-03 ~14:15: Updated for new k-mer file format
+
+### Changes
+
+Updated column indices to match new `calculate_kmer_frequencies` output format (without 7-mers):
+
+**Old format (all_kmers.npy with 7-mers):**
+- Column 0: row index
+- Columns 1-8192: 7-mers
+- Columns 8193-10964: 6-mers through 1-mers
+
+**New format (k-mers.npy without 7-mers):**
+- Column 0: sequence length
+- Columns 1-2772: 6-mers through 1-mers
+
+Code changes:
+```python
+# Old
+COL_START = 8193
+COL_END = 10965
+
+# New
+COL_START = 1
+COL_END = 2773
+```

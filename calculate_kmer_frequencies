@@ -6,9 +6,8 @@ Reads one or more FASTA files and outputs:
 - IDs file: Text file with one sequence ID per line
 - K-mers file: NumPy array with length + canonical k-mer frequencies
 
-Features per sequence (10,965 total):
+Features per sequence (2,773 total):
 - Sequence length (1 value)
-- Normalized canonical 7-mer frequencies (8,192 values)
 - Normalized canonical 6-mer frequencies (2,080 values)
 - Normalized canonical 5-mer frequencies (512 values)
 - Normalized canonical 4-mer frequencies (136 values)
@@ -148,17 +147,17 @@ def main():
             print(f'Error: File not found: {f}', file = sys.stderr)
             sys.exit(1)
 
-    # Build canonical index mappings for k=1 through 7
+    # Build canonical index mappings for k=1 through 6 (no 7-mers)
     print('Building canonical k-mer mappings...', file = sys.stderr)
     k_data = {}
-    for k in range(1, 8):
+    for k in range(1, 7):
         n_canonical, mapping = build_canonical_index(k)
         k_data[k] = (n_canonical, mapping)
         print(f'  k={k}: {n_canonical} canonical k-mers', file = sys.stderr)
 
     # Calculate total features
     n_features = 1  # length
-    for k in range(7, 0, -1):
+    for k in range(6, 0, -1):
         n_features += k_data[k][0]
     print(f'Total features per sequence: {n_features}', file = sys.stderr)
 
@@ -185,12 +184,12 @@ def main():
                 # Encode sequence
                 seq_encoded = base_to_int[np.frombuffer(sequence.encode('ascii'), dtype = np.uint8)]
 
-                # Fill row: length first, then k-mers from 7 down to 1
+                # Fill row: length first, then k-mers from 6 down to 1
                 col = 0
                 chunk[chunk_idx, col] = len(sequence)
                 col += 1
 
-                for k in range(7, 0, -1):
+                for k in range(6, 0, -1):
                     n_canonical, mapping = k_data[k]
                     counts = count_kmers(seq_encoded, k, mapping, n_canonical)
                     total = counts.sum()
