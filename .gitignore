@@ -13,7 +13,7 @@ wheels/
 Data/
 
 # Database
-.chroma
+.chroma/
 
 # Generated outputs
 *.npy
