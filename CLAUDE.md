@@ -2,15 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## First Steps
+
+**At the start of each conversation**, read `VAEMulti.md` to understand the current state of the project, recent changes, and ongoing discussions. This file contains the development log with architecture decisions, parameter tuning results, and training observations.
+
+**During the conversation**, add notes to `VAEMulti.md` documenting any changes, decisions, or findings.
+
 ## Project Overview
 
-This project implements a Variational Autoencoder (VAE) for embedding metagenomic DNA sequences based on k-mer frequency distributions. The VAE compresses 2,761-dimensional k-mer frequency vectors into 256-dimensional latent embeddings suitable for clustering and similarity search.
+This project implements a Variational Autoencoder (VAE) for embedding metagenomic DNA sequences based on k-mer frequency distributions. The VAE compresses 2,772-dimensional k-mer frequency vectors into 384-dimensional latent embeddings suitable for clustering and similarity search.
 
 ## Running Commands
 
 ```bash
 # Train VAE on k-mer frequency data
-uv run VAE.py -i Data/all_multimer_frequencies_l5000_shuffled.npy -e 100
+uv run VAEMulti.py -i Data/all_kmers.npy -e 500
 
 # Load embeddings into ChromaDB (uses PEP 723 inline dependencies)
 ./create_and_load_db Data/all_multimer_frequencies_l5000_shuffled.txt
@@ -21,45 +27,42 @@ uv run jupyter notebook
 
 ## Data Format
 
-Input k-mer frequency files have 2,762 columns:
+Input k-mer frequency files have 2,773 columns:
 - Column 0: sequence length (skipped by VAE)
 - Columns 1-2080: 6-mer frequencies (2,080 features)
 - Columns 2081-2592: 5-mer frequencies (512 features)
 - Columns 2593-2728: 4-mer frequencies (136 features)
 - Columns 2729-2760: 3-mer frequencies (32 features)
-- Column 2761: GC content (1 feature)
+- Columns 2761-2770: 2-mer frequencies (10 features)
+- Columns 2771-2772: 1-mer frequencies (2 features)
 
-The VAE processes columns 1-2761 (2,761 features total).
+The VAE processes columns 1-2772 (2,772 features total).
 
 ## Architecture
 
-### VAE (VAE.py)
+### VAE (VAEMulti.py)
 
-- **Encoder**: 2761 → 1024 → 512 → 256 (latent)
-- **Decoder**: 256 → 512 → 1024 → 2761
-- **Latent dimension**: 256
-- **KL weight (β)**: 0.1 (β-VAE for better clustering)
+- **Encoder**: 2772 → 1024 → 512 → 384 (latent)
+- **Decoder**: 384 → 512 → 1024 → 2772
+- **Latent dimension**: 384
+- **KL weight (β)**: 0.05 (β-VAE for better clustering)
 
-### Loss Function (Hybrid)
+### Loss Function
 
-| Feature Group | Loss Type | Transform |
-|---------------|-----------|-----------|
-| 6-mers | BCE | clip to [eps, 1-eps] |
-| 5/4/3-mers | MSE | log(x + 0.01) |
-| GC | MSE | logit: log(x/(1-x)) |
+- **Transform**: CLR (Centered Log-Ratio) with pseudocount 1e-6
+- **Loss**: MSE on CLR-transformed features
 
-BCE handles sparse 6-mers better; MSE in log-space works for denser k-mers.
-
-### Key Constants (VAE.py)
+### Key Constants (VAEMulti.py)
 
 ```python
-INPUT_DIM = OUTPUT_DIM = 2761
-LATENT_DIM = 256
+INPUT_DIM = OUTPUT_DIM = 2772
+LATENT_DIM = 384
 KMER_6_SLICE = (0, 2080)
 KMER_5_SLICE = (2080, 2592)
 KMER_4_SLICE = (2592, 2728)
 KMER_3_SLICE = (2728, 2760)
-GC_SLICE = (2760, 2761)
+KMER_2_SLICE = (2760, 2770)
+KMER_1_SLICE = (2770, 2772)
 ```
 
 ### Custom Keras Layers
@@ -79,10 +82,10 @@ The `create_and_load_db` script loads VAE embeddings into ChromaDB:
 
 ## Model Checkpoints
 
-- `vae_best.keras` / `vae_final.keras`: Full VAE model
-- `vae_encoder_best.keras` / `vae_encoder_final.keras`: Encoder only (for inference)
-- `vae_decoder_best.keras` / `vae_decoder_final.keras`: Decoder only
-- `vae_history.pkl`: Training history
+- `vae_multi_best.keras` / `vae_multi_final.keras`: Full VAE model
+- `vae_multi_encoder_best.keras` / `vae_multi_encoder_final.keras`: Encoder only (for inference)
+- `vae_multi_decoder_best.keras` / `vae_multi_decoder_final.keras`: Decoder only
+- `vae_multi_history.pkl`: Training history
 
 ## Mandatory Logging (CRITICAL)
 

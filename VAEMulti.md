@@ -404,3 +404,25 @@ When analyzing pairwise distances in the latent space:
 ### Significance
 
 This is a good sign - it means the VAE is learning meaningful structure that separates major groups. The bimodality in cosine distance is why ChromaDB is configured with `'hnsw:space': 'cosine'` - it should be better at distinguishing these groups for retrieval.
+
+---
+
+## 2026-01-31: Clustering notebook updates and CLAUDE.md sync
+
+### Changes to clustering.ipynb
+- Split data loading cell from plotting cell (faster iteration on plots)
+- Added `embedding_ids` loading from `Data/all_ids.txt`
+- Switched to Seaborn with `darkgrid` style for all plots
+- Fixed off-by-one error in closest sequence index calculation
+- Changed cell 3 to use random sequence instead of first sequence, now prints ID
+
+### CLAUDE.md updates
+Synced CLAUDE.md with current VAEMulti configuration:
+- Latent dim: 384 (was 256)
+- β: 0.05 (was 0.1)
+- Input features: 2,772 (6-mers through 1-mers, no GC column)
+- Updated file references from VAE.py to VAEMulti.py
+- Added instruction to read VAEMulti.md at start of each conversation
+
+### Observation
+Minimum cosine distance between sequences is ~0.4 - no very close neighbors found yet. The bimodal distribution persists across random query sequences.
