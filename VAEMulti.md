@@ -459,3 +459,42 @@ Binned nearest neighbor distances and plotted count vs distance to examine the g
 - **Bimodal connection**: The transition at ~0.5-0.7 aligns with the bimodal cosine distance distribution observed earlier - this is where the two modes meet.
 
 **Implication**: The VAE has learned a structured, low-dimensional representation. Local distances (< 0.5) behave as if on a low-dim manifold, which is good for nearest-neighbor retrieval.
+
+---
+
+## 2026-02-01: t-SNE visualization (full dataset)
+
+### Setup
+- Used openTSNE library (fast, supports millions of points)
+- Ran on full 4,776,770 embeddings
+- Parameters: perplexity=30, metric='cosine', n_jobs=-1
+- Memory usage: ~75% of 512 GB
+- Time: ~25 minutes on 32-core Threadripper
+
+### Results
+
+The t-SNE visualization reveals clear structure dominated by GC content:
+
+**Two major lobes:**
+- Left lobe (blue): Low GC organisms (~20-40%)
+- Right lobe (red/orange): High GC organisms (~50-70%)
+
+**Key findings:**
+1. The bimodal cosine distance distribution is explained by GC content split
+2. Clear gradient from low to high GC across the visualization
+3. Satellite clusters/islands around edges (possibly specific taxa or mobile elements)
+4. Transition zone in middle shows intermediate GC sequences
+
+**Biological interpretation:**
+GC content is the primary axis of variation in the latent space, which makes sense - it's one of the strongest signals in k-mer frequencies. The VAE has learned compositionally meaningful structure.
+
+### Memory scaling observation
+
+Testing memory usage with different sample sizes:
+| Sample Size | Memory Usage |
+|-------------|--------------|
+| 1M | ~45% (230 GB) |
+| 2M | ~53% (272 GB) |
+| 4.8M (full) | ~75% (384 GB) |
+
+Memory scaling is sublinear - significant fixed overhead from Annoy index and FFT structures.
