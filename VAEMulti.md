@@ -426,3 +426,36 @@ Synced CLAUDE.md with current VAEMulti configuration:
 
 ### Observation
 Minimum cosine distance between sequences is ~0.4 - no very close neighbors found yet. The bimodal distribution persists across random query sequences.
+
+### Nearest neighbor analysis (100k sample)
+
+Sampled 100,000 sequences and computed pairwise cosine distances to find nearest neighbors:
+
+| Metric | Value |
+|--------|-------|
+| Sequences with neighbor < 0.1 | 1,048 (1.05%) |
+| Minimum distance found | 0.0005 |
+| Mean nearest neighbor distance | 0.5216 |
+
+**Key findings:**
+- Close neighbors DO exist, but are rare (~1% within 0.1 distance)
+- Near-duplicates exist (0.0005 ≈ identical) - likely same organism or closely related strains
+- Most sequences are spread out (mean NN distance 0.52)
+- The latent space is not collapsing - embeddings maintain meaningful distances
+
+### Count vs distance analysis
+
+Binned nearest neighbor distances and plotted count vs distance to examine the geometry of the latent space.
+
+| Distance Range | R² (linear fit) | Slope | Intercept |
+|----------------|-----------------|-------|-----------|
+| 0 - 0.2 | 0.917 | 439.2 | -1.2 |
+| 0 - 0.5 | 0.954 | 1644.7 | -70.2 |
+| 0 - 0.7 | 0.677 | 4196.2 | -469.6 |
+
+**Interpretation:**
+- **Linear regime (0 - 0.5)**: Count grows linearly with distance (R² > 0.95). This is surprising for a 384-dim space where volume should grow as r^383. Suggests embeddings lie on a low-dimensional manifold.
+- **Transition (~0.5 - 0.7)**: Supra-linear growth begins, R² drops. Starting to see higher-dimensional structure.
+- **Bimodal connection**: The transition at ~0.5-0.7 aligns with the bimodal cosine distance distribution observed earlier - this is where the two modes meet.
+
+**Implication**: The VAE has learned a structured, low-dimensional representation. Local distances (< 0.5) behave as if on a low-dim manifold, which is good for nearest-neighbor retrieval.
