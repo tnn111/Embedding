@@ -498,3 +498,19 @@ Testing memory usage with different sample sizes:
 | 4.8M (full) | ~75% (384 GB) |
 
 Memory scaling is sublinear - significant fixed overhead from Annoy index and FFT structures.
+
+### Geographic origin analysis (SFE vs SE)
+
+Colored t-SNE by sequence ID prefix to compare two estuaries:
+- **SFE** (San Francisco Estuary): 1,941,549 sequences (40.6%)
+- **SE** (Baltic Sea): 2,835,221 sequences (59.4%)
+
+**Observations:**
+1. Both environments span the full GC range - neither restricted to one lobe
+2. Low-GC lobe (left) appears more Baltic-dominated
+3. High-GC lobe (right) is more mixed, possibly slightly more SFE
+4. Significant overlap - communities share many similar organisms
+5. Some satellite clusters appear environment-specific
+
+**Interpretation:**
+The two estuaries have similar overall microbial diversity (both sample the full GC spectrum) but with different relative abundances. The Baltic may favor more low-GC organisms, possibly reflecting colder temperatures or different dominant taxa. The overlap suggests shared cosmopolitan organisms common to estuarine environments.
