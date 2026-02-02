@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## First Steps
 
-**At the start of each conversation**, read `VAEMulti.md` to understand the current state of the project, recent changes, and ongoing discussions. This file contains the development log with architecture decisions, parameter tuning results, and training observations.
+**At the start of each conversation**, read `VAE.md` to understand the current state of the project, recent changes, and ongoing discussions. This file contains the development log with architecture decisions, parameter tuning results, and training observations.
 
-**During the conversation**, add notes to `VAEMulti.md` documenting any changes, decisions, or findings.
+**During the conversation**, add notes to `VAE.md` documenting any changes, decisions, or findings.
 
 ## Project Overview
 
@@ -16,7 +16,7 @@ This project implements a Variational Autoencoder (VAE) for embedding metagenomi
 
 ```bash
 # Train VAE on k-mer frequency data
-uv run VAEMulti.py -i Data/all_kmers.npy -e 500
+uv run VAE.py -i Data/all_kmers.npy -e 500
 
 # Load embeddings into ChromaDB (uses PEP 723 inline dependencies)
 ./create_and_load_db Data/all_multimer_frequencies_l5000_shuffled.txt
@@ -40,7 +40,7 @@ The VAE processes columns 1-2772 (2,772 features total).
 
 ## Architecture
 
-### VAE (VAEMulti.py)
+### VAE (VAE.py)
 
 - **Encoder**: 2772 → 1024 → 512 → 384 (latent)
 - **Decoder**: 384 → 512 → 1024 → 2772
@@ -52,7 +52,7 @@ The VAE processes columns 1-2772 (2,772 features total).
 - **Transform**: CLR (Centered Log-Ratio) with pseudocount 1e-6
 - **Loss**: MSE on CLR-transformed features
 
-### Key Constants (VAEMulti.py)
+### Key Constants (VAE.py)
 
 ```python
 INPUT_DIM = OUTPUT_DIM = 2772
@@ -82,10 +82,10 @@ The `create_and_load_db` script loads VAE embeddings into ChromaDB:
 
 ## Model Checkpoints
 
-- `vae_multi_best.keras` / `vae_multi_final.keras`: Full VAE model
-- `vae_multi_encoder_best.keras` / `vae_multi_encoder_final.keras`: Encoder only (for inference)
-- `vae_multi_decoder_best.keras` / `vae_multi_decoder_final.keras`: Decoder only
-- `vae_multi_history.pkl`: Training history
+- `vae_best.keras` / `vae_final.keras`: Full VAE model
+- `vae_encoder_best.keras` / `vae_encoder_final.keras`: Encoder only (for inference)
+- `vae_decoder_best.keras` / `vae_decoder_final.keras`: Decoder only
+- `vae_history.pkl`: Training history
 
 ## Mandatory Logging (CRITICAL)
 

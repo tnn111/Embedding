@@ -1,635 +1,561 @@
-# VAE Request
+# VAE Development Log
 
-I would like you to build a new VAE. You can edit the old VAE.py file as a skeleton.
+## 2025-12-02 ~15:00: Initial Implementation
 
-As a first cut, use just the 7-mers from Data/all_mkers.npy.
+### Request
+Build a VAE using 6-mers through 1-mers (not 7-mers) from Data/all_kmers.npy.
+- Dense layers with batch normalization
+- Symmetric encoder/decoder
+- CLR transformation with MSE loss
 
-I would like you to build the VAE starting with two 1D convolutional layers and one fully connected layer before going to a 256-dimensional latent space. 
+### Data Layout in all_kmers.npy (10,965 columns)
+- Column 0: row index
+- Columns 1-8192: 7-mers (8,192 features) - NOT USED
+- Columns 8193-10272: 6-mers (2,080 features)
+- Columns 10273-10784: 5-mers (512 features)
+- Columns 10785-10920: 4-mers (136 features)
+- Columns 10921-10952: 3-mers (32 features)
+- Columns 10953-10962: 2-mers (10 features)
+- Columns 10963-10964: 1-mers (2 features)
 
-Ask me any questions you need to and put a copy of the questions in this file as well as in the terminal. I will add my answers here or in the terminal. You should keep a running log of your decisions - data and time stamped - in this file.
+**Total input features: 2,772** (columns 8193-10964)
 
----
-
-## 2025-12-01 Questions from Claude
-
-1. **Conv1D input shape**: The 7-mer data has 8,192 features. For 1D convolution, should I treat this as a 1D signal of length 8192 with 1 channel, or reshape it differently (e.g., 128×64)?
-
-2. **Kernel sizes**: What kernel sizes would you like for the two conv layers? Common choices are 3, 5, 7, or larger for capturing longer-range patterns.
-
-3. **Number of filters**: How many filters per conv layer? (e.g., 64, 128, 256)
-
-4. **Pooling**: Should I use pooling (max or average) between/after conv layers to reduce dimensionality before the fully connected layer?
-
-5. **Decoder architecture**: Should the decoder mirror the encoder (transposed convolutions / upsampling), or use a simpler fully-connected decoder?
-
-6. **Loss function**: The old VAE used BCE for 6-mers. For 7-mers, would you prefer:
-   - BCE (treats frequencies as independent probabilities)
-   - MSE (standard regression)
-   - MSE in log-space (better for small values)
-   - Something else?
-
-## Answers from Torben
-
-First of all, please remember to add a *timestamp* as well as a date to your entries here. It can be approximate.
-
-- Treat it as a 1D signal of length 8,192 with 1 channel.
-
-- For the first layer, use a filter length of 7 and 256 filters. For the second, use a filter length of 15 and 512 filters. Put
-  a max pooling layer in between.
-
-- Mirror the encoder in the decoder.
-
-- Use BCE for the loss function.
-
-This is an experiment to see what happens if we add in 1D convolutional layers and I fully expect to iterate several times.
-
----
-
-## 2025-12-01 ~14:30: Design decisions
-
-Based on Torben's answers, the architecture will be:
-
-### Encoder
-1. Input: (8192, 1) - 7-mer frequencies as 1D signal
-2. Conv1D: 256 filters, kernel size 7, padding='same'
-3. MaxPooling1D: pool size 2 → (4096, 256)
-4. Conv1D: 512 filters, kernel size 15, padding='same'
-5. Flatten → 4096 × 512 = 2,097,152
-6. Dense → 256 (latent space)
-
-**Issue**: The flattened size (2M) is very large. Will add a second pooling layer or use global pooling to reduce dimensionality before the dense layer. Need to clarify with Torben.
-
-### Decoder (mirror of encoder)
-1. Dense: latent → flattened size
-2. Reshape → (pooled_length, 512)
-3. Conv1DTranspose: 256 filters, kernel size 15
-4. Upsample
-5. Conv1DTranspose: 1 filter, kernel size 7
-6. Output: (8192, 1) with sigmoid
-
-### Loss
-- BCE (binary cross-entropy) for reconstruction
-
----
-
-## 2025-12-01 ~14:45: Revised architecture
-
-After discussion, revised to reduce parameter count:
-
-### Encoder
-```
-Input (8192, 1)
-    │
-    ▼
-Conv1D (128 filters, kernel=7, padding='same')
-    │
-    ▼
-MaxPooling1D (pool=4)
-    │
-    ▼
-(2048, 128)
-    │
-    ▼
-Conv1D (256 filters, kernel=15, padding='same')
-    │
-    ▼
-MaxPooling1D (pool=4)
-    │
-    ▼
-(512, 256)
-    │
-    ▼
-Flatten
-    │
-    ▼
-(131,072)
-    │
-    ▼
-Dense (1024)
-    │
-    ▼
-Dense (z_mean: 256)  Dense (z_log_var: 256)
-    │                      │
-    └──────────┬───────────┘
-               ▼
-         Sampling (z)
-               │
-               ▼
-           (256) latent
-```
-
-### Decoder
-```
-Input (256) latent
-    │
-    ▼
-Dense (1024)
-    │
-    ▼
-Dense (131,072)
-    │
-    ▼
-Reshape (512, 256)
-    │
-    ▼
-UpSampling1D (size=4)
-    │
-    ▼
-(2048, 256)
-    │
-    ▼
-Conv1DTranspose (128 filters, kernel=15, padding='same')
-    │
-    ▼
-UpSampling1D (size=4)
-    │
-    ▼
-(8192, 128)
-    │
-    ▼
-Conv1DTranspose (1 filter, kernel=7, padding='same', activation='sigmoid')
-    │
-    ▼
-Output (8192, 1)
-```
-
-### Parameter count estimate
-- Conv1D 1: 7 × 1 × 128 + 128 = 1,024
-- Conv1D 2: 15 × 128 × 256 + 256 = 491,776
-- Dense (flatten→1024): 131,072 × 1024 + 1024 = 134M
-- Dense (1024→256): 1024 × 256 × 2 + 512 = 525K (z_mean + z_log_var)
-- Decoder mirrors: ~134M
-
-Total: ~270M parameters (dominated by flatten→dense connection)
-
----
-
-## 2025-12-01 ~15:00: Final architecture
-
-Revised to get flatten layer down to 8,192 using three pooling layers:
-
-### Encoder
-```
-Input (8192, 1)
-    │
-    ▼
-Conv1D (64 filters, kernel=7, padding='same')
-    │
-    ▼
-MaxPooling1D (pool=4) → (2048, 64)
-    │
-    ▼
-Conv1D (64 filters, kernel=15, padding='same')
-    │
-    ▼
-MaxPooling1D (pool=4) → (512, 64)
-    │
-    ▼
-MaxPooling1D (pool=4) → (128, 64)
-    │
-    ▼
-Flatten → 8,192
-    │
-    ▼
-Dense (1024)
-    │
-    ▼
-Dense (z_mean: 256)  Dense (z_log_var: 256)
-    │                      │
-    └──────────┬───────────┘
-               ▼
-         Sampling (z)
-               │
-               ▼
-           (256) latent
-```
-
-### Decoder
-```
-Input (256) latent
-    │
-    ▼
-Dense (1024)
-    │
-    ▼
-Dense (8,192)
-    │
-    ▼
-Reshape (128, 64)
-    │
-    ▼
-UpSampling1D (size=4) → (512, 64)
-    │
-    ▼
-UpSampling1D (size=4) → (2048, 64)
-    │
-    ▼
-Conv1DTranspose (64 filters, kernel=15, padding='same')
-    │
-    ▼
-UpSampling1D (size=4) → (8192, 64)
-    │
-    ▼
-Conv1DTranspose (1 filter, kernel=7, padding='same', activation='sigmoid')
-    │
-    ▼
-Output (8192, 1)
-```
-
-### Parameter count estimate
-- Conv1D 1: 7 × 1 × 64 + 64 = 512
-- Conv1D 2: 15 × 64 × 64 + 64 = 61,504
-- Dense (8192→1024): 8,192 × 1024 + 1024 = 8.4M
-- Dense (1024→256×2): 1024 × 512 + 512 = 525K
-- Decoder Dense (256→1024): 256 × 1024 + 1024 = 263K
-- Decoder Dense (1024→8192): 1024 × 8192 + 8192 = 8.4M
-- Conv1DTranspose 1: 15 × 64 × 64 + 64 = 61,504
-- Conv1DTranspose 2: 7 × 64 × 1 + 1 = 449
-
-Total: ~18M parameters
-
----
-
-## 2025-12-01 ~16:40: Switched to fully-connected architecture
-
-### Problem
-
-Conv1D layers caused CUDA errors:
-1. OOM errors even with small batch sizes (JAX/TF allocator issues)
-2. Integer overflow in CUDA kernel: `work_element_count >= 0 (-1673527296 vs. 0)`
-
-The 8192-length 1D convolutions were too large for stable CUDA computation.
-
-### Solution
-
-Switched to fully-connected architecture:
+### Architecture
 
 **Encoder:**
 ```
-Input (8192, 1) → Flatten
-    → Dense(1024) → BN → LeakyReLU
-    → Dense(512) → BN → LeakyReLU
-    → z_mean(256), z_log_var(256)
+Input (2772,)
+    -> Dense(1024) -> BatchNorm -> LeakyReLU(0.2)
+    -> Dense(512) -> BatchNorm -> LeakyReLU(0.2)
+    -> z_mean(256), z_log_var(256)
 ```
 
 **Decoder:**
 ```
-(256) latent
-    → Dense(512) → BN → LeakyReLU
-    → Dense(1024) → BN → LeakyReLU
-    → Dense(8192, sigmoid)
-    → Reshape(8192, 1)
+Input (256,)
+    -> Dense(512) -> BatchNorm -> LeakyReLU(0.2)
+    -> Dense(1024) -> BatchNorm -> LeakyReLU(0.2)
+    -> Dense(2772)
 ```
 
-### Initial results
+### Parameters (from model summary)
+- Encoder: 3,633,152 (13.86 MB)
+- Decoder: 3,504,340 (13.37 MB)
+- Total: ~7.1M parameters
 
-Training with 100k samples, batch size 512:
-- Epoch 1: BCE 0.131 → Epoch 11: BCE 0.0015
-- Loss dropping rapidly, model learning well
+### Test Run (50k samples, 3 epochs)
+```
+Epoch 1: Recon: 32182.76, KL: 1556.31, MSE: 11.61
+Epoch 2: Recon: 9258.21, KL: 867.71, MSE: 3.34
+Epoch 3: Recon: 3896.94, KL: 475.37, MSE: 1.41
+```
+KL is staying meaningful and MSE is dropping well.
 
-### Notes
+### Key Differences from VAE.py (7-mer version)
+1. Input is flat (2772,) not (8192, 1) - no reshape needed
+2. Smaller input dimension means smaller first layer
+3. Uses columns 8193-10964 instead of 1-8192
+4. Model files prefixed with `vae_` instead of `vae_`
 
-- Using TensorFlow backend (not JAX) with `TF_GPU_ALLOCATOR=cuda_malloc_async`
-- Will revisit Conv1D approach later with smaller kernel sizes or different architecture
+### Preprocessing
+- CLR (Centered Log-Ratio) transformation applied in-place
+- Pseudocount of 1e-6 to avoid log(0)
 
 ---
 
-## 2025-12-01 ~17:45: Memory leak diagnosis
+## 2025-12-02 ~15:55: Added per-k-mer MSE breakdown
 
-### Problem
+### Change
+Added breakdown of MSE by k-mer size to monitor reconstruction quality at each scale.
 
-Training on full dataset (~4.8M samples) causes memory to grow until system runs out of RAM (~200GB consumed, then silent crash).
+### Output format
+```
+MSE: 1.41 [6mer=1.52, 5mer=1.21, 4mer=0.98, 3mer=0.76, 2mer=0.45, 1mer=0.12]
+```
 
-### Investigation with test_memory_scale.py
+### K-mer feature ranges (local indices in 2772-dim input)
+- 6mer: 0-2080 (2080 features)
+- 5mer: 2080-2592 (512 features)
+- 4mer: 2592-2728 (136 features)
+- 3mer: 2728-2760 (32 features)
+- 2mer: 2760-2770 (10 features)
+- 1mer: 2770-2772 (2 features)
 
-Created diagnostic script to track memory at different scales:
+---
 
-| Scale | Batches | Memory after 1 epoch |
-|-------|---------|---------------------|
-| 100k  | 195     | 10.15 GB            |
-| 500k  | 976     | 26.36 GB            |
-| 1M    | 1953    | (still growing)     |
+## 2025-12-02 ~16:15: Training observations and analysis
 
-Memory grows approximately linearly with number of batches processed. This is NOT related to:
-- Memory-mapped file access (stays at ~0.03 GB)
-- VAE model creation (~1 GB)
-- Batch loading (~0.03 GB per batch)
+### Results at epoch ~100
+```
+Recon: 3366.99, KL: 681.81 (w=0.1000), Val: 3397.95, MSE: 1.21 [6mer=1.56, 5mer=0.22, 4mer=0.06, 3mer=0.02, 2mer=0.01, 1mer=0.01]
+```
 
-### Root cause
+### Key observation: 6-mers dominate reconstruction error
+| K-mer | MSE  | % of total |
+|-------|------|------------|
+| 6mer  | 1.56 | ~95%       |
+| 5mer  | 0.22 | ~4%        |
+| 4mer  | 0.06 | <1%        |
+| 3-1mer| 0.01-0.02 | tiny |
 
-TensorFlow/Keras accumulates internal state during training:
-1. Gradient history for optimizer (Adam stores momentum/velocity)
-2. XLA compilation cache grows
-3. Potential tensor reference leaks in graph mode
+**Interpretation:**
+- Shorter k-mers (1-4) are nearly perfectly reconstructed
+- 6-mers are the bottleneck - 2,080 features compressed to 256 latent dims is lossy
+- Model has converged; improvements are marginal
 
-### Solutions investigated
+### Options to improve reconstruction while maintaining structured latent space
 
-1. **`run_eagerly=True`**: Works (memory stable) but 10x slower (58ms vs 4ms per step)
-2. **Clear `vae.losses`**: No effect
-3. **`tf.function` with fixed signature**: No effect
-4. **Manual training loop**: Same leak - ~21MB per batch
+1. **Increase latent dimension** (256 → 384 or 512)
+   - Simplest change, directly addresses compression bottleneck
+   - Recommended first step
 
-### Root cause found
+2. **Add encoder/decoder capacity**
+   - Wider layers (1024→2048) or add third layer
+   - More parameters, slower training
 
-The leak occurs when converting numpy arrays to TensorFlow tensors inside the training loop:
+3. **Learned prior** (VampPrior, mixture of Gaussians)
+   - More expressive than N(0,1) prior
+
+4. **Hierarchical VAE**
+   - Separate latent spaces for different k-mer scales
+
+5. **Cyclical annealing**
+   - Repeatedly ramp beta up and down during training
+
+### Effect of lowering beta (KL weight)
+- Lower beta (e.g., 0.075 instead of 0.1) → better reconstruction but less structured latent space
+- Higher beta → more regularized latent space but worse reconstruction
+- At beta=0, just a regular autoencoder (no KL term)
+
+---
+
+## 2025-12-02 ~16:25: Increased latent dimension to 384
+
+Changed LATENT_DIM from 256 to 384 to improve 6-mer reconstruction while maintaining structured latent space.
+
+---
+
+## 2025-12-02 ~16:30: Decision to focus on 6-mers and below (not 7-mers)
+
+### Use case
+- Separate organisms to ~species level
+- Separate plasmids and viruses from chromosomal DNA
+
+### Why 6-mers through 1-mers are sufficient
+
+**For species-level taxonomy:**
+- Studies show 4-6 mers capture most taxonomic signal
+- Species have distinct GC content, codon usage, oligonucleotide frequencies
+
+**For plasmids:**
+- Different compositional signatures than host chromosomes
+- 4-6 mers commonly used in plasmid detection tools
+
+**For viruses:**
+- Distinctive k-mer profiles due to codon adaptation, compact genomes
+- Often extreme GC content
+- Phages cluster near bacterial hosts
+
+### Why NOT add 7-mers
+1. 6-mers already dominate reconstruction error (95% of MSE)
+2. Information redundancy - 7-mers contain constituent 6-mers
+3. Would nearly 4x input dimension (2,772 → 10,964)
+4. 7-mers mainly help with strain-level differentiation (not needed)
+
+### Expected latent space structure
+- Bacteria clustering by phylum/class, species as sub-clusters
+- Plasmids clustering separately or near typical hosts
+- Viruses forming distinct clusters
+
+---
+
+## 2025-12-02 ~16:40: Systematic parameter exploration
+
+### Run 1: Latent=384, Beta=0.1 (500 epochs)
+
+**Final results:**
+```
+Val loss: 3001.15, KL: 1059, MSE: 1.054
+[6mer=1.351, 5mer=0.203, 4mer=0.054, 3mer=0.015, 2mer=0.009, 1mer=0.006]
+```
+
+**Comparison to 256 latent (at epoch ~100):**
+- 6mer MSE: 1.56 → 1.35 (13% improvement)
+- KL: 680 → 1060 (more informative latent space)
+- Larger latent dimension helped capture more 6-mer information
+
+### Run 2: Latent=384, Beta=0.2 (500 epochs)
+
+**Final results:**
+```
+Val loss: 3077.12, KL: 814, MSE: 1.063
+[6mer=1.361, 5mer=0.207, 4mer=0.057, 3mer=0.015, 2mer=0.009, 1mer=0.006]
+```
+
+**Comparison to Beta=0.1:**
+| Metric | Beta=0.1 | Beta=0.2 |
+|--------|----------|----------|
+| Val loss | 3001 | 3077 |
+| KL | 1059 | 814 |
+| MSE | 1.054 | 1.063 |
+| 6mer | 1.351 | 1.361 |
+
+- Higher beta → lower KL (more regularized latent space)
+- Slightly worse reconstruction (as expected)
+- Differences are small - both runs converged well
+
+### Run 3: Latent=384, Beta=0.05 (500 epochs)
+
+**Final results:**
+```
+Val loss: 2899.36, KL: 1261, MSE: 1.030
+[6mer=1.319, 5mer=0.203, 4mer=0.053, 3mer=0.015, 2mer=0.008, 1mer=0.005]
+```
+
+**Comparison across all beta values:**
+| Metric | Beta=0.05 | Beta=0.1 | Beta=0.2 |
+|--------|-----------|----------|----------|
+| Val loss | 2899 | 3001 | 3077 |
+| KL | 1261 | 1059 | 814 |
+| MSE | 1.030 | 1.054 | 1.063 |
+| 6mer | 1.319 | 1.351 | 1.361 |
+
+**Key findings:**
+- Beta=0.05 gives best reconstruction (lowest MSE, lowest 6mer error)
+- KL is healthy at 1261 (not collapsed, very expressive latent space)
+- Lower beta → more informative latent space + better reconstruction
+- For vector DB retrieval, beta=0.05 looks optimal
+
+**Use case clarification:**
+- Goal: Insert into vector DB, find N closest sequences to a query
+- Not clustering per se - nearest-neighbor retrieval
+- Need meaningful local distances, not necessarily global structure
+
+### Run 4: Latent=384, Beta=0.03 (500 epochs - not fully converged)
+
+**Final results:**
+```
+Val loss: 2914.22 (best: 2910.42), KL: 1613, MSE: 1.042
+[6mer=1.333, 5mer=0.208, 4mer=0.061, 3mer=0.017, 2mer=0.010, 1mer=0.009]
+```
+
+**Comparison:**
+| Metric | Beta=0.03 | Beta=0.05 | Beta=0.1 | Beta=0.2 |
+|--------|-----------|-----------|----------|----------|
+| Val loss | 2910* | 2899 | 3001 | 3077 |
+| KL | 1613 | 1261 | 1059 | 814 |
+| MSE | 1.040* | 1.030 | 1.054 | 1.063 |
+| 6mer | 1.331 | 1.319 | 1.351 | 1.361 |
+
+*Still improving at epoch 500, not fully converged
+
+**Observations:**
+- More variance in metrics compared to beta=0.05 (still improving at epoch 498)
+- KL jumped to ~1600 (very expressive, approaching autoencoder territory)
+- MSE slightly worse than beta=0.05 despite lower regularization
+- May need more epochs to converge, or loss landscape is noisier with low beta
+
+**Interpretation:**
+Beta=0.05 appears to be near optimal - lower beta (0.03) doesn't improve reconstruction and makes training less stable.
+
+---
+
+## 2025-12-03 ~12:45: Local distance analysis
+
+### Concern
+Does the latent space preserve local structure? For vector DB retrieval, we need:
+- Close in latent space → similar k-mer profiles
+- Distance ranking to be meaningful
+
+### How beta affects local distances
+
+**With beta=0.05 (KL~1260):**
+- Encoder uses latent dimensions expressively
+- Similar k-mer profiles → similar latent vectors
+- Distances reflect reconstruction similarity
+
+**Potential concerns with low beta:**
+1. Discontinuities/holes in latent space (less regularization)
+2. Non-uniform density (okay for retrieval)
+3. Distance scale variation across regions
+
+**Why probably okay for retrieval:**
+- Finding N closest neighbors (not using distance threshold)
+- Ranking by distance should work
+- KL=1260 is still substantial regularization
+
+### Verification script: verify_local_distances.py
+Tests whether "close in latent space" = "similar k-mer profiles" by:
+1. Taking random sequences from validation set
+2. Finding K nearest neighbors in latent space
+3. Computing actual k-mer MSE between query and neighbors
+4. Checking correlation between latent distance and k-mer similarity
+
+### Results (beta=0.03 model, 10k samples)
+```
+Pearson correlation:  r = 0.9231 (p = 0.00e+00)
+Spearman correlation: r = 0.9579 (p = 0.00e+00)
+
+K-mer MSE by neighbor rank (latent space):
+  Top  1 neighbors: MSE = 2.03 ± 1.26
+  Top  5 neighbors: MSE = 2.09 ± 1.28
+  Top 10 neighbors: MSE = 2.12 ± 1.28
+  Top 20 neighbors: MSE = 2.16 ± 1.29
+  Top 50 neighbors: MSE = 2.24 ± 1.33
+
+Random baseline: MSE = 6.19 ± 3.36
+```
+
+**Random pairs MSE distribution:**
+| Stat | Value |
+|------|-------|
+| Min | 0.17 |
+| Max | 25.91 |
+| Mean | 6.16 |
+| Median | 5.50 |
+| Std | 3.31 |
+
+**Interpretation:**
+- **STRONG correlation (r=0.96)** - latent distances reliably predict k-mer similarity
+- Nearest neighbors (MSE ~2.0) are much better than median random pair (5.5)
+- Random pairs range from 0.17 (lucky match) to 25.91 (very dissimilar - likely different domains of life)
+- MSE increases gradually with rank (as expected)
+- Local structure is well-preserved for retrieval
+
+### Comparison: Local distance quality across beta values
+
+| Metric | Beta=0.03 | Beta=0.05 | Beta=0.1 |
+|--------|-----------|-----------|----------|
+| Spearman r | 0.958 | 0.950 | 0.954 |
+| Pearson r | 0.923 | 0.902 | 0.901 |
+| Top 1 MSE | 2.03 | 2.06 | 2.05 |
+| Top 50 MSE | 2.24 | 2.30 | 2.32 |
+
+All models have excellent local structure (r > 0.95). Differences are negligible.
+
+### Final Recommendation: Beta=0.05
+
+**Best overall configuration: Latent=384, Beta=0.05**
+
+| Criterion | Beta=0.05 |
+|-----------|-----------|
+| Reconstruction MSE | 1.030 (best) |
+| 6mer MSE | 1.319 (best) |
+| Training stability | Stable |
+| Local structure (Spearman r) | 0.950 (excellent) |
+| KL divergence | 1261 (healthy, expressive) |
+
+Beta=0.05 provides the best balance of reconstruction quality, training stability, and local structure preservation for vector DB retrieval.
+
+---
+
+## 2025-12-03 ~13:00: Reset beta to 0.05 in VAE.py
+
+Reverted beta from 0.03 back to 0.05 in VAE.py to match the optimal configuration determined through systematic testing. The code now uses `max_weight = 0.05` in the KLWarmupCallback.
+
+---
+
+## 2025-12-03 ~14:15: Updated for new k-mer file format
+
+### Changes
+
+Updated column indices to match new `calculate_kmer_frequencies` output format (without 7-mers):
+
+**Old format (all_kmers.npy with 7-mers):**
+- Column 0: row index
+- Columns 1-8192: 7-mers
+- Columns 8193-10964: 6-mers through 1-mers
+
+**New format (k-mers.npy without 7-mers):**
+- Column 0: sequence length
+- Columns 1-2772: 6-mers through 1-mers
+
+Code changes:
 ```python
-batch = data[row_start:row_end, ...].astype(np.float32)  # Creates new Python object
-train_step(batch)  # TF graph holds reference to this object
+# Old
+COL_START = 8193
+COL_END = 10965
+
+# New
+COL_START = 1
+COL_END = 2773
 ```
-
-When using `tf.data.Dataset.from_tensor_slices` with pre-loaded data, memory is **stable**:
-- 500k samples preloaded: 36.76 GB initial
-- After creating dataset: 52.51 GB
-- During training: 68.62 GB (stable throughout all 900 batches!)
-
-### Solution
-
-Pre-load data into memory as a single numpy array, then create `tf.data.Dataset.from_tensor_slices`. For full dataset (~4.8M samples × 8192 features × 4 bytes = ~157GB), this fits in 512GB RAM.
-
-### Verified fix
-
-Tested with 1M samples over 3 epochs:
-- After loading data: 31.60 GB
-- After dataset creation: 63.13 GB
-- After epoch 1: 96.28 GB
-- After epoch 2: 96.29 GB
-- After epoch 3: 96.29 GB
-
-Memory is **stable** during training - no more leak!
-
-Updated VAE.py to use:
-- `load_data_to_memory()` - loads data into numpy array
-- `create_dataset()` - creates `tf.data.Dataset.from_tensor_slices()`
-
-Expected memory for full dataset:
-- Load ~4.3M train samples: ~140 GB
-- Load ~0.5M val samples: ~16 GB
-- TF dataset overhead: ~2x array size
-- Training overhead: ~30 GB
-- Total: ~350 GB (fits in 512 GB)
-
-**Actual observation**: ~90% of 512 GB (~460 GB) during full dataset training. Higher than estimated due to TensorFlow's internal buffering for `prefetch` and `shuffle`. Memory is stable (no growth) during training.
-
-Note: Added `with tf.device('/CPU:0')` to `create_dataset()` to prevent TensorFlow from trying to copy the entire dataset to GPU memory.
 
 ---
 
-## 2025-12-01 ~19:00: Switched to JAX backend
+## 2025-12-03 ~19:00: Distance distribution analysis
 
-Changed from TensorFlow to JAX backend for potentially better performance.
+### Observation
 
-### Changes
-
-1. Set `KERAS_BACKEND = 'jax'` instead of `'tensorflow'`
-2. Replaced `tf.data.Dataset` with `NumpyBatchDataset(keras.utils.PyDataset)` - a simple indexed batch loader that works with any backend
-3. Removed TensorFlow-specific environment variables and device placement code
-
-### Data loading approach
-
-Using `keras.utils.PyDataset` subclass that:
-- Holds pre-loaded numpy data in memory
-- Returns batches via `__getitem__(idx)`
-- Shuffles indices on `on_epoch_end()` if shuffle=True
-- No TensorFlow dependency
-
-### Memory usage
-
-JAX backend uses only ~30% of RAM (~154 GB) for the full dataset, compared to ~90% (~460 GB) with TensorFlow. Much more efficient.
-
----
-
-## 2025-12-01 ~19:55: Convolutional VAE working
-
-### Architecture implemented
-
-Successfully implemented the Conv1D VAE architecture as specified:
-
-**Encoder:**
-```
-Input (8192, 1)
-    → Conv1D(64, kernel=7) → BN → LeakyReLU → MaxPool(4) → (2048, 64)
-    → Conv1D(64, kernel=15) → BN → LeakyReLU → MaxPool(4) → (512, 64)
-    → MaxPool(4) → (128, 64)
-    → Flatten → 8192
-    → Dense(1024) → BN → LeakyReLU
-    → z_mean(256), z_log_var(256)
-```
-
-**Decoder:**
-```
-(256) latent
-    → Dense(1024) → BN → LeakyReLU
-    → Dense(8192) → BN → LeakyReLU → Reshape(128, 64)
-    → UpSample(4) → (512, 64)
-    → Conv1DTranspose(64, kernel=15) → BN → LeakyReLU → UpSample(4) → (2048, 64)
-    → Conv1DTranspose(1, kernel=7, sigmoid) → UpSample(4) → (8192, 1)
-```
-
-### Parameters
-- Encoder: ~9M parameters
-- Decoder: ~8.7M parameters
-- Total: ~17.7M parameters
-
-### Test results (50k samples, 10 epochs)
-
-| Epoch | BCE | Val Loss | KL |
-|-------|-----|----------|-----|
-| 1 | 0.371 | 3038 | 39.8 |
-| 5 | 0.009 | 82.9 | 74.7 |
-| 10 | 0.003 | 29.7 | 49.5 |
-
-BCE reduced by ~100x over 10 epochs. Model is learning well.
-
-### Fixes applied
-
-1. **VAEMetricsCallback OOM**: The callback was processing 5000 validation samples at once, causing GPU OOM. Fixed by processing encoder and decoder in batches of 256.
-
-### Notes
-
-- Using JAX backend
-- Training speed: ~1 minute per 10 epochs for 50k samples
-- Ready for full dataset training
-
----
-
-## 2025-12-01 ~21:40: Posterior collapse observed
-
-### Problem
-
-During full dataset training, KL divergence collapsed from ~11 to <1 after epoch 5:
-
-| Epoch | KL | w = KL × 0.1 |
-|-------|-----|--------------|
-| 6 | 1.86 | 0.19 |
-| 8 | 1.05 | 0.11 |
-| 10 | 0.58 | 0.06 |
-| 11 | 0.77 | 0.08 |
-
-This indicates **posterior collapse** - the encoder outputs near-zero variance, making all latent codes nearly identical. The decoder is powerful enough to reconstruct without using the latent space meaningfully.
-
-### Fix: Reduced decoder capacity
-
-Changed conv layers from 64 filters (kernel 7/15) to 32 filters (kernel 5/5):
-
-**Encoder:**
-```
-Input (8192, 1)
-    → Conv1D(32, kernel=5) → MaxPool(4) → (2048, 32)
-    → Conv1D(32, kernel=5) → MaxPool(4) → (512, 32)
-    → MaxPool(4) → (128, 32)
-    → Flatten → 4096
-    → Dense(1024) → z_mean(256), z_log_var(256)
-```
-
-**Decoder:**
-```
-(256) latent
-    → Dense(1024) → Dense(4096) → Reshape(128, 32)
-    → UpSample(4) → (512, 32)
-    → Conv1DTranspose(32, kernel=5) → UpSample(4) → (2048, 32)
-    → Conv1DTranspose(1, kernel=5, sigmoid) → UpSample(4) → (8192, 1)
-```
-
-This reduces parameter count and forces the model to rely more on the latent space for reconstruction.
-
----
-
-## 2025-12-02 ~09:58: First full training completed (with posterior collapse)
-
-The 200-epoch training completed with the 64-filter architecture:
-
-- **Final KL**: 0.56 (very low - indicates posterior collapse)
-- **Final BCE**: 0.001202
-- **Final Val loss**: 9.92
-
-The model reconstructs well but the latent space is likely not useful for clustering due to posterior collapse.
-
----
-
-## 2025-12-02 ~10:00: Further architecture reduction
-
-Per Torben's request, reduced architecture further:
-
-**Encoder:**
-```
-Input (8192, 1)
-    → Conv1D(16, kernel=3) → MaxPool(4) → (2048, 16)
-    → Conv1D(32, kernel=5) → MaxPool(16) → (128, 32)
-    → Flatten → 4096
-    → Dense(1024) → z_mean(256), z_log_var(256)
-```
-
-**Decoder:**
-```
-(256) latent
-    → Dense(1024) → Dense(4096) → Reshape(128, 32)
-    → UpSample(16) → (2048, 32)
-    → Conv1DTranspose(16, kernel=5) → UpSample(4) → (8192, 16)
-    → Conv1DTranspose(1, kernel=3, sigmoid) → (8192, 1)
-```
-
-### Changes from previous
-- First conv: 32 filters → 16 filters, kernel 5 → 3
-- Combined two MaxPool(4) into one MaxPool(16)
-- Mirrored changes in decoder
-
-### Parameters
-- Encoder: 4.7M
-- Decoder: 4.5M
-- Total: ~9.2M (same as before - dense layers dominate)
-
----
-
-## 2025-12-02 ~14:20: Switched to fully-connected with MSE loss
-
-Conv1D architecture still showing posterior collapse. Reverted to simpler fully-connected architecture with MSE loss to establish a working baseline.
-
-**Encoder:**
-```
-Input (8192, 1) → Flatten
-    → Dense(1024) → BN → LeakyReLU
-    → Dense(512) → BN → LeakyReLU
-    → z_mean(256), z_log_var(256)
-```
-
-**Decoder:**
-```
-(256) latent
-    → Dense(512) → BN → LeakyReLU
-    → Dense(1024) → BN → LeakyReLU
-    → Dense(8192) → Reshape(8192, 1)
-```
-
-### Changes
-- Removed all Conv1D/Conv1DTranspose layers
-- Changed loss from BCE to MSE
-- No sigmoid activation on output (raw values for MSE)
-
-### Parameters
-- Encoder: 9.2M
-- Decoder: 9.1M
-- Total: ~18.2M
-
----
-
-## 2025-12-02 ~14:30: Added CLR transformation
-
-Added Centered Log-Ratio (CLR) transformation to preprocessing.
-
-### What is CLR?
-CLR is appropriate for compositional data (like k-mer frequencies that sum to 1):
-```
-CLR(x_i) = log(x_i / geometric_mean(x))
-```
-
-### Why use CLR?
-- K-mer frequencies are compositional (constrained to sum to 1)
-- Standard Euclidean methods assume unconstrained space
-- CLR removes the sum-to-one constraint
-- Makes data more symmetric/Gaussian
-- MSE in CLR space is meaningful
-
-### Implementation
-- Added `clr_transform_inplace()` function with pseudocount=1e-6 to avoid log(0)
-- Applied in `load_data_to_memory()` before reshaping
-- Uses in-place operations to minimize memory usage
-
----
-
-## 2025-12-02 ~14:37: Fixed memory issue with CLR
-
-### Problem
-Original CLR implementation created copies of the data during transformation, exhausting memory when loading the full dataset.
-
-### Solution
-Changed `clr_transform()` to `clr_transform_inplace()`:
-- Uses `data += pseudocount` instead of `data + pseudocount`
-- Uses `np.log(data, out=data)` for in-place log
-- Uses `data -= log_geom_mean` for in-place subtraction
-
-### Test Results (50k samples, 3 epochs)
-Training with CLR shows promising KL behavior:
-- Epoch 1: KL=2735.71, MSE=24.08
-- Epoch 2: KL=656.45, MSE=3.71
-- Epoch 3: KL=396.78, MSE=2.97
-
-KL is staying meaningful (not collapsing to ~0) while reconstruction loss decreases.
-
----
-
-## 2025-12-02 ~15:50: Added MAPE metric for interpretability
-
-### Problem
-MSE in CLR space is hard to interpret. An MSE of 3.82 doesn't directly tell you how accurate the frequency reconstruction is.
-
-### Solution
-Added Mean Absolute Percentage Error (MAPE) in original frequency space:
-1. Added `inverse_clr()` function to convert CLR back to normalized frequencies
-   - `freq_i = exp(clr_i) / sum(exp(clr))`
-2. Modified `VAEMetricsCallback` to compute MAPE after each epoch
-3. MAPE shows average percentage error in reconstructed frequencies
+When analyzing pairwise distances in the latent space:
+- **Euclidean distance**: Unimodal distribution
+- **Cosine distance**: Bimodal distribution
 
 ### Interpretation
-- MAPE of 10% means on average, each k-mer frequency is off by 10% of its true value
-- More intuitive than MSE in CLR space
-- Frequencies are normalized (sum to 1), so this measures relative accuracy
+
+**Euclidean distance** measures absolute distance in the 384-dimensional space. In high dimensions, distances tend to concentrate around a mean value (the "curse of dimensionality") - most points end up roughly the same distance apart, giving a unimodal distribution.
+
+**Cosine distance** measures the angle between vectors, ignoring magnitude. This is sensitive to the *direction* of vectors in the latent space. The bimodal distribution suggests there are two dominant "directions" or clusters in the latent space - possibly:
+- Chromosomal DNA vs. mobile elements (plasmids/viruses)
+- Bacteria vs. archaea
+- High GC vs. low GC organisms
+- Or some other fundamental compositional split in the data
+
+### Significance
+
+This is a good sign - it means the VAE is learning meaningful structure that separates major groups. The bimodality in cosine distance is why ChromaDB is configured with `'hnsw:space': 'cosine'` - it should be better at distinguishing these groups for retrieval.
+
+---
+
+## 2026-01-31: Clustering notebook updates and CLAUDE.md sync
+
+### Changes to clustering.ipynb
+- Split data loading cell from plotting cell (faster iteration on plots)
+- Added `embedding_ids` loading from `Data/all_ids.txt`
+- Switched to Seaborn with `darkgrid` style for all plots
+- Fixed off-by-one error in closest sequence index calculation
+- Changed cell 3 to use random sequence instead of first sequence, now prints ID
+
+### CLAUDE.md updates
+Synced CLAUDE.md with current VAEMulti configuration:
+- Latent dim: 384 (was 256)
+- β: 0.05 (was 0.1)
+- Input features: 2,772 (6-mers through 1-mers, no GC column)
+- Updated file references from VAE.py to VAE.py
+- Added instruction to read VAEMulti.md at start of each conversation
+
+### Observation
+Minimum cosine distance between sequences is ~0.4 - no very close neighbors found yet. The bimodal distribution persists across random query sequences.
+
+### Nearest neighbor analysis (100k sample)
+
+Sampled 100,000 sequences and computed pairwise cosine distances to find nearest neighbors:
+
+| Metric | Value |
+|--------|-------|
+| Sequences with neighbor < 0.1 | 1,048 (1.05%) |
+| Minimum distance found | 0.0005 |
+| Mean nearest neighbor distance | 0.5216 |
+
+**Key findings:**
+- Close neighbors DO exist, but are rare (~1% within 0.1 distance)
+- Near-duplicates exist (0.0005 ≈ identical) - likely same organism or closely related strains
+- Most sequences are spread out (mean NN distance 0.52)
+- The latent space is not collapsing - embeddings maintain meaningful distances
+
+### Count vs distance analysis
+
+Binned nearest neighbor distances and plotted count vs distance to examine the geometry of the latent space.
+
+| Distance Range | R² (linear fit) | Slope | Intercept |
+|----------------|-----------------|-------|-----------|
+| 0 - 0.2 | 0.917 | 439.2 | -1.2 |
+| 0 - 0.5 | 0.954 | 1644.7 | -70.2 |
+| 0 - 0.7 | 0.677 | 4196.2 | -469.6 |
+
+**Interpretation:**
+- **Linear regime (0 - 0.5)**: Count grows linearly with distance (R² > 0.95). This is surprising for a 384-dim space where volume should grow as r^383. Suggests embeddings lie on a low-dimensional manifold.
+- **Transition (~0.5 - 0.7)**: Supra-linear growth begins, R² drops. Starting to see higher-dimensional structure.
+- **Bimodal connection**: The transition at ~0.5-0.7 aligns with the bimodal cosine distance distribution observed earlier - this is where the two modes meet.
+
+**Implication**: The VAE has learned a structured, low-dimensional representation. Local distances (< 0.5) behave as if on a low-dim manifold, which is good for nearest-neighbor retrieval.
+
+---
+
+## 2026-02-01: t-SNE visualization (full dataset)
+
+### Setup
+- Used openTSNE library (fast, supports millions of points)
+- Ran on full 4,776,770 embeddings
+- Parameters: perplexity=30, metric='cosine', n_jobs=-1
+- Memory usage: ~75% of 512 GB
+- Time: ~25 minutes on 32-core Threadripper
+
+### Results
+
+The t-SNE visualization reveals clear structure dominated by GC content:
+
+**Two major lobes:**
+- Left lobe (blue): Low GC organisms (~20-40%)
+- Right lobe (red/orange): High GC organisms (~50-70%)
+
+**Key findings:**
+1. The bimodal cosine distance distribution is explained by GC content split
+2. Clear gradient from low to high GC across the visualization
+3. Satellite clusters/islands around edges (possibly specific taxa or mobile elements)
+4. Transition zone in middle shows intermediate GC sequences
+
+**Biological interpretation:**
+GC content is the primary axis of variation in the latent space, which makes sense - it's one of the strongest signals in k-mer frequencies. The VAE has learned compositionally meaningful structure.
+
+### Memory scaling observation
+
+Testing memory usage with different sample sizes:
+| Sample Size | Memory Usage |
+|-------------|--------------|
+| 1M | ~45% (230 GB) |
+| 2M | ~53% (272 GB) |
+| 4.8M (full) | ~75% (384 GB) |
+
+Memory scaling is sublinear - significant fixed overhead from Annoy index and FFT structures.
+
+### Geographic origin analysis (SFE vs SE)
+
+Colored t-SNE by sequence ID prefix to compare two estuaries:
+- **SFE** (San Francisco Estuary): 1,941,549 sequences (40.6%)
+- **SE** (Baltic Sea): 2,835,221 sequences (59.4%)
+
+**Observations:**
+1. Both environments span the full GC range - neither restricted to one lobe
+2. Low-GC lobe (left) appears more Baltic-dominated
+3. High-GC lobe (right) is more mixed, possibly slightly more SFE
+4. Significant overlap - communities share many similar organisms
+5. Some satellite clusters appear environment-specific
+
+**Interpretation:**
+The two estuaries have similar overall microbial diversity (both sample the full GC spectrum) but with different relative abundances. The Baltic may favor more low-GC organisms, possibly reflecting colder temperatures or different dominant taxa. The overlap suggests shared cosmopolitan organisms common to estuarine environments.
+
+**Detailed comparison (side-by-side plot):**
+
+1. **Same global structure** - Both environments show the two-lobe pattern (low GC left, high GC right) with the characteristic "channel" between them
+
+2. **Density differences:**
+   - Baltic: Denser in the lower-left lobe, more uniform coverage
+   - SFE: More pronounced satellite clusters, especially around the periphery of the right (high-GC) lobe
+
+3. **Coverage gaps:**
+   - SFE has a more "sparse" look in the central channel region
+   - Baltic fills in more of the transition zone between lobes
+
+4. **Satellite clusters:**
+   - Both have peripheral islands, but SFE has more distinct outlier populations (possibly specific taxa unique to that environment)
+
+5. **Lower-left dense region** appears stronger in Baltic - could represent cold-adapted, low-GC organisms more abundant in the Baltic
+
+**Conclusion:** Similar overall structure confirms these are comparable estuarine communities sampling the same compositional space, but with different relative abundances. Baltic appears more "complete" while SFE has more distinct sub-populations.
+
+---
+
+## 2026-02-01: HDBSCAN clustering on t-SNE coordinates
+
+### Setup
+- Applied HDBSCAN to the 2D t-SNE coordinates (4.8M points)
+- Parameters: `min_cluster_size=1000`, `min_samples=100`
+- Ran successfully on full dataset after testing on 500k and 2M subsamples
+
+### HDBSCAN parameters
+- `min_cluster_size`: Minimum membership for a cluster to be kept
+- `min_samples`: Controls how conservative core point determination is
+  - Higher values → more noise, denser cores required
+  - Lower values → more points clustered, sparser regions included
+
+### Output files
+- `clusters.tsv`: Cluster IDs and sizes (tab-separated)
+- `cluster_members.tsv`: Cluster IDs and comma-separated sequence IDs
+
+### Approaches for comparing sample groups
+Three methods explored for identifying differences between sample groups in t-SNE space:
+
+1. **Density difference heatmap**: Compute normalized 2D histograms for each group, subtract to show enrichment/depletion
+2. **Cluster composition analysis**: For each HDBSCAN cluster, compute fraction belonging to each group
+3. **Overlay plot**: Plot both groups on same axes with different colors to visualize overlap

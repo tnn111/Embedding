@@ -3,7 +3,7 @@
 Create and load a ChromaDB database with VAE embeddings.
 
 Reads k-mer frequency data from calculate_kmer_frequencies output (.npy format),
-generates embeddings using the VAEMulti encoder, and stores them in ChromaDB.
+generates embeddings using the VAE encoder, and stores them in ChromaDB.
 
 Input files:
     - IDs: Text file with one sequence ID per line (Data/all_ids.txt)
@@ -74,7 +74,7 @@ class Sampling(keras.layers.Layer):
 
 CHROMA_PATH = '.chroma'
 COLLECTION_NAME = 'shrub_of_life'
-ENCODER_PATH = 'vae_multi_encoder_best.keras'
+ENCODER_PATH = 'vae_encoder_best.keras'
 BATCH_SIZE = 5000
 PROGRESS_INTERVAL = 100000
 

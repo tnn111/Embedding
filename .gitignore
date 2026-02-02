@@ -22,3 +22,6 @@ Data/
 *.keras
 *.pkl
 *.log
+
+# Old things
+Archive/

@@ -28,7 +28,7 @@ from keras import layers, ops
 from scipy.spatial.distance import cdist
 from scipy.stats import spearmanr, pearsonr
 
-# Constants matching VAEMulti.py
+# Constants matching VAE.py
 INPUT_DIM = 2772
 COL_START = 8193
 COL_END = 10965
@@ -88,7 +88,7 @@ def load_data(file_path: str, start_idx: int, end_idx: int) -> np.ndarray:
 def main():
     parser = argparse.ArgumentParser(description = 'Verify latent space local distances')
     parser.add_argument('-i', '--input', required = True, help = 'Path to input .npy file')
-    parser.add_argument('-e', '--encoder', default = 'vae_multi_encoder_final.keras',
+    parser.add_argument('-e', '--encoder', default = 'vae_encoder_final.keras',
                         help = 'Path to encoder model')
     parser.add_argument('-n', '--num-queries', type = int, default = 100,
                         help = 'Number of query sequences to test')
@@ -109,7 +109,7 @@ def main():
     data_mmap = np.load(args.input, mmap_mode = 'r')
     n_total = len(data_mmap)
 
-    # Use last 10% as validation (matching VAEMulti.py)
+    # Use last 10% as validation (matching VAE.py)
     val_start = int(n_total * 0.9)
     sample_size = min(args.sample_size, n_total - val_start)
     data = load_data(args.input, val_start, val_start + sample_size)

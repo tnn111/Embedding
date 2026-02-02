@@ -92,7 +92,7 @@ def main():
     # Load encoder
     print('Loading encoder...', file = sys.stderr)
     encoder = keras.saving.load_model(
-        'vae_multi_encoder_best.keras',
+        'vae_encoder_best.keras',
         custom_objects = {'ClipLayer': ClipLayer, 'Sampling': Sampling}
     )
 

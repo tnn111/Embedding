@@ -32,11 +32,11 @@ The bimodal cosine distance distribution and two-cloud UMAP structure suggest a 
 
 ---
 
-## 2025-12-03 ~19:00: Distance distribution analysis (VAEMulti, 384-dim)
+## 2025-12-03 ~19:00: Distance distribution analysis (VAE, 384-dim)
 
 ### Observation
 
-Re-ran distance analysis with new VAEMulti embeddings (384-dim, beta=0.05):
+Re-ran distance analysis with new VAE embeddings (384-dim, beta=0.05):
 - **Euclidean distance**: Unimodal distribution
 - **Cosine distance**: Bimodal distribution
 

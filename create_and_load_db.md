@@ -54,7 +54,7 @@ Rewrote script to use new input format from `calculate_kmer_frequencies`:
 
 ### Other changes
 
-- Now uses VAEMulti encoder (`vae_multi_encoder_best.keras`) with 384-dim latent space
+- Now uses VAE encoder (`vae_encoder_best.keras`) with 384-dim latent space
 - Applies CLR transformation before encoding
 - Uses argparse for cleaner CLI
 - Memory-maps .npy file for efficient batch processing

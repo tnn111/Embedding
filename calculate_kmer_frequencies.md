@@ -203,7 +203,7 @@ Processed 4,776,770 sequences in ~1 hour. Output: (4776770, 10965) float32 array
 
 ### Rationale
 
-Based on VAEMulti analysis, 7-mers are not needed for the vector DB use case:
+Based on VAE analysis, 7-mers are not needed for the vector DB use case:
 - 6-mers already dominate reconstruction error (95% of MSE)
 - Information redundancy - 7-mers contain constituent 6-mers
 - 7-mers mainly help with strain-level differentiation (not needed for species/plasmid/virus separation)

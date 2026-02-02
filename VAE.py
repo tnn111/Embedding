@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 """
-Variational Autoencoder for 7-mer frequency distributions.
+Variational Autoencoder for multi-scale k-mer frequency distributions.
 
-Input: 7-mer frequencies (8,192 canonical k-mers), CLR-transformed.
+Input: 6-mer through 1-mer frequencies (2,772 canonical k-mers), CLR-transformed.
+       - Column 0: sequence length (skipped)
+       - Columns 1-2080: 6-mers (2,080 features)
+       - Columns 2081-2592: 5-mers (512 features)
+       - Columns 2593-2728: 4-mers (136 features)
+       - Columns 2729-2760: 3-mers (32 features)
+       - Columns 2761-2770: 2-mers (10 features)
+       - Columns 2771-2772: 1-mers (2 features)
+
 Output: Reconstructed CLR-transformed frequencies.
 Loss: MSE (mean squared error) for reconstruction.
 
-Fully-connected architecture with 256-dimensional latent space.
+Fully-connected architecture with 384-dimensional latent space.
 """
 
 import argparse
@@ -34,9 +42,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Global constants
-INPUT_DIM = 8192  # 7-mer canonical frequencies
-LATENT_DIM = 256
+INPUT_DIM = 2772  # 6-mer through 1-mer canonical frequencies (2080+512+136+32+10+2)
+LATENT_DIM = 384
 SEED = 42
+
+# Column ranges in k-mers.npy (0-indexed, col 0 is sequence length)
+COL_START = 1     # Start of 6-mers (after length column)
+COL_END = 2773    # End of 1-mers (exclusive)
+
+# K-mer sizes within the INPUT_DIM features (local indices, 0-based)
+KMER_SIZES = {
+    '6mer': (0, 2080),       # 2080 features
+    '5mer': (2080, 2592),    # 512 features
+    '4mer': (2592, 2728),    # 136 features
+    '3mer': (2728, 2760),    # 32 features
+    '2mer': (2760, 2770),    # 10 features
+    '1mer': (2770, 2772),    # 2 features
+}
 
 
 class VAEMetricsCallback(keras.callbacks.Callback):
@@ -85,23 +107,23 @@ class VAEMetricsCallback(keras.callbacks.Callback):
         reconstruction = ops.concatenate(reconstructions, axis = 0)
         target = sample_x
 
-        # MSE loss in CLR space
+        # MSE loss (total)
         mse = float(ops.mean(ops.square(target - reconstruction)))
         recon_loss = mse * INPUT_DIM
 
-        # Convert CLR back to frequencies and compute MAPE
-        # Squeeze the last dimension for inverse_clr (expects 2D)
-        target_2d = np.array(target).reshape(-1, INPUT_DIM)
-        recon_2d = np.array(reconstruction).reshape(-1, INPUT_DIM)
-        target_freq = inverse_clr(target_2d)
-        recon_freq = inverse_clr(recon_2d)
-        # MAPE: mean absolute percentage error (avoid div by zero with small epsilon)
-        mape = float(np.mean(np.abs(target_freq - recon_freq) / (target_freq + 1e-10))) * 100
+        # Per-k-mer MSE breakdown
+        target_np = np.array(target)
+        recon_np = np.array(reconstruction)
+        kmer_mse = []
+        for name, (start, end) in KMER_SIZES.items():
+            kmer_mse_val = float(np.mean(np.square(target_np[:, start:end] - recon_np[:, start:end])))
+            kmer_mse.append(f'{name}={kmer_mse_val:.3f}')
+        kmer_mse_str = ', '.join(kmer_mse)
 
         val_loss = logs.get('val_loss')
-        val_loss_str = f'{val_loss:.2f}' if val_loss is not None else 'N/A'
+        val_loss_str = f'{val_loss:.3f}' if val_loss is not None else 'N/A'
         logger.info(
-            f'Epoch {epoch + 1}/{self.params["epochs"]}: Recon: {recon_loss:.2f}, KL: {kl_loss:.2f} (w={kl_weight:.4f}), Val: {val_loss_str}, MSE: {mse:.6f}, MAPE: {mape:.1f}%'
+            f'Epoch {epoch + 1}/{self.params["epochs"]}: Recon: {recon_loss:.3f}, KL: {kl_loss:.3f} (w={kl_weight:.4f}), Val: {val_loss_str}, MSE: {mse:.3f} [{kmer_mse_str}]'
         )
 
 
@@ -192,16 +214,11 @@ class VAE(Model):
         """Build fully-connected encoder.
 
         Architecture:
-            Input (8192, 1) → Flatten
-            → Dense(1024) → Dense(512)
-            → z_mean(256), z_log_var(256)
+            Input (2772,) → Dense(1024) → Dense(512) → z_mean(256), z_log_var(256)
         """
-        encoder_inputs = keras.Input(shape = (INPUT_DIM, 1), name = 'encoder_input')
+        encoder_inputs = keras.Input(shape = (INPUT_DIM,), name = 'encoder_input')
 
-        # Flatten and dense layers
-        x = layers.Flatten(name = 'enc_flatten')(encoder_inputs)
-
-        x = layers.Dense(1024, name = 'enc_dense1')(x)
+        x = layers.Dense(1024, name = 'enc_dense1')(encoder_inputs)
         x = layers.BatchNormalization(name = 'enc_bn1')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_relu1')(x)
 
@@ -221,13 +238,10 @@ class VAE(Model):
         """Build fully-connected decoder (mirror of encoder).
 
         Architecture:
-            Input (256)
-            → Dense(512) → Dense(1024) → Dense(8192)
-            → Reshape(8192, 1)
+            Input (256) → Dense(512) → Dense(1024) → Dense(2772)
         """
         latent_inputs = keras.Input(shape = (self.latent_dim,), name = 'decoder_input')
 
-        # Dense layers to expand
         x = layers.Dense(512, name = 'dec_dense1')(latent_inputs)
         x = layers.BatchNormalization(name = 'dec_bn1')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_relu1')(x)
@@ -236,10 +250,7 @@ class VAE(Model):
         x = layers.BatchNormalization(name = 'dec_bn2')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_relu2')(x)
 
-        x = layers.Dense(INPUT_DIM, name = 'dec_dense3')(x)
-
-        # Reshape to (8192, 1)
-        x = layers.Reshape((INPUT_DIM, 1), name = 'dec_reshape')(x)
+        x = layers.Dense(INPUT_DIM, name = 'dec_output')(x)
 
         return Model(latent_inputs, x, name = 'decoder')
 
@@ -288,26 +299,8 @@ def clr_transform_inplace(data: np.ndarray, pseudocount: float = 1e-6) -> None:
     data -= log_geom_mean
 
 
-def inverse_clr(clr_data: np.ndarray) -> np.ndarray:
-    """Convert CLR-transformed data back to normalized frequencies.
-
-    Inverse CLR: freq_i = exp(clr_i) / sum(exp(clr))
-
-    Args:
-        clr_data: Array of shape (n_samples, n_features) with CLR values.
-
-    Returns:
-        Array of normalized frequencies (rows sum to 1).
-    """
-    exp_clr = np.exp(clr_data)
-    return exp_clr / np.sum(exp_clr, axis = 1, keepdims = True)
-
-
 def load_data_to_memory(file_path: str, start_idx: int, end_idx: int) -> np.ndarray:
-    """Load a subset of the data into memory as float32 with CLR transform.
-
-    This avoids memory leaks caused by repeated numpy->TensorFlow conversions
-    in the training loop.
+    """Load 6-mer through 1-mer data into memory as float32 with CLR transform.
 
     Args:
         file_path: Path to the .npy file
@@ -315,17 +308,17 @@ def load_data_to_memory(file_path: str, start_idx: int, end_idx: int) -> np.ndar
         end_idx: Last row index (exclusive)
 
     Returns:
-        numpy array of shape (n_samples, INPUT_DIM, 1) as float32, CLR-transformed
+        numpy array of shape (n_samples, INPUT_DIM) as float32, CLR-transformed
     """
     logger.info(f'Loading data[{start_idx}:{end_idx}] into memory...')
     data_mmap = np.load(file_path, mmap_mode = 'r')
-    data = data_mmap[start_idx:end_idx, 1:8193].astype(np.float32)
+    # Load columns for 6-mers through 1-mers (columns 1-2772, skipping length at col 0)
+    data = data_mmap[start_idx:end_idx, COL_START:COL_END].astype(np.float32)
 
     # Apply CLR transformation in-place to save memory
     logger.info('Applying CLR transformation...')
     clr_transform_inplace(data)
 
-    data = data.reshape(-1, INPUT_DIM, 1)
     logger.info(f'Loaded {data.shape[0]:,} samples ({data.nbytes / 1024**3:.1f} GB)')
     return data
 
@@ -402,7 +395,7 @@ def get_data_info(file_path, max_samples = None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description = 'Train a convolutional VAE on 7-mer frequency data')
+    parser = argparse.ArgumentParser(description = 'Train VAE on 6-mer through 1-mer frequency data')
     parser.add_argument('-i', '--input', required = True, help = 'Path to input .npy file with k-mer frequencies')
     parser.add_argument('-e', '--epochs', type = int, default = 100, help = 'Number of training epochs (default: 100)')
     parser.add_argument('-l', '--learning-rate', type = float, default = 1e-4, help = 'Learning rate (default: 1e-4)')
@@ -448,7 +441,6 @@ def main():
     logger.info('Model compiled successfully.')
 
     # Load all data into memory
-    # For 4.8M samples: ~157GB RAM needed
     logger.info('Loading training data into memory...')
     train_data = load_data_to_memory(args.input, 0, train_end)
 
@@ -468,7 +460,7 @@ def main():
     vae_metrics = VAEMetricsCallback(validation_data = (val_sample, val_sample), sample_size = 5000)
 
     callbacks = [
-        KLWarmupCallback(warmup_epochs = 5, max_weight = 0.1, skip_warmup = resuming),
+        KLWarmupCallback(warmup_epochs = 5, max_weight = 0.05, skip_warmup = resuming),
         vae_metrics,
         VAECheckpoint(filepath_prefix = 'vae', monitor = 'val_loss', verbose = 1, initial_best = initial_best),
         keras.callbacks.ReduceLROnPlateau(
