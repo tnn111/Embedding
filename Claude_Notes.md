@@ -87,20 +87,31 @@ Large dataset run failed due to OOM during concatenation. Fixed `calculate_kmer_
 
 ### Large Dataset Training Results (2026-02-03)
 
-Training on larger combined dataset (aquatic + terrestrial) shows interesting trade-offs:
+Training on larger combined dataset (aquatic + terrestrial) completed successfully.
 
-| Metric | Baseline (4.8M aquatic) | New (larger mixed) | Change |
-|--------|-------------------------|---------------------|--------|
-| Val loss | 2899 | 1953 | -33% ✓ |
-| MSE | 1.030 | 0.899 | -13% ✓ |
-| 6-mer MSE | 1.319 | 1.146 | -13% ✓ |
-| 5-mer MSE | 0.203 | 0.191 | -6% ✓ |
-| 4-mer MSE | 0.053 | 0.064 | +20% ✗ |
-| 3-mer MSE | 0.015 | 0.020 | +33% ✗ |
-| 2-mer MSE | 0.008 | 0.009 | +12% ✗ |
-| 1-mer MSE | 0.005 | 0.006 | +20% ✗ |
+**Final results comparison:**
 
-**Key observation**: Model trades shorter k-mer accuracy for better 6-mer reconstruction. The increased diversity forces latent space to prioritize higher-dimensional 6-mer signal (2080 features) at expense of lower k-mers (32 features for 3-mers).
+| Metric | Baseline (4.8M) | Epoch 210 | Final (500) | vs Baseline |
+|--------|-----------------|-----------|-------------|-------------|
+| Val loss | 2899 | 1953 | **1930** | -33% ✓ |
+| MSE | 1.030 | 0.899 | **0.889** | -14% ✓ |
+| 6-mer | 1.319 | 1.147 | **1.134** | -14% ✓ |
+| 5-mer | 0.203 | 0.191 | **0.187** | -8% ✓ |
+| 4-mer | 0.053 | 0.064 | 0.063 | +19% ✗ |
+| 3-mer | 0.015 | 0.020 | 0.019 | +27% ✗ |
+| 2-mer | 0.008 | 0.009 | **0.008** | same ✓ |
+| 1-mer | 0.005 | 0.006 | **0.004** | -20% ✓ |
+
+**Key observations:**
+- Shorter k-mers (2-mer, 1-mer) recovered by end of training
+- 3-mer and 4-mer still slightly worse than baseline but improved from mid-training
+- Overall model significantly better on larger diverse dataset
+- Trade-off between k-mer scales is real but partially resolves with more training
+
+**Runtime stats:**
+- Time: ~3h 10min (500 epochs)
+- Peak memory: 234 GB
+- CPU: 187%
 
 ### Literature Search (2026-02-03)
 
