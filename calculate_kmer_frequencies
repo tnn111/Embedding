@@ -22,6 +22,7 @@ Each k-mer group is normalized separately to sum to 1.0.
 import argparse
 import gzip
 import sys
+import tempfile
 from itertools import groupby, product
 from pathlib import Path
 from typing import Iterator
@@ -171,64 +172,102 @@ def main():
     base_to_int[ord('G')] = 2
     base_to_int[ord('T')] = 3
 
-    # Collect all features in memory
-    chunks = []
+    # Process sequences, writing chunks to temp files to minimize memory usage
     CHUNK_SIZE = 100000
     chunk = np.zeros((CHUNK_SIZE, n_features), dtype = np.float32)
     chunk_idx = 0
     total_seqs = 0
+    temp_files = []
+    temp_dir = tempfile.mkdtemp(prefix = 'kmer_chunks_')
 
-    with open(args.identifier, 'w') as id_file:
-        for input_file in args.input:
-            print(f'Processing {input_file}...', file = sys.stderr)
-            file_seqs = 0
+    print(f'Using temp directory: {temp_dir}', file = sys.stderr)
 
-            for seq_id, sequence in read_fasta(input_file):
-                # Encode sequence
-                seq_encoded = base_to_int[np.frombuffer(sequence.encode('ascii'), dtype = np.uint8)]
+    try:
+        with open(args.identifier, 'w') as id_file:
+            for input_file in args.input:
+                print(f'Processing {input_file}...', file = sys.stderr)
+                file_seqs = 0
 
-                # Fill row: length first, then k-mers from 6 down to 1
-                col = 0
-                chunk[chunk_idx, col] = len(sequence)
-                col += 1
+                for seq_id, sequence in read_fasta(input_file):
+                    # Encode sequence
+                    seq_encoded = base_to_int[np.frombuffer(sequence.encode('ascii'), dtype = np.uint8)]
 
-                for k in range(6, 0, -1):
-                    n_canonical, mapping = k_data[k]
-                    counts = count_kmers(seq_encoded, k, mapping, n_canonical)
-                    total = counts.sum()
-                    if total > 0:
-                        chunk[chunk_idx, col:col + n_canonical] = counts / total
-                    col += n_canonical
+                    # Fill row: length first, then k-mers from 6 down to 1
+                    col = 0
+                    chunk[chunk_idx, col] = len(sequence)
+                    col += 1
 
-                # Write ID
-                id_file.write(seq_id + '\n')
+                    for k in range(6, 0, -1):
+                        n_canonical, mapping = k_data[k]
+                        counts = count_kmers(seq_encoded, k, mapping, n_canonical)
+                        total = counts.sum()
+                        if total > 0:
+                            chunk[chunk_idx, col:col + n_canonical] = counts / total
+                        col += n_canonical
 
-                chunk_idx += 1
-                file_seqs += 1
-                total_seqs += 1
+                    # Write ID
+                    id_file.write(seq_id + '\n')
 
-                # Store chunk when full
-                if chunk_idx >= CHUNK_SIZE:
-                    chunks.append(chunk)
-                    chunk = np.zeros((CHUNK_SIZE, n_features), dtype = np.float32)
-                    chunk_idx = 0
-                    print(f'  {total_seqs:,} sequences', file = sys.stderr)
+                    chunk_idx += 1
+                    file_seqs += 1
+                    total_seqs += 1
 
-            print(f'  Finished {input_file}: {file_seqs:,} sequences', file = sys.stderr)
+                    # Write chunk to temp file when full
+                    if chunk_idx >= CHUNK_SIZE:
+                        temp_path = Path(temp_dir) / f'chunk_{len(temp_files):04d}.npy'
+                        np.save(temp_path, chunk)
+                        temp_files.append(temp_path)
+                        chunk = np.zeros((CHUNK_SIZE, n_features), dtype = np.float32)
+                        chunk_idx = 0
+                        print(f'  {total_seqs:,} sequences (wrote chunk {len(temp_files)})', file = sys.stderr)
 
-    # Store remaining sequences
-    if chunk_idx > 0:
-        chunks.append(chunk[:chunk_idx])
+                print(f'  Finished {input_file}: {file_seqs:,} sequences', file = sys.stderr)
 
-    print(f'Total: {total_seqs:,} sequences', file = sys.stderr)
+        # Write remaining sequences
+        if chunk_idx > 0:
+            temp_path = Path(temp_dir) / f'chunk_{len(temp_files):04d}.npy'
+            np.save(temp_path, chunk[:chunk_idx])
+            temp_files.append(temp_path)
 
-    # Concatenate and save
-    if chunks:
-        final = np.concatenate(chunks, axis = 0)
-        np.save(args.kmer, final)
-        print(f'Done! Output: {final.shape}', file = sys.stderr)
-    else:
-        print('No sequences processed.', file = sys.stderr)
+        print(f'Total: {total_seqs:,} sequences in {len(temp_files)} chunks', file = sys.stderr)
+
+        # Concatenate using memmap to minimize memory
+        if temp_files:
+            print('Concatenating chunks to output file...', file = sys.stderr)
+
+            # Create output memmap
+            output = np.lib.format.open_memmap(
+                args.kmer, mode = 'w+', dtype = np.float32, shape = (total_seqs, n_features)
+            )
+
+            # Copy chunks one at a time
+            row = 0
+            for i, temp_path in enumerate(temp_files):
+                chunk_data = np.load(temp_path)
+                output[row:row + len(chunk_data)] = chunk_data
+                row += len(chunk_data)
+                if (i + 1) % 10 == 0:
+                    print(f'  Copied {i + 1}/{len(temp_files)} chunks', file = sys.stderr)
+
+            # Flush to disk
+            del output
+
+            print(f'Done! Output: ({total_seqs}, {n_features})', file = sys.stderr)
+        else:
+            print('No sequences processed.', file = sys.stderr)
+
+    finally:
+        # Clean up temp files
+        print('Cleaning up temp files...', file = sys.stderr)
+        for temp_path in temp_files:
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+        try:
+            Path(temp_dir).rmdir()
+        except OSError:
+            pass
 
 
 if __name__ == '__main__':

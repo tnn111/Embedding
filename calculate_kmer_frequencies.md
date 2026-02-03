@@ -255,3 +255,36 @@ Added support for gzip-compressed FASTA files (.gz extension).
 # Can mix compressed and uncompressed
 ./calculate_kmer_frequencies -i file1.fasta file2.fasta.gz -id ids.txt -k kmers.npy
 ```
+
+---
+
+## 2026-02-02: Memory-efficient chunk handling
+
+### Problem
+
+Large datasets (14M+ sequences) caused out-of-memory errors. The original code kept all chunks in memory and concatenated at the end, requiring ~2× the final array size at peak.
+
+### Solution
+
+Write chunks to temp files instead of keeping in memory, then use memmap concatenation:
+
+1. Each 100k-sequence chunk is written to a temp file immediately
+2. At the end, create output file using `np.lib.format.open_memmap()`
+3. Copy chunks one at a time to output memmap
+4. Clean up temp files
+
+### Memory usage
+
+- During processing: ~1.1 GB (one chunk)
+- During concatenation: ~1.1 GB (one chunk being copied)
+- **Constant regardless of dataset size**
+
+### Temp files
+
+- Stored in system temp directory (e.g., `/tmp/kmer_chunks_XXXXX/`)
+- Named `chunk_0000.npy`, `chunk_0001.npy`, etc.
+- Automatically cleaned up after concatenation (even on error)
+
+### Trade-off
+
+Slightly slower due to disk I/O, but enables processing of arbitrarily large datasets.
