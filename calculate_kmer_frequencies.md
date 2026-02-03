@@ -228,3 +228,30 @@ NumPy array shape: `(n_sequences, 2773)`
 - `range(1, 8)` → `range(1, 7)` for k-mer mappings
 - `range(7, 0, -1)` → `range(6, 0, -1)` for k-mer counting
 - Updated docstring to reflect new feature count (2,773)
+
+---
+
+## 2026-02-02: Added gzip support
+
+### Change
+
+Added support for gzip-compressed FASTA files (.gz extension).
+
+### Implementation
+
+- Added `gzip` import
+- Modified `read_fasta()` to detect `.gz` suffix and use `gzip.open()` with `'rt'` mode
+- No changes to command-line interface - files with `.gz` extension are automatically detected
+
+### Usage
+
+```bash
+# Uncompressed files still work
+./calculate_kmer_frequencies -i file.fasta -id ids.txt -k kmers.npy
+
+# Gzip-compressed files now supported
+./calculate_kmer_frequencies -i file.fasta.gz -id ids.txt -k kmers.npy
+
+# Can mix compressed and uncompressed
+./calculate_kmer_frequencies -i file1.fasta file2.fasta.gz -id ids.txt -k kmers.npy
+```
