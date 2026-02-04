@@ -113,6 +113,40 @@ Training on larger combined dataset (aquatic + terrestrial) completed successful
 - Peak memory: 234 GB
 - CPU: 187%
 
+### Extended Training with Lower Learning Rate (2026-02-03)
+
+Ran additional 500 epochs with LR 1e-5 (down from 1e-4). Marginal improvement - model essentially converged:
+
+| Metric | After 500 (LR 1e-4) | After 1000 (LR 1e-5) |
+|--------|---------------------|----------------------|
+| Val loss | 1929.8 | **1927.9** |
+| MSE | 0.889 | **0.888** |
+| 6-mer | 1.134 | **1.133** |
+| Others | unchanged | unchanged |
+
+Model has hit capacity for this architecture. Further gains would require architectural changes.
+
+### Dataset Sizes
+
+- Aquatic dataset: 4,776,770 contigs ≥ 5000 bp
+- Terrestrial dataset: 8,006,888 contigs ≥ 5000 bp
+- **Combined: ~12.8M sequences**
+
+This is ~1.8x the 7M model parameters. Below traditional 10x guideline but works well due to:
+- Strong KL regularization in VAE
+- Structured k-mer input (not raw sequences)
+- Good convergence observed
+
+### Design Goals
+
+Model designed to be portable:
+- **Model size**: ~7M params = ~28 MB (tiny by modern standards)
+- **Encoder file**: ~15 MB (`vae_encoder_best.keras`)
+- **Inference**: Runs comfortably on laptop CPU, instant on any GPU
+- **Training**: Requires powerful machine (data doesn't fit in laptop RAM)
+
+Goal: Train on powerful system, deploy trained encoder anywhere.
+
 ### Literature Search (2026-02-03)
 
 Searched for published work on multi-scale k-mer VAEs. **This appears to be relatively uncharted territory.**
