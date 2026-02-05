@@ -162,3 +162,87 @@ Searched for published work on multi-scale k-mer VAEs. **This appears to be rela
 - The specific trade-off phenomenon observed here
 
 **Conclusion**: The trade-off where increased diversity shifts model capacity toward higher-dimensional features (6-mers) at expense of shorter k-mers appears novel and potentially publishable.
+
+### Expanded Dataset Training (2026-02-04)
+
+Added more data to training. Results are dramatically better across all metrics:
+
+| Metric | Previous (12.8M) | New | Improvement |
+|--------|------------------|-----|-------------|
+| Val loss | 1927.9 | **1546.9** | -20% |
+| MSE | 0.888 | **0.614** | -31% |
+| 6-mer | 1.133 | **0.793** | -30% |
+| 5-mer | 0.187 | **0.094** | -50% |
+| 4-mer | 0.063 | **0.025** | -60% |
+| 3-mer | 0.019 | **0.005** | -74% |
+| 2-mer | 0.008 | **0.002** | -75% |
+| 1-mer | 0.004 | **0.001** | -75% |
+
+**Key observations:**
+- All metrics improved substantially
+- Shorter k-mers (3-mer through 1-mer) improved by ~75% - the previous trade-off resolved
+- Model now captures all scales well simultaneously
+- The "hit capacity" conclusion from previous training was premature - more diverse data unlocked further improvement
+
+**Runtime stats (from /usr/bin/time):**
+- Elapsed: 3:11:35 (500 epochs)
+- User time: 20031.06s
+- System time: 1065.08s
+- CPU: 183%
+- Peak memory: 241 GB (240922960 KB maxresident)
+
+**Dataset composition:**
+- Aquatic metagenomes: 4,776,770
+- Terrestrial metagenomes: 8,006,888
+- **NCBI RefSeq representative: 655,640** (new)
+- **Total: ~13.4M sequences**
+
+**Critical insight**: Adding only 655K sequences (~5% increase) from RefSeq caused ~30% improvement. Quality and taxonomic diversity matter more than quantity. RefSeq representative genomes provide curated coverage across the tree of life, filling k-mer space gaps that environmental metagenomes miss.
+
+### Extended Training with LR 2e-6 (2026-02-04)
+
+Ran additional 500 epochs with lower learning rate (2e-6). Model continues to improve:
+
+| Metric | After 500 (LR 1e-4) | After 1000 (LR 2e-6) | Change |
+|--------|---------------------|----------------------|--------|
+| Val loss | 1546.9 | **1517.8** | -1.9% |
+| MSE | 0.614 | **0.601** | -2.1% |
+| 6-mer | 0.793 | **0.777** | -2.0% |
+| 5-mer | 0.094 | **0.089** | -5.3% |
+| 4-mer | 0.025 | 0.025 | same |
+| 3-mer | 0.005 | **0.004** | -20% |
+| 2-mer | 0.002 | 0.002 | same |
+| 1-mer | 0.001 | 0.001 | same |
+
+**Runtime stats (from /usr/bin/time):**
+- Elapsed: 3:18:48 (500 epochs)
+- User time: 20907.88s
+- System time: 1199.44s
+- CPU: 185%
+- Peak memory: 245 GB (256896884 KB maxresident)
+
+Model still improving - not yet converged. Could benefit from more training at low LR.
+
+### New Script: concatenate_matrices (2026-02-04)
+
+Created utility script to concatenate multiple k-mer matrix files and their ID files.
+
+**Usage:**
+```bash
+./concatenate_matrices \
+    -i file1.npy file2.npy file3.npy \
+    -id file1.txt file2.txt file3.txt \
+    -o combined
+```
+
+**Features:**
+- Memory-efficient: uses memmap, loads one input file at a time
+- Validates row counts in .npy match line counts in corresponding .txt
+- Supports gzip-compressed ID files (.txt.gz)
+- Output: `<basename>.npy` and `<basename>.txt`
+
+**Implementation:**
+- Reads .npy headers without loading data to get shapes and validate
+- Creates output memmap with total row count
+- Copies matrices one at a time, freeing memory after each
+- Peak memory ≈ size of largest input file (not total output)

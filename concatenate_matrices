@@ -1,0 +1,154 @@
+#!/usr/bin/env python
+"""
+Concatenate k-mer frequency matrices and their corresponding ID files.
+
+Takes multiple .npy matrix files and .txt ID files, validates that each
+matrix has the same number of rows as lines in its corresponding ID file,
+and concatenates them into single output files.
+
+Uses memory-mapped arrays to handle large datasets efficiently.
+"""
+
+import argparse
+import gzip
+import sys
+from pathlib import Path
+
+import numpy as np
+
+
+def count_lines(txt_path: Path) -> int:
+    """Count lines in a text file (supports gzip)."""
+    opener = gzip.open if txt_path.suffix == '.gz' else open
+    count = 0
+    with opener(txt_path, 'rt') as f:
+        for _ in f:
+            count += 1
+    return count
+
+
+def copy_lines(txt_path: Path, out_file) -> int:
+    """Copy lines from input file to output file (supports gzip). Returns count."""
+    opener = gzip.open if txt_path.suffix == '.gz' else open
+    count = 0
+    with opener(txt_path, 'rt') as f:
+        for line in f:
+            out_file.write(line)
+            count += 1
+    return count
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description = 'Concatenate k-mer matrices and ID files'
+    )
+    parser.add_argument(
+        '-i', '--input', type = Path, nargs = '+', required = True,
+        help = 'Input .npy matrix files'
+    )
+    parser.add_argument(
+        '-id', '--identifier', type = Path, nargs = '+', required = True,
+        help = 'Input ID text files (one ID per line, supports .gz)'
+    )
+    parser.add_argument(
+        '-o', '--output', type = str, required = True,
+        help = 'Output base name (produces <name>.npy and <name>.txt)'
+    )
+    args = parser.parse_args()
+
+    npy_files = args.input
+    id_files = args.identifier
+    output_npy = Path(args.output + '.npy')
+    output_txt = Path(args.output + '.txt')
+
+    # Validate same number of files
+    if len(npy_files) != len(id_files):
+        print(
+            f'Error: Number of .npy files ({len(npy_files)}) does not match '
+            f'number of ID files ({len(id_files)})',
+            file = sys.stderr
+        )
+        sys.exit(1)
+
+    # Validate all input files exist
+    for f in npy_files:
+        if not f.exists():
+            print(f'Error: File not found: {f}', file = sys.stderr)
+            sys.exit(1)
+    for f in id_files:
+        if not f.exists():
+            print(f'Error: File not found: {f}', file = sys.stderr)
+            sys.exit(1)
+
+    # Read headers and validate row counts match line counts
+    print(f'Validating {len(npy_files)} file pairs...', file = sys.stderr)
+    file_info = []  # List of (npy_path, id_path, n_rows)
+    total_rows = 0
+    n_features = None
+
+    for i, (npy_path, id_path) in enumerate(zip(npy_files, id_files)):
+        # Read .npy header without loading data
+        with open(npy_path, 'rb') as f:
+            version = np.lib.format.read_magic(f)
+            shape, fortran_order, dtype = np.lib.format._read_array_header(f, version)
+
+        n_rows = shape[0]
+        if n_features is None:
+            n_features = shape[1]
+            print(f'  Features per row: {n_features}', file = sys.stderr)
+
+        # Count lines in ID file
+        n_lines = count_lines(id_path)
+
+        if n_rows != n_lines:
+            print(
+                f'Error: Row count mismatch for pair {i + 1}:\n'
+                f'  {npy_path}: {n_rows} rows\n'
+                f'  {id_path}: {n_lines} lines',
+                file = sys.stderr
+            )
+            sys.exit(1)
+
+        file_info.append((npy_path, id_path, n_rows))
+        total_rows += n_rows
+        print(f'  {i + 1}/{len(npy_files)}: {npy_path.name} - {n_rows:,} rows', file = sys.stderr)
+
+    print(f'Total rows to concatenate: {total_rows:,}', file = sys.stderr)
+
+    # Create output memmap
+    print(f'Creating output matrix: {output_npy}', file = sys.stderr)
+    output_matrix = np.lib.format.open_memmap(
+        output_npy, mode = 'w+', dtype = np.float32, shape = (total_rows, n_features)
+    )
+
+    # Copy matrices and IDs
+    print('Concatenating files...', file = sys.stderr)
+    row_offset = 0
+
+    with open(output_txt, 'w') as out_ids:
+        for i, (npy_path, id_path, n_rows) in enumerate(file_info):
+            # Copy matrix data
+            data = np.load(npy_path)
+            output_matrix[row_offset:row_offset + n_rows] = data
+            del data  # Free memory
+
+            # Copy IDs
+            copy_lines(id_path, out_ids)
+
+            row_offset += n_rows
+            print(
+                f'  {i + 1}/{len(file_info)}: Copied {n_rows:,} rows '
+                f'({row_offset:,}/{total_rows:,} total)',
+                file = sys.stderr
+            )
+
+    # Flush memmap
+    del output_matrix
+
+    print(f'Done! Output files:', file = sys.stderr)
+    print(f'  {output_npy}', file = sys.stderr)
+    print(f'  {output_txt}', file = sys.stderr)
+
+
+if __name__ == '__main__':
+    main()
