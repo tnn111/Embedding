@@ -598,9 +598,9 @@ Just prints "Hello from clustering!" — leftover from `uv init`.
 
 `calculate_kmer_frequencies` normalizes each k-size group independently (each sums to 1.0), then VAE.py applies CLR to all 2,772 features together, mixing 6 separate compositions. CLR is designed for a single compositional vector. Per-group CLR would be more theoretically sound. Current approach works well empirically — the joint CLR may create useful cross-scale interactions.
 
-**8. No dropout**
+**8. No dropout — decided not to add**
 
-Architecture relies on BatchNorm + KL regularization only. Mild dropout (0.1-0.2) could improve generalization.
+Architecture relies on BatchNorm + KL regularization. Dropout was considered but deemed unnecessary: train/val gap is small (98 vs 101), KL term already prevents memorization, and data-to-parameter ratio is healthy (13.4M samples / 7M params). Adding dropout would likely hurt reconstruction quality without meaningful generalization benefit. Worth revisiting only if length sweep reveals overfitting on smaller datasets.
 
 **9. Training history not merged across runs**
 
