@@ -6,7 +6,7 @@ Pure filter: reads stdin, writes stdout, messages to stderr.
 Input: NumPy array from stdin (from calculate_kmer_frequencies)
     2,773 columns: length + 6-mers(2080) + 5-mers(512) + 4-mers(136) + 3-mers(32) + 2-mers(10) + 1-mers(2)
 
-Output: NumPy array with 385 columns (length + latent embeddings z)
+Output: NumPy array with 385 columns (length + latent embeddings z_mean)
 
 Usage:
     cat input.npy | embedding > embeddings.npy
@@ -76,16 +76,32 @@ COL_KMER_START = 1
 COL_KMER_END = 2773
 
 
-def clr_transform(data: np.ndarray, pseudocount: float = 1e-6) -> np.ndarray:
-    """Apply Centered Log-Ratio (CLR) transformation.
+KMER_SLICES = [
+    (0, 2080),       # 6-mer
+    (2080, 2592),    # 5-mer
+    (2592, 2728),    # 4-mer
+    (2728, 2760),    # 3-mer
+    (2760, 2770),    # 2-mer
+    (2770, 2772),    # 1-mer
+]
 
-    CLR is appropriate for compositional data like k-mer frequencies.
-    CLR(x_i) = log(x_i / geometric_mean(x))
+
+def clr_transform(data: np.ndarray) -> np.ndarray:
+    """Apply per-group Centered Log-Ratio (CLR) transformation.
+
+    Each k-mer size group is CLR-transformed independently, since
+    each group is separately normalized to sum to 1.0. Uses a Jeffreys
+    prior pseudocount of 0.5/n_features per group.
     """
-    data = data + pseudocount
-    log_data = np.log(data)
-    log_geom_mean = np.mean(log_data, axis = 1, keepdims = True)
-    return log_data - log_geom_mean
+    data = data.copy()
+    for start, end in KMER_SLICES:
+        group = data[:, start:end]
+        pseudocount = 0.5 / (end - start)
+        group += pseudocount
+        np.log(group, out = group)
+        log_geom_mean = np.mean(group, axis = 1, keepdims = True)
+        group -= log_geom_mean
+    return data
 
 
 def main():
@@ -115,7 +131,7 @@ def main():
     z_mean, z_log_var, z = encoder.predict(kmer_data, batch_size = 8192, verbose = 0)
 
     # Concatenate length with embeddings
-    output = np.concatenate([lengths, z], axis = 1)
+    output = np.concatenate([lengths, z_mean], axis = 1)
 
     print(f'Output shape: {output.shape}', file = sys.stderr)
 

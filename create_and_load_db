@@ -85,16 +85,32 @@ COL_KMER_END = 2773
 INPUT_DIM = 2772
 
 
-def clr_transform(data: np.ndarray, pseudocount: float = 1e-6) -> np.ndarray:
-    """Apply Centered Log-Ratio (CLR) transformation.
+KMER_SLICES = [
+    (0, 2080),       # 6-mer
+    (2080, 2592),    # 5-mer
+    (2592, 2728),    # 4-mer
+    (2728, 2760),    # 3-mer
+    (2760, 2770),    # 2-mer
+    (2770, 2772),    # 1-mer
+]
 
-    CLR is appropriate for compositional data like k-mer frequencies.
-    CLR(x_i) = log(x_i / geometric_mean(x))
+
+def clr_transform(data: np.ndarray) -> np.ndarray:
+    """Apply per-group Centered Log-Ratio (CLR) transformation.
+
+    Each k-mer size group is CLR-transformed independently, since
+    each group is separately normalized to sum to 1.0. Uses a Jeffreys
+    prior pseudocount of 0.5/n_features per group.
     """
-    data = data + pseudocount
-    log_data = np.log(data)
-    log_geom_mean = np.mean(log_data, axis = 1, keepdims = True)
-    return log_data - log_geom_mean
+    data = data.copy()
+    for start, end in KMER_SLICES:
+        group = data[:, start:end]
+        pseudocount = 0.5 / (end - start)
+        group += pseudocount
+        np.log(group, out = group)
+        log_geom_mean = np.mean(group, axis = 1, keepdims = True)
+        group -= log_geom_mean
+    return data
 
 
 def main():
@@ -161,12 +177,12 @@ def main():
         batch_features = clr_transform(batch_features)
 
         # Generate embeddings
-        _, _, z = encoder.predict(batch_features, batch_size = batch_size, verbose = 0)
+        z_mean, _, _ = encoder.predict(batch_features, batch_size = batch_size, verbose = 0)
 
         # Add to ChromaDB
         collection.add(
             ids = batch_ids,
-            embeddings = z.tolist(),
+            embeddings = z_mean.tolist(),
             metadatas = [{'length': l} for l in batch_lengths]
         )
 

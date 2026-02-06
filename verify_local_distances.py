@@ -30,8 +30,8 @@ from scipy.stats import spearmanr, pearsonr
 
 # Constants matching VAE.py
 INPUT_DIM = 2772
-COL_START = 8193
-COL_END = 10965
+COL_START = 1
+COL_END = 2773
 SEED = 42
 
 
@@ -70,12 +70,32 @@ class ClipLayer(layers.Layer):
         return config
 
 
-def clr_transform(data: np.ndarray, pseudocount: float = 1e-6) -> np.ndarray:
-    """Apply Centered Log-Ratio (CLR) transformation."""
-    data = data + pseudocount
-    log_data = np.log(data)
-    log_geom_mean = np.mean(log_data, axis = 1, keepdims = True)
-    return log_data - log_geom_mean
+KMER_SLICES = [
+    (0, 2080),       # 6-mer
+    (2080, 2592),    # 5-mer
+    (2592, 2728),    # 4-mer
+    (2728, 2760),    # 3-mer
+    (2760, 2770),    # 2-mer
+    (2770, 2772),    # 1-mer
+]
+
+
+def clr_transform(data: np.ndarray) -> np.ndarray:
+    """Apply per-group Centered Log-Ratio (CLR) transformation.
+
+    Each k-mer size group is CLR-transformed independently, since
+    each group is separately normalized to sum to 1.0. Uses a Jeffreys
+    prior pseudocount of 0.5/n_features per group.
+    """
+    data = data.copy()
+    for start, end in KMER_SLICES:
+        group = data[:, start:end]
+        pseudocount = 0.5 / (end - start)
+        group += pseudocount
+        np.log(group, out = group)
+        log_geom_mean = np.mean(group, axis = 1, keepdims = True)
+        group -= log_geom_mean
+    return data
 
 
 def load_data(file_path: str, start_idx: int, end_idx: int) -> np.ndarray:

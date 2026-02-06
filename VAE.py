@@ -117,7 +117,7 @@ class VAEMetricsCallback(keras.callbacks.Callback):
         kmer_mse = []
         for name, (start, end) in KMER_SIZES.items():
             kmer_mse_val = float(np.mean(np.square(target_np[:, start:end] - recon_np[:, start:end])))
-            kmer_mse.append(f'{name}={kmer_mse_val:.3f}')
+            kmer_mse.append(f'{name}={kmer_mse_val:.4f}')
         kmer_mse_str = ', '.join(kmer_mse)
 
         val_loss = logs.get('val_loss')
@@ -279,24 +279,31 @@ class VAE(Model):
         return config
 
 
-def clr_transform_inplace(data: np.ndarray, pseudocount: float = 1e-6) -> None:
-    """Apply Centered Log-Ratio (CLR) transformation in-place.
+def clr_transform_inplace(data: np.ndarray) -> None:
+    """Apply per-group Centered Log-Ratio (CLR) transformation in-place.
 
-    CLR is appropriate for compositional data like k-mer frequencies.
+    Each k-mer size group is CLR-transformed independently, since
+    calculate_kmer_frequencies normalizes each group separately (each sums
+    to 1.0). Applying CLR per group respects these independent compositions.
+
+    Uses a Jeffreys prior pseudocount of 0.5/n_features per group, equivalent
+    to adding 0.5 counts to each k-mer before normalization. This avoids
+    extreme log values for zero-count k-mers while scaling appropriately
+    with group size.
+
     CLR(x_i) = log(x_i / geometric_mean(x))
 
     Args:
         data: Array of shape (n_samples, n_features) with non-negative values.
               Modified in-place.
-        pseudocount: Small value added to avoid log(0)
     """
-    # Add pseudocount and take log in-place
-    data += pseudocount
-    np.log(data, out = data)
-
-    # Subtract geometric mean (mean of log values)
-    log_geom_mean = np.mean(data, axis = 1, keepdims = True)
-    data -= log_geom_mean
+    for start, end in KMER_SIZES.values():
+        group = data[:, start:end]
+        pseudocount = 0.5 / (end - start)
+        group += pseudocount
+        np.log(group, out = group)
+        log_geom_mean = np.mean(group, axis = 1, keepdims = True)
+        group -= log_geom_mean
 
 
 def load_data_to_memory(file_path: str, start_idx: int, end_idx: int) -> np.ndarray:

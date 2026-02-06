@@ -8,6 +8,13 @@ Torben collaborates with multiple Claude instances:
 
 These notes are shared across both so each instance can understand context from the other's sessions. Keep notes clear and comprehensive.
 
+## Related Repositories
+- **Embedding** (`tnn111/Embedding`, public): This repo — VAE training, inference, k-mer calculation
+- **ClusteringPaper** (`tnn111/ClusteringPaper`, private): Nature Methods paper being written by sibling Claude instance on desktop
+  - Cloned locally to `/home/torben/ClusteringPaper/`
+  - Contains: Introduction.md, Methods_VAE.md, Results_VAE.md, Draft.md, Data.md, References.md, Paper.md
+  - Latest commit: `ed11249` — Retarget paper to Nature Methods
+
 ## 2026-02-02: Clustering analysis and codebase cleanup
 
 ### HDBSCAN Clustering on t-SNE
@@ -246,3 +253,59 @@ Created utility script to concatenate multiple k-mer matrix files and their ID f
 - Creates output memmap with total row count
 - Copies matrices one at a time, freeing memory after each
 - Peak memory ≈ size of largest input file (not total output)
+
+### 2026-02-05: Full Codebase Review (Opus 4.6)
+
+Conducted comprehensive review of all project files. Key findings:
+
+**Critical bugs:**
+1. `embedding` and `create_and_load_db` use stochastic `z` instead of `z_mean` for inference — adds noise, breaks reproducibility
+2. `verify_local_distances.py` has stale column indices (old 7-mer format) — would produce wrong results
+3. `convert_txt_to_npy` is outdated (wrong column count, references removed GC column)
+4. Root symlink `vae_encoder_best.keras` points to old Dec 3 model, not the Feb 4 best model
+
+**Code quality:**
+- `ClipLayer`, `Sampling`, `clr_transform` duplicated across 4 files (divergence already caused bug #2)
+- `main.py` is a placeholder leftover from `uv init`
+- Models scattered across `Models/`, `Data/`, and project root
+
+**Architecture observations:**
+- CLR applied jointly across 6 independently-normalized k-mer groups (theoretically questionable but works empirically)
+- No dropout in the architecture
+- Training history overwritten on resume (can't plot full multi-run curves)
+- Pseudocount 1e-6 creates extreme CLR values for zero-count 6-mers
+
+Full details recorded in VAE.md under "2026-02-05: Full Codebase Review"
+
+**Deferred for future reorganization:**
+- #4: Duplicated custom layers across 4 files
+- #5: Stale model symlink / models scattered across directories
+- #9: Training history not merged across runs
+
+Torben is thinking about how to reorganize the project more systematically. These should be addressed as part of that effort.
+
+**Current training data location:** `../../VAE_Training_Data/all_contigs_l5000.npy`
+(The `Data/all_kmers.npy` is the older 4.8M aquatic-only dataset.)
+
+**Verification results (per-group CLR + Jeffreys, epoch ~237, not converged):**
+- On training data (50k sample): Spearman r = 0.93, Pearson r = 0.60
+- Top 1 MSE = 0.060, random baseline = 0.227
+- On old aquatic-only Data/all_kmers.npy: Spearman r = 0.67 (expected — less represented in training)
+- Near-convergence runs: Spearman 0.929/0.927 (plateaued), Pearson 0.638/0.620
+- Model has converged on this metric; close to previous model's 0.95 with completely different preprocessing
+
+**Planned experiment: minimum contig length sweep**
+- Datasets being prepared at 1,000 / 2,000 / 3,000 / 4,000 / 5,000 bp thresholds
+- Goal: systematically compare training metrics and local distance quality across cutoffs, choose final threshold
+- Now feasible because Jeffreys prior prevents pseudocount-related artifacts for short contigs
+- Results intended for inclusion in the Nature Methods paper
+- FD (Microflora Danica) paper explicitly filters contigs <3 kbp using SeqKit (v.2.4.0)
+  - Consistent with mmlong2 default of 3,000 bp min contig length for binning
+  - Also: contigs >250 kbp kept as separate bins, remainder goes to iterative ensemble binning
+  - Source: https://github.com/Serka-M/mmlong2
+  - Paper: https://www.nature.com/articles/s41564-025-02062-z
+  - FD contigs obtained directly from ENA, already filtered at 3 kbp before submission
+  - Implication for length sweep: 1k and 2k thresholds only gain shorter contigs from non-FD sources (aquatic, RefSeq)
+
+**Future consideration: float16**
+With the Jeffreys prior pseudocounts (smallest is 2.4e-4 for 6-mers), float16 is now feasible — it wasn't with the old 1e-6 pseudocount. Would halve memory for training data (~120 GB → ~60 GB for 13.4M sequences). Revisit during reorganization.

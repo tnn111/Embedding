@@ -559,3 +559,192 @@ Three methods explored for identifying differences between sample groups in t-SN
 1. **Density difference heatmap**: Compute normalized 2D histograms for each group, subtract to show enrichment/depletion
 2. **Cluster composition analysis**: For each HDBSCAN cluster, compute fraction belonging to each group
 3. **Overlay plot**: Plot both groups on same axes with different colors to visualize overlap
+
+---
+
+## 2026-02-05: Full Codebase Review (Opus 4.6)
+
+### Critical Issues
+
+**1. Inference scripts use stochastic `z` instead of deterministic `z_mean`**
+
+Both `embedding` (line 118) and `create_and_load_db` (line 164) use the sampled `z` output from the encoder rather than `z_mean`. The stochastic `z` includes reparameterization noise, meaning the same input produces different embeddings each run. Standard VAE inference practice is to use `z_mean`. Notably, `verify_local_distances.py` correctly uses `z_mean` — so the validation measured quality under a different regime than the deployed pipeline.
+
+**2. `verify_local_distances.py` has stale column indices**
+
+Still uses `COL_START = 8193`, `COL_END = 10965` (old 7-mer format). Current data uses `COL_START = 1`, `COL_END = 2773`. Script would produce wrong results on current data.
+
+**3. `convert_txt_to_npy` is outdated**
+
+References `NUM_COLUMNS = 2762` and a format with a "GC" column that no longer exists.
+
+### Code Quality Issues
+
+**4. Duplicated custom layers across 4 files**
+
+`ClipLayer`, `Sampling`, and `clr_transform` are copy-pasted into VAE.py, `embedding`, `create_and_load_db`, and `verify_local_distances.py`. Divergence has already caused bug #2.
+
+**5. Stale model symlink**
+
+Root `vae_encoder_best.keras` symlink points to `Models/Multi_005_384/` (Dec 3, 4.8M dataset). Best model (13.4M dataset, dramatically better metrics) lives in `Data/`. Inference scripts resolve to the old model.
+
+**6. `main.py` is a placeholder**
+
+Just prints "Hello from clustering!" — leftover from `uv init`.
+
+### Architecture & Training Notes
+
+**7. CLR applied across mixed compositions**
+
+`calculate_kmer_frequencies` normalizes each k-size group independently (each sums to 1.0), then VAE.py applies CLR to all 2,772 features together, mixing 6 separate compositions. CLR is designed for a single compositional vector. Per-group CLR would be more theoretically sound. Current approach works well empirically — the joint CLR may create useful cross-scale interactions.
+
+**8. No dropout**
+
+Architecture relies on BatchNorm + KL regularization only. Mild dropout (0.1-0.2) could improve generalization.
+
+**9. Training history not merged across runs**
+
+`vae_history.pkl` is overwritten on each resume, losing the full training curve.
+
+**10. Small CLR pseudocount (1e-6)**
+
+For 5,000 bp sequences, many 6-mers have zero counts, producing CLR values near -13.8. A larger pseudocount (e.g., 1e-3 or 1/N) would reduce dynamic range extremes.
+
+### Minor Issues
+
+- pyproject.toml project name is "clustering"
+- README.md is empty
+- `embedding` script hardcodes encoder path (no CLI option unlike `create_and_load_db`)
+- Models scattered across `Models/`, `Data/`, and project root
+- `NumpyBatchDataset` drops last incomplete batch (negligible)
+
+### Prioritized Suggestions
+
+1. Fix inference to use `z_mean` (highest impact, one-line fix each)
+2. Update `verify_local_distances.py` column indices
+3. Update model symlink to point to best current model
+4. Extract shared code (`ClipLayer`, `Sampling`, `clr_transform`) to a module
+5. Remove/update stale files (`convert_txt_to_npy`, `main.py`)
+6. ~~Consider per-group CLR as an experiment~~ — **Done** (see below)
+
+---
+
+## 2026-02-05: Switched to per-group CLR transformation
+
+### Change
+CLR is now applied independently to each k-mer size group (6-mer, 5-mer, 4-mer, 3-mer, 2-mer, 1-mer) instead of jointly across all 2,772 features.
+
+### Rationale
+`calculate_kmer_frequencies` normalizes each k-size group independently (each sums to 1.0). These are 6 separate compositions. Applying CLR jointly mixed features from different compositional spaces, with the geometric mean dominated by the 2,080 6-mer features. Per-group CLR respects the independence of each composition.
+
+### Files changed
+- `VAE.py` — `clr_transform_inplace` loops over `KMER_SIZES` dict
+- `embedding` — `clr_transform` loops over `KMER_SLICES` list
+- `create_and_load_db` — same
+- `verify_local_distances.py` — same
+
+### Impact
+- All existing models are incompatible (trained with joint CLR)
+- Retraining required
+- ChromaDB needs to be regenerated after retraining
+
+---
+
+## 2026-02-05: Jeffreys prior pseudocount for CLR
+
+### Change
+Replaced fixed pseudocount of 1e-6 with a per-group Jeffreys prior: `pseudocount = 0.5 / n_features`.
+
+### Rationale
+Each k-mer group is a multinomial composition. The Jeffreys prior (Dir(0.5, ..., 0.5)) is the standard uninformative prior for multinomial data. Adding 0.5 counts before normalization is equivalent to adding `0.5 / n_features` to the normalized frequencies.
+
+**Previous (1e-6):** For a zero-count 6-mer, log(1e-6) = -13.8. Typical non-zero value ~1/2080 gives log(4.8e-4) = -7.6. Gap of ~6 log units distorts the geometric mean.
+
+**New (Jeffreys):** Per-group pseudocounts:
+
+| Group | n_features | Pseudocount | log(pseudocount) |
+|-------|-----------|-------------|------------------|
+| 6-mer | 2080 | 2.4e-4 | -8.3 |
+| 5-mer | 512 | 9.8e-4 | -6.9 |
+| 4-mer | 136 | 3.7e-3 | -5.6 |
+| 3-mer | 32 | 1.6e-2 | -4.2 |
+| 2-mer | 10 | 5.0e-2 | -3.0 |
+| 1-mer | 2 | 2.5e-1 | -1.4 |
+
+Gap between zero and typical non-zero 6-mer is now ~0.7 log units instead of ~6. The transform is less dominated by absence/presence and more sensitive to frequency differences.
+
+### Files changed
+Same 4 files as per-group CLR change. Pseudocount parameter removed from function signatures.
+
+### Context
+This work is intended as foundation for a Nature Methods paper. The Jeffreys prior is well-established in the compositional data analysis literature and provides a principled, citable justification.
+
+### Implications for minimum contig length
+
+Previous attempt with 1,000 bp contigs (5,000 bp threshold) gave poor results, likely due to the 1e-6 pseudocount. For a 1,000 bp contig:
+- ~995 6-mer positions across 2,080 bins → most bins are zero
+- **Old (1e-6):** zeros at log(1e-6) = -13.8, non-zeros at ~-6.9. Gap of ~7 log units, majority of features at the extreme. CLR geometric mean dominated by zeros, burying the signal.
+- **Jeffreys (2.4e-4):** zeros at -8.3, non-zeros at ~-6.7. Gap of ~1.6 log units. Signal preserved.
+
+Should re-test 1,000 bp minimum after model converges. Fundamental noise issue remains (995 observations / 2,080 bins), but preprocessing no longer destroys the signal.
+
+---
+
+## 2026-02-05: Training progress with per-group CLR + Jeffreys prior
+
+### Training metrics at epoch ~237 (not fully converged)
+
+```
+Val: 102.83, MSE: 0.036 [6mer=0.0464, 5mer=0.0067, 4mer=0.0008, 3mer=0.0002, 2mer=0.0001, 1mer=0.0000]
+KL: 272 (rising slightly while MSE drops — encoder using latent dims more expressively)
+```
+
+Note: absolute MSE values are not directly comparable to previous models due to different CLR scale (Jeffreys prior produces smaller target values than 1e-6 pseudocount).
+
+### Local distance verification (epoch ~237)
+
+Tested on actual training data (`all_contigs_l5000.npy`), not the older aquatic-only `Data/all_kmers.npy`.
+
+| Metric | 10k sample | 50k sample |
+|--------|-----------|-----------|
+| Spearman r | 0.869 | 0.931 |
+| Pearson r | 0.473 | 0.598 |
+| Top 1 MSE | 0.063 | 0.060 |
+| Top 50 MSE | 0.085 | 0.077 |
+| Random baseline | 0.226 | 0.227 |
+
+**Observations:**
+- Spearman 0.93 at 50k sample, already approaching the 0.95 from the previous fully-converged model
+- Larger sample pool → better nearest neighbors (more candidates to find true close matches)
+- Pearson < Spearman indicates monotonic but nonlinear relationship between latent distance and k-mer MSE — fine for retrieval since only ranking matters
+- Tested on old aquatic-only data: Spearman 0.67 — expected since model is now trained on more diverse data and aquatic subset is proportionally less represented
+
+### Later verification (training near convergence, ~epoch 400+)
+
+| Run | Spearman r | Pearson r | Top 1 MSE | Top 50 MSE |
+|-----|-----------|-----------|-----------|-----------|
+| 1   | 0.929     | 0.638     | 0.060     | 0.076     |
+| 2   | 0.927     | 0.620     | 0.060     | 0.077     |
+
+Model has plateaued on Spearman — small variation is from random query selection. Spearman 0.93 is close to the 0.95 achieved by the previous fully-converged model despite completely different preprocessing (per-group CLR + Jeffreys prior vs joint CLR + 1e-6 pseudocount).
+
+### Final results (500 epochs)
+
+```
+Val: 101.44, MSE: 0.035 [6mer=0.0456, 5mer=0.0062, 4mer=0.0008, 3mer=0.0002, 2mer=0.0001, 1mer=0.0000]
+Recon: 98.07, KL: 284.4
+```
+
+**Runtime:** 2h 59m, 190% CPU, 252 GB peak memory
+
+**Comparison to previous best (joint CLR + 1e-6, 1000 epochs):**
+
+| Metric | Previous | New (per-group CLR + Jeffreys) |
+|--------|----------|-------------------------------|
+| Val loss | 1517.8 | 101.4 |
+| MSE | 0.601 | 0.035 |
+| 6-mer MSE | 0.777 | 0.046 |
+| KL | ~272 (prev) | 284 |
+| Spearman r (50k) | 0.95 | 0.93 |
+
+Note: MSE values are not directly comparable due to different CLR scales. The Spearman correlation is the scale-independent comparison — 0.93 vs 0.95 shows comparable latent space quality. KL is higher (284 vs 272), indicating slightly more expressive latent representations.
