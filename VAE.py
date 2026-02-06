@@ -117,7 +117,7 @@ class VAEMetricsCallback(keras.callbacks.Callback):
         kmer_mse = []
         for name, (start, end) in KMER_SIZES.items():
             kmer_mse_val = float(np.mean(np.square(target_np[:, start:end] - recon_np[:, start:end])))
-            kmer_mse.append(f'{name}={kmer_mse_val:.4f}')
+            kmer_mse.append(f'{name}={kmer_mse_val:.6f}')
         kmer_mse_str = ', '.join(kmer_mse)
 
         val_loss = logs.get('val_loss')

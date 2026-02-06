@@ -699,6 +699,8 @@ Val: 102.83, MSE: 0.036 [6mer=0.0464, 5mer=0.0067, 4mer=0.0008, 3mer=0.0002, 2me
 KL: 272 (rising slightly while MSE drops — encoder using latent dims more expressively)
 ```
 
+Per-k-mer MSE logging precision increased to 6 decimal places (from 4) to track small values like 1-mer and 2-mer.
+
 Note: absolute MSE values are not directly comparable to previous models due to different CLR scale (Jeffreys prior produces smaller target values than 1e-6 pseudocount).
 
 ### Local distance verification (epoch ~237)
@@ -725,8 +727,10 @@ Tested on actual training data (`all_contigs_l5000.npy`), not the older aquatic-
 |-----|-----------|-----------|-----------|-----------|
 | 1   | 0.929     | 0.638     | 0.060     | 0.076     |
 | 2   | 0.927     | 0.620     | 0.060     | 0.077     |
+| 3   | 0.929     | 0.620     | 0.060     | 0.077     |
+| 4   | 0.922     | 0.569     | 0.060     | 0.079     |
 
-Model has plateaued on Spearman — small variation is from random query selection. Spearman 0.93 is close to the 0.95 achieved by the previous fully-converged model despite completely different preprocessing (per-group CLR + Jeffreys prior vs joint CLR + 1e-6 pseudocount).
+Model has plateaued on Spearman ~0.93 (range 0.922-0.931 across runs) — variation is from random query selection. Close to the 0.95 achieved by the previous fully-converged model despite completely different preprocessing (per-group CLR + Jeffreys prior vs joint CLR + 1e-6 pseudocount). Top 1 MSE is remarkably stable at 0.060 across all runs.
 
 ### Final results (500 epochs)
 
