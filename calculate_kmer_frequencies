@@ -178,7 +178,7 @@ def main():
     chunk_idx = 0
     total_seqs = 0
     temp_files = []
-    temp_dir = tempfile.mkdtemp(prefix = 'kmer_chunks_')
+    temp_dir = tempfile.mkdtemp(prefix = 'kmer_chunks_', dir = '.')
 
     print(f'Using temp directory: {temp_dir}', file = sys.stderr)
 
