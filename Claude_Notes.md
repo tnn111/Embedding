@@ -325,8 +325,9 @@ Torben is thinking about how to reorganize the project more systematically. Thes
   - Run_4_prime LR schedule is normal: reductions at epochs 266, 292, 365 (vs epoch 566 for original Run 4)
   - Full LR schedule normal: reductions at 266, 292, 365, 388, 409
   - Min LR at epoch 459 (541 epochs at min LR — comparable to other runs)
-  - Spearman ~0.74 on common 5k data (0.751 at ep 410, 0.734 at ep 636 — random query variation)
-  - Model converged by epoch 636 (Val=182.0, stable per-k-mer values)
+  - **Final: Spearman 0.727 on common 5k data, 0.786 on own 4k data**
+  - Falls between Run 3 (0.717) and Run 5 (0.731) — exactly where 4,000 bp threshold should be
+  - With Run 4' corrected, Spearman increases monotonically with threshold: 0.694→0.712→0.717→0.727→0.731
   - Confirms original outlier was entirely a scheduling artifact, not a threshold effect
 - FD paper confirms 3 kbp minimum is standard (mmlong2 pipeline default)
 - Full results in VAE.md under "2026-02-08: Minimum contig length sweep results"

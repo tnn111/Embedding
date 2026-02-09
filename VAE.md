@@ -801,16 +801,18 @@ Testing each model's own data is not a fair comparison since the data distributi
 | 1,000 bp | 0.694 | 0.408 | 0.106 | 0.165 |
 | 2,000 bp | 0.712 | 0.441 | 0.107 | 0.163 |
 | 3,000 bp | 0.717 | 0.432 | 0.108 | 0.170 |
-| 4,000 bp | 0.580 | 0.296 | 0.126 | 0.226 |
+| ~~4,000 bp~~ | ~~0.580~~ | ~~0.296~~ | ~~0.126~~ | ~~0.226~~ |
+| 4,000 bp (Run 4') | 0.727 | 0.453 | 0.109 | 0.167 |
 | **5,000 bp** | **0.731** | **0.463** | **0.116** | **0.170** |
 
 Random baseline: MSE = 0.492 (same across all, since test data is identical)
 
 **Interpretation:**
 - Run 5 (5,000 bp) is the best on 5,000 bp test data, as expected — trained on matching distribution
-- Runs 1-3 are close behind (0.694-0.717) — including shorter contigs in training barely hurts performance on long contigs
-- Run 4 (4,000 bp) is a clear outlier at 0.580 — suspicious, may indicate a training issue rather than a real effect of the threshold
-- Training on shorter contigs doesn't significantly degrade the model's ability to embed long contigs (Spearman drop from 0.731 to ~0.71 is modest)
+- With Run 4' corrected, Spearman increases monotonically with threshold: 0.694 → 0.712 → 0.717 → 0.727 → 0.731
+- The original Run 4 outlier at 0.580 was a ReduceLROnPlateau scheduling artifact (see below)
+- Including shorter contigs in training barely hurts performance on long contigs (Spearman drop from 0.731 to ~0.69 is modest)
+- Training on shorter contigs doesn't significantly degrade the model's ability to embed long contigs
 
 ### Run 4 analysis: learning rate scheduling artifact
 
@@ -890,20 +892,19 @@ Normal LR schedule. Min LR (1e-6) reached at epoch 459, giving 541 epochs of fin
 | **Run 4'** | **459** | **541** |
 | Run 4 (original) | 854 | 146 |
 
-**Spearman checks during training (on common 5k test data):**
-- ~Epoch 410: 0.751
-- ~Epoch 636: 0.734 (variation from random query selection; model already converged at this point)
+**Final Run_4_prime results (1000 epochs):**
 
-| Model | Spearman r | Status |
-|-------|-----------|--------|
-| Run 4 (original) | 0.580 | LR artifact |
-| Run 1 (1k) | 0.694 | finished |
-| Run 2 (2k) | 0.712 | finished |
-| Run 3 (3k) | 0.717 | finished |
-| Run 5 (5k) | 0.731 | finished |
-| **Run 4' (4k)** | **~0.74** | **converged, still running** |
+| Model | Spearman (5k data) | Spearman (own data) |
+|-------|-------------------|-------------------|
+| Run 4 (original) | 0.580 | 0.650 |
+| Run 1 (1k) | 0.694 | 0.852 |
+| Run 2 (2k) | 0.712 | 0.742 |
+| SFE_SE_5 | 0.714 | 0.742 |
+| Run 3 (3k) | 0.717 | 0.714 |
+| **Run 4' (4k)** | **0.727** | **0.786** |
+| Run 5 (5k) | 0.731 | 0.731 |
 
-Confirms the LR scheduling theory: the original Run 4's poor Spearman was entirely due to the anomalous LR schedule, not the 4,000 bp threshold. By epoch 636, Run 4' is fully converged (Val=182.0, per-k-mer values stable to ±0.00002 between epochs).
+Run 4' lands at Spearman 0.727 on the common 5k test data — between Run 3 (0.717) and Run 5 (0.731), exactly where the 4,000 bp threshold should fall. The original Run 4's 0.580 was purely a ReduceLROnPlateau scheduling artifact. Case closed.
 
 ### FD contig length filtering
 
@@ -912,11 +913,12 @@ The Microflora Danica paper (doi:10.1038/s41564-025-02062-z) uses mmlong2 pipeli
 ### Conclusions
 
 - The Jeffreys prior solved the short-contig problem — 1,000 bp contigs are now viable
-- Run 5 (5,000 bp) gives the best latent space quality when tested on 5,000 bp data
-- Runs 1-3 are close behind, showing training on mixed-length data barely hurts long-contig performance
-- Run 4 is a learning rate scheduling artifact, not a threshold effect — ReduceLROnPlateau kept LR=1e-4 for 566 epochs, producing excellent reconstruction but poor latent space organization
+- With Run 4' corrected, Spearman on 5k test data increases monotonically with threshold: 0.694 → 0.712 → 0.717 → 0.727 → 0.731
+- The spread is modest (0.694-0.731) — minimum contig length has limited impact on embedding quality
+- The original Run 4 outlier was a ReduceLROnPlateau scheduling artifact, confirmed by retraining with starting LR=5e-5
 - A 3,000 bp threshold aligns with standard metagenomic practice (mmlong2, FD paper)
 - Choice of threshold depends on use case: 3,000 bp for compatibility with existing pipelines, lower thresholds if short contigs are important
+- Reconstruction loss alone is insufficient to evaluate embedding quality — Run 4 had the best MSE but worst Spearman
 
 ---
 
