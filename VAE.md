@@ -987,3 +987,34 @@ Together: Spearman validates the ordering, count-vs-distance validates the geome
 
 ### TODO
 - Re-run the count-vs-distance analysis on the final model (per-group CLR + Jeffreys prior) to confirm the linear regime persists. The clustering notebook has the original analysis.
+
+---
+
+## 2026-02-08: Full cross-comparison matrix (models × test datasets)
+
+Tested all 6 models on test data at each threshold (1k, 2k, 3k, 5k). Each test: 50k samples, 100 queries, 50 neighbors. Spearman correlation (latent distance vs k-mer MSE):
+
+| Model | 1k data | 2k data | 3k data | 5k data |
+|-------|---------|---------|---------|---------|
+| Run 1 (1k) | 0.852 | 0.720 | 0.680 | 0.694 |
+| Run 2 (2k) | 0.867 | 0.742 | 0.710 | 0.712 |
+| Run 3 (3k) | **0.871** | 0.730 | **0.714** | 0.717 |
+| Run 4' (4k) | 0.869 | 0.734 | 0.707 | 0.727 |
+| Run 5 (5k) | 0.847 | **0.742** | 0.657 | **0.731** |
+| SFE_SE_5 | 0.851 | 0.696 | 0.686 | 0.714 |
+
+### Observations
+
+1. **Shorter test data is easier** — all models score 0.847-0.871 on 1k data vs 0.657-0.731 on 5k data. Shorter sequences have more distinctive k-mer profiles relative to sampling noise.
+
+2. **No model dominates all columns** — column-wise best: 1k→Run 3, 2k→Run 2/5 (tied 0.742), 3k→Run 3, 5k→Run 5. There is no single "best" model across all test conditions.
+
+3. **Run 3 is the best generalist** — highest on 1k (0.871) and 3k (0.714), competitive on 2k (0.730) and 5k (0.717). The 3,000 bp threshold provides a good balance of training data quality and quantity.
+
+4. **The diagonal pattern doesn't hold** — models aren't best on their "own" threshold data. Run 3 beats Run 1 on 1k data; Run 5 beats Run 4' on 5k data but loses to nearly everyone on 3k data.
+
+5. **Run 5 is polarized** — best on 5k (0.731), tied-best on 2k (0.742), but worst on 3k (0.657) and near-worst on 1k (0.847). The strict 5,000 bp threshold loses short-sequence diversity.
+
+6. **SFE_SE_5 underperforms on cross-comparison** — despite good per-k-mer reconstruction, it lags the sweep runs on all test sets. Training data diversity (4 sources vs 2) matters more than environment specialization for generalization.
+
+7. **The monotonic trend on 5k data persists** — 0.694 → 0.712 → 0.717 → 0.727 → 0.731, but this is specific to the 5k test condition. On other test sets, the pattern is more complex.

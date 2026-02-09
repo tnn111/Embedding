@@ -347,5 +347,24 @@ Torben is thinking about how to reorganize the project more systematically. Thes
 - Worth highlighting in the paper: most metagenomic embedding papers only report reconstruction loss
 - TODO: re-run count-vs-distance analysis on final model to confirm linear regime persists
 
+**Full cross-comparison matrix (2026-02-08):**
+Tested all 6 models on test data at each threshold (1k, 2k, 3k, 5k). Spearman:
+
+| Model | 1k data | 2k data | 3k data | 5k data |
+|-------|---------|---------|---------|---------|
+| Run 1 (1k) | 0.852 | 0.720 | 0.680 | 0.694 |
+| Run 2 (2k) | 0.867 | 0.742 | 0.710 | 0.712 |
+| Run 3 (3k) | **0.871** | 0.730 | **0.714** | 0.717 |
+| Run 4' (4k) | 0.869 | 0.734 | 0.707 | 0.727 |
+| Run 5 (5k) | 0.847 | **0.742** | 0.657 | **0.731** |
+| SFE_SE_5 | 0.851 | 0.696 | 0.686 | 0.714 |
+
+Key findings:
+- No single model dominates all test conditions
+- Run 3 (3k) is the best generalist — highest on 1k and 3k, competitive elsewhere
+- Shorter test data is "easier" — all models 0.847-0.871 on 1k vs 0.657-0.731 on 5k
+- The monotonic trend on 5k data doesn't hold for other test sets
+- Run 5 is polarized: best on 5k but worst on 3k (0.657)
+
 **Future consideration: float16**
 With the Jeffreys prior pseudocounts (smallest is 2.4e-4 for 6-mers), float16 is now feasible — it wasn't with the old 1e-6 pseudocount. Would halve memory for training data (~120 GB → ~60 GB for 13.4M sequences). Revisit during reorganization.
