@@ -879,3 +879,52 @@ The Microflora Danica paper (doi:10.1038/s41564-025-02062-z) uses mmlong2 pipeli
 - Run 4 is a learning rate scheduling artifact, not a threshold effect — ReduceLROnPlateau kept LR=1e-4 for 566 epochs, producing excellent reconstruction but poor latent space organization
 - A 3,000 bp threshold aligns with standard metagenomic practice (mmlong2, FD paper)
 - Choice of threshold depends on use case: 3,000 bp for compatibility with existing pipelines, lower thresholds if short contigs are important
+
+---
+
+## 2026-02-08: Run_SFE_SE — aquatic-only baseline with new preprocessing
+
+### Setup
+- **Data:** SFE + SE contigs ≥ 5,000 bp only (4,776,770 samples) — same data as the original 4.8M aquatic model
+- **Preprocessing:** Per-group CLR + Jeffreys prior (new pipeline)
+- **Training:** 1,000 epochs, same architecture
+
+### Results
+
+| Epoch | Val | MSE | 6-mer | 5-mer | 4-mer | 3-mer | 2-mer | 1-mer | KL |
+|-------|-----|-----|-------|-------|-------|-------|-------|-------|-----|
+| 50 | 194.7 | 0.058 | 0.0751 | 0.0100 | 0.0022 | 0.0011 | 0.0006 | 0.0001 | 398 |
+| 200 | 191.0 | 0.058 | 0.0741 | 0.0097 | 0.0026 | 0.0015 | 0.0006 | 0.0003 | 404 |
+| 500 | 185.0 | 0.055 | 0.0718 | 0.0079 | 0.0013 | 0.0006 | 0.0003 | 0.0000 | 403 |
+| 1000 | 184.8 | 0.055 | 0.0717 | 0.0079 | 0.0013 | 0.0006 | 0.0003 | 0.0000 | 403 |
+
+### LR schedule
+- 1st reduction at epoch 248, min LR at epoch 535 (465 epochs at min LR)
+- Later than sweep runs (21-23) but much earlier than Run 4 (566)
+- Fewer samples per epoch → slower per-epoch progress → later plateau
+
+### Per-k-mer patterns
+- **6-mer worse** (0.0717 vs 0.0656 Run 5) — less diverse training data, 6-mer has the most features to learn
+- **4-mer through 1-mer dramatically better** — 4-mer 0.0013 vs 0.0024 (Run 5), nearly half. With only 2 environments, the model specializes on shorter k-mers
+- **KL = 403** — lowest of any run (vs 466-520 for sweep runs). Two environments need less latent capacity
+
+### Local distance verification (Spearman)
+
+**On own data (SFE_SE, 50k sample):** Spearman = 0.742, Pearson = 0.372
+
+**Cross-comparison on common 5k data (kmers_5.npy, 50k sample):**
+
+| Model | Spearman r | Pearson r | Top 1 MSE | Top 50 MSE |
+|-------|-----------|-----------|-----------|-----------|
+| Run 1 (1k) | 0.694 | 0.408 | 0.106 | 0.165 |
+| Run 2 (2k) | 0.712 | 0.441 | 0.107 | 0.163 |
+| Run 3 (3k) | 0.717 | 0.432 | 0.108 | 0.170 |
+| Run 4 (4k) | 0.580 | 0.296 | 0.126 | 0.226 |
+| Run 5 (5k) | **0.731** | **0.463** | 0.116 | 0.170 |
+| **SFE_SE** | **0.714** | 0.443 | **0.111** | 0.181 |
+
+### Interpretation
+- Spearman 0.714 on the common 5k test data — on par with Runs 1-3 despite being trained on 3x fewer samples (4.8M vs 13.4M)
+- Only slightly behind Run 5 (0.731), which was trained on the same test distribution with 2.8x more data
+- Adding FD + RefSeq diversity improves reconstruction quality (lower MSE) more than retrieval quality (Spearman)
+- The model trained on just two environments generalizes well to the full 4-source dataset

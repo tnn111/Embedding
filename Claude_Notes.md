@@ -325,5 +325,13 @@ Torben is thinking about how to reorganize the project more systematically. Thes
 - FD paper confirms 3 kbp minimum is standard (mmlong2 pipeline default)
 - Full results in VAE.md under "2026-02-08: Minimum contig length sweep results"
 
+**Run_SFE_SE (2026-02-08):**
+- Aquatic-only (SFE+SE ≥ 5kbp), 4.8M samples, new preprocessing (per-group CLR + Jeffreys)
+- Final: Val=184.8, MSE=0.055, KL=403 (lowest of any run)
+- Short k-mers dramatically better than sweep runs (4-mer 0.0013 vs 0.0024), 6-mer slightly worse
+- Spearman 0.714 on common 5k test data — on par with Runs 1-3 despite 3x fewer samples
+- LR schedule: 1st reduction at epoch 248 (between sweep runs and Run 4)
+- Key insight: diversity (FD + RefSeq) helps reconstruction more than retrieval quality
+
 **Future consideration: float16**
 With the Jeffreys prior pseudocounts (smallest is 2.4e-4 for 6-mers), float16 is now feasible — it wasn't with the old 1e-6 pseudocount. Would halve memory for training data (~120 GB → ~60 GB for 13.4M sequences). Revisit during reorganization.
