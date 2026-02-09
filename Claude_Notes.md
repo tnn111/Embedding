@@ -314,7 +314,13 @@ Torben is thinking about how to reorganize the project more systematically. Thes
 - Results not monotonic: Run 4 (4,000 bp) worst at 0.650
 - All runs below the 0.93 Spearman of the previous single-run model (different data mix)
 - Cross-comparison on common 5k data: Run 5 best (0.731), Runs 1-3 close (0.694-0.717), Run 4 outlier (0.580)
-- Run 4 outlier explained: still saving improved models at epochs 991/1000 — hadn't converged, not a threshold effect
+- **Run 4 outlier root cause: ReduceLROnPlateau scheduling artifact**
+  - All other runs: 1st LR reduction at epoch 21-23 (right after KL warmup plateau)
+  - Run 4: 1st LR reduction at epoch **566** — val_loss on a long slow descent, never triggered patience=20
+  - Run 4 spent only 146 epochs at min LR vs 547-661 for others
+  - Run 4 has the best reconstruction MSE (especially 5-mer, 3-mer, 2-mer) but worst Spearman
+  - Classic reconstruction-representation tradeoff: high LR prevented latent space local structure from stabilizing
+  - NOT a convergence issue — the loss converged fine, but the latent space organization suffered
 - FD paper confirms 3 kbp minimum is standard (mmlong2 pipeline default)
 - Full results in VAE.md under "2026-02-08: Minimum contig length sweep results"
 

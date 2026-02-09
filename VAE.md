@@ -812,9 +812,58 @@ Random baseline: MSE = 0.492 (same across all, since test data is identical)
 - Run 4 (4,000 bp) is a clear outlier at 0.580 — suspicious, may indicate a training issue rather than a real effect of the threshold
 - Training on shorter contigs doesn't significantly degrade the model's ability to embed long contigs (Spearman drop from 0.731 to ~0.71 is modest)
 
-### Run 4 convergence analysis
+### Run 4 analysis: learning rate scheduling artifact
 
-Run 4 (4,000 bp) is a clear outlier at Spearman 0.580. Examination of the training logs shows Run 4 was still saving improved models at epochs 991 and 1000 — it hadn't converged by the end of training. All other runs had stopped improving well before 1,000 epochs. This suggests the poor Spearman is a convergence issue rather than a fundamental effect of the 4,000 bp threshold. The Run 4 dataset has a unique mix of contigs in the 4,000-5,000 bp range that may require more training to learn. Could extend training to confirm.
+Run 4 (4,000 bp) is a clear outlier at Spearman 0.580 on the cross-comparison. Deep analysis of the training logs reveals this is a **learning rate scheduling artifact**, not a convergence or threshold effect.
+
+**ReduceLROnPlateau configuration:** `patience=20, factor=0.5, min_lr=1e-6`
+
+**LR reduction schedule comparison:**
+
+| Run | Min bp | 1st LR (→5e-5) | Last LR (→1e-6) | Epochs at min LR |
+|-----|--------|----------------|-----------------|------------------|
+| Run 1 | 1,000 | Epoch 21 | Epoch 339 | 661 |
+| Run 2 | 2,000 | Epoch 22 | Epoch 387 | 613 |
+| Run 3 | 3,000 | Epoch 22 | Epoch 453 | 547 |
+| **Run 4** | **4,000** | **Epoch 566** | **Epoch 854** | **146** |
+| Run 5 | 5,000 | Epoch 23 | Epoch 391 | 609 |
+
+Run 4's first LR reduction was 27x later than all other runs. It spent 566 epochs at LR=1e-4 while all others dropped to 5e-5 by epoch ~22. Run 4 only had 146 epochs at minimum LR vs 547-661 for others.
+
+**Why didn't the scheduler trigger?** Run 4's val_loss was on a long, slow descent that kept improving every <20 epochs, never triggering the patience:
+
+```
+Epoch  43: val_loss = 185.32
+Epoch  91: val_loss = 183.54   (−1.78 over 48 epochs)
+Epoch 164: val_loss = 182.36   (−1.18 over 73 epochs)
+Epoch 270: val_loss = 181.07   (−1.29 over 106 epochs)
+Epoch 360: val_loss = 179.47   (−1.60 over 90 epochs)
+Epoch 482: val_loss = 177.26   (−2.21 over 122 epochs)
+Epoch 546: val_loss = 176.31   (−0.95 over 64 epochs)
+--- 20 epochs with no improvement → 1st LR reduction at epoch 566 ---
+Epoch 567: val_loss = 175.84   (immediately improves after LR drop)
+```
+
+The model saved improved models all the way to epoch 1000 (val_loss: 193.08 → 174.63).
+
+**Paradox: Run 4 has the best reconstruction but worst retrieval.**
+
+| Run | 6-mer | 5-mer | 4-mer | 3-mer | 2-mer | KL |
+|-----|-------|-------|-------|-------|-------|-----|
+| Run 1 | 0.0727 | 0.0082 | 0.0034 | 0.0019 | 0.0009 | 490 |
+| Run 2 | 0.0867 | 0.0099 | 0.0047 | 0.0027 | 0.0011 | 509 |
+| Run 3 | 0.0834 | 0.0085 | 0.0043 | 0.0029 | 0.0014 | 520 |
+| **Run 4** | **0.0662** | **0.0055** | **0.0026** | **0.0013** | **0.0005** | 502 |
+| Run 5 | 0.0656 | 0.0071 | 0.0024 | 0.0014 | 0.0006 | 466 |
+
+Run 4 has the best or near-best MSE across all k-mer sizes (dominant on 5-mer, 3-mer, 2-mer) but the worst Spearman correlation. Classic reconstruction-representation tradeoff.
+
+**Mechanism:** The other runs quickly reduced LR, allowing latent space local neighborhoods to stabilize early and refine over 550-660 epochs at min LR. Run 4 stayed at high LR for 566 epochs, continuously reorganizing the latent space. The high LR prevented fine-grained local structure from forming. By the time it reached min LR, only 146 epochs remained — not enough to develop well-organized neighborhoods.
+
+**Fix options:**
+1. Retrain Run 4 with a fixed LR schedule matching other runs (manual reduction at ~epoch 25)
+2. Extend training for 1000+ more epochs at min LR (uncertain benefit — latent structure learned at high LR may be fundamentally different)
+3. Accept as a scheduler artifact and note in the paper
 
 ### FD contig length filtering
 
@@ -825,6 +874,6 @@ The Microflora Danica paper (doi:10.1038/s41564-025-02062-z) uses mmlong2 pipeli
 - The Jeffreys prior solved the short-contig problem — 1,000 bp contigs are now viable
 - Run 5 (5,000 bp) gives the best latent space quality when tested on 5,000 bp data
 - Runs 1-3 are close behind, showing training on mixed-length data barely hurts long-contig performance
-- Run 4 is an outlier due to convergence, not threshold effects
+- Run 4 is a learning rate scheduling artifact, not a threshold effect — ReduceLROnPlateau kept LR=1e-4 for 566 epochs, producing excellent reconstruction but poor latent space organization
 - A 3,000 bp threshold aligns with standard metagenomic practice (mmlong2, FD paper)
 - Choice of threshold depends on use case: 3,000 bp for compatibility with existing pipelines, lower thresholds if short contigs are important
