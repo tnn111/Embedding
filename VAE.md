@@ -879,9 +879,20 @@ LR schedule is now behaving normally:
 | → 1.56e-6 | 311 | 364 | 383 | 345 | 409 |
 | (original Run 4: 1st reduction at epoch 566) |||||
 
-Normal LR schedule. Should reach min LR by ~epoch 440-450, giving 550+ epochs of fine-tuning.
+Normal LR schedule. Min LR (1e-6) reached at epoch 459, giving 541 epochs of fine-tuning — comparable to the other runs:
 
-**Spearman at ~epoch 410 (still training, on common 5k test data):** 0.751
+| Run | Min LR at | Epochs at min LR |
+|-----|-----------|-----------------|
+| Run 1 | 339 | 661 |
+| Run 5 | 391 | 609 |
+| Run 2 | 387 | 613 |
+| Run 3 | 453 | 547 |
+| **Run 4'** | **459** | **541** |
+| Run 4 (original) | 854 | 146 |
+
+**Spearman checks during training (on common 5k test data):**
+- ~Epoch 410: 0.751
+- ~Epoch 636: 0.734 (variation from random query selection; model already converged at this point)
 
 | Model | Spearman r | Status |
 |-------|-----------|--------|
@@ -890,9 +901,9 @@ Normal LR schedule. Should reach min LR by ~epoch 440-450, giving 550+ epochs of
 | Run 2 (2k) | 0.712 | finished |
 | Run 3 (3k) | 0.717 | finished |
 | Run 5 (5k) | 0.731 | finished |
-| **Run 4' (4k)** | **0.751** | **~epoch 410, still training** |
+| **Run 4' (4k)** | **~0.74** | **converged, still running** |
 
-Already the best of any sweep run — +0.171 over original Run 4, +0.020 over Run 5. Confirms the LR scheduling theory: the original Run 4's poor Spearman was entirely due to the anomalous LR schedule, not the 4,000 bp threshold.
+Confirms the LR scheduling theory: the original Run 4's poor Spearman was entirely due to the anomalous LR schedule, not the 4,000 bp threshold. By epoch 636, Run 4' is fully converged (Val=182.0, per-k-mer values stable to ±0.00002 between epochs).
 
 ### FD contig length filtering
 

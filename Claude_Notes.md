@@ -324,7 +324,9 @@ Torben is thinking about how to reorganize the project more systematically. Thes
   - **Fix: retraining as Run_4_prime with starting LR=5e-5** — started 2026-02-08
   - Run_4_prime LR schedule is normal: reductions at epochs 266, 292, 365 (vs epoch 566 for original Run 4)
   - Full LR schedule normal: reductions at 266, 292, 365, 388, 409
-  - **Spearman 0.751 at ~epoch 410 (still training)** — already best of any sweep run, +0.171 over original Run 4
+  - Min LR at epoch 459 (541 epochs at min LR — comparable to other runs)
+  - Spearman ~0.74 on common 5k data (0.751 at ep 410, 0.734 at ep 636 — random query variation)
+  - Model converged by epoch 636 (Val=182.0, stable per-k-mer values)
   - Confirms original outlier was entirely a scheduling artifact, not a threshold effect
 - FD paper confirms 3 kbp minimum is standard (mmlong2 pipeline default)
 - Full results in VAE.md under "2026-02-08: Minimum contig length sweep results"
