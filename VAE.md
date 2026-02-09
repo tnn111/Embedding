@@ -865,6 +865,8 @@ Run 4 has the best or near-best MSE across all k-mer sizes (dominant on 5-mer, 3
 2. Extend training for 1000+ more epochs at min LR (uncertain benefit — latent structure learned at high LR may be fundamentally different)
 3. Accept as a scheduler artifact and note in the paper
 
+**Fix chosen:** Retraining Run 4 with a much lower starting learning rate (5e-5 matches the effective LR the other runs used after their first reduction at epoch ~22). With 1000 epochs and ReduceLROnPlateau still in place, this should produce a comparable training regime to the other runs. Run started 2026-02-08.
+
 ### FD contig length filtering
 
 The Microflora Danica paper (doi:10.1038/s41564-025-02062-z) uses mmlong2 pipeline which filters contigs at 3,000 bp minimum by default. FD contigs obtained from ENA were already pre-filtered at 3 kbp before submission. This means the 1,000 bp and 2,000 bp sweep runs only gain shorter contigs from non-FD sources (aquatic metagenomes, RefSeq). The 3,000 bp threshold is standard for metagenomic binning workflows.

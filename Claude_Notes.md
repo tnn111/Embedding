@@ -321,6 +321,7 @@ Torben is thinking about how to reorganize the project more systematically. Thes
   - Run 4 has the best reconstruction MSE (especially 5-mer, 3-mer, 2-mer) but worst Spearman
   - Classic reconstruction-representation tradeoff: high LR prevented latent space local structure from stabilizing
   - NOT a convergence issue — the loss converged fine, but the latent space organization suffered
+  - **Fix: retraining Run 4 with lower starting LR (~5e-5)** — matches effective LR of other runs after their first reduction. Started 2026-02-08.
 - FD paper confirms 3 kbp minimum is standard (mmlong2 pipeline default)
 - Full results in VAE.md under "2026-02-08: Minimum contig length sweep results"
 
