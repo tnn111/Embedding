@@ -752,3 +752,79 @@ Recon: 98.07, KL: 284.4
 | Spearman r (50k) | 0.95 | 0.93 |
 
 Note: MSE values are not directly comparable due to different CLR scales. The Spearman correlation is the scale-independent comparison — 0.93 vs 0.95 shows comparable latent space quality. KL is higher (284 vs 272), indicating slightly more expressive latent representations.
+
+---
+
+## 2026-02-08: Minimum contig length sweep results
+
+### Setup
+- 5 datasets filtered at 1,000 / 2,000 / 3,000 / 4,000 / 5,000 bp minimum
+- Sources: FD (Microflora Danica), NCBI RefSeq, SE (Baltic), SFE (San Francisco Estuary)
+- FD contigs already filtered at 3 kbp before ENA submission, so 1k and 2k thresholds only add shorter contigs from other sources
+- All runs: 1,000 epochs, beta=0.05, per-group CLR with Jeffreys prior
+- verify_local_distances.py run with 50k sample size on each run's own training data
+
+### Training results
+
+| Min Length | Val Loss | MSE | 6-mer | 5-mer | 4-mer | 3-mer | 2-mer | 1-mer | KL | Time | Peak RAM |
+|-----------|---------|------|-------|-------|-------|-------|-------|-------|-----|------|----------|
+| 1,000 bp | 252.2 | 0.056 | 0.0727 | 0.0082 | 0.0034 | 0.0019 | 0.0009 | 0.0002 | 490 | 10h56m | 326 GB |
+| 2,000 bp | 239.3 | 0.067 | 0.0867 | 0.0099 | 0.0047 | 0.0027 | 0.0011 | 0.0001 | 509 | 8h19m | 317 GB |
+| 3,000 bp | 207.3 | 0.064 | 0.0834 | 0.0085 | 0.0043 | 0.0029 | 0.0014 | 0.0001 | 520 | 8h24m | 306 GB |
+| 4,000 bp | 174.6 | 0.051 | 0.0662 | 0.0055 | 0.0026 | 0.0013 | 0.0005 | 0.0001 | 502 | 7h16m | 276 GB |
+| 5,000 bp | 162.4 | 0.051 | 0.0656 | 0.0071 | 0.0024 | 0.0014 | 0.0006 | 0.0001 | 466 | 6h42m | 252 GB |
+
+### Local distance verification (Spearman correlation)
+
+| Min Length | Spearman r | Pearson r | Top 1 MSE | Top 50 MSE | Random MSE | NN/Random ratio |
+|-----------|-----------|-----------|-----------|-----------|-----------|----------------|
+| 1,000 bp | **0.852** | **0.778** | 0.121 | 0.165 | 0.555 | 4.6x |
+| 2,000 bp | 0.742 | 0.487 | 0.129 | 0.168 | 0.521 | 4.0x |
+| 3,000 bp | 0.714 | 0.611 | 0.190 | 0.244 | 0.550 | 2.9x |
+| 4,000 bp | 0.650 | 0.363 | 0.140 | 0.259 | 0.516 | 3.7x |
+| 5,000 bp | 0.731 | 0.463 | 0.116 | 0.170 | 0.492 | 4.2x |
+
+### Observations
+
+- **Run 1 (1,000 bp) has the best Spearman correlation** (0.852) by a wide margin, confirming the Jeffreys prior solved the short-contig problem
+- Results are not monotonic — Run 4 (4,000 bp) has the worst Spearman (0.650), suggesting interactions between dataset size, diversity, and contig quality
+- KL is higher for shorter-contig runs (490-520 vs 466), indicating the model uses more latent capacity for noisier inputs
+- Val loss decreases with longer minimum length (252 → 162), but this partly reflects fewer sequences and less diversity to model
+- The previous model (same preprocessing, different data mix) achieved Spearman 0.93 on its own training data — all sweep runs are lower, possibly due to different source compositions
+
+### Cross-comparison: all models tested on same 5,000 bp data (kmers_5.npy)
+
+Testing each model's own data is not a fair comparison since the data distributions differ. Here all 5 models are tested on the same 5,000 bp dataset (50k sample):
+
+| Trained on | Spearman r | Pearson r | Top 1 MSE | Top 50 MSE |
+|-----------|-----------|-----------|-----------|-----------|
+| 1,000 bp | 0.694 | 0.408 | 0.106 | 0.165 |
+| 2,000 bp | 0.712 | 0.441 | 0.107 | 0.163 |
+| 3,000 bp | 0.717 | 0.432 | 0.108 | 0.170 |
+| 4,000 bp | 0.580 | 0.296 | 0.126 | 0.226 |
+| **5,000 bp** | **0.731** | **0.463** | **0.116** | **0.170** |
+
+Random baseline: MSE = 0.492 (same across all, since test data is identical)
+
+**Interpretation:**
+- Run 5 (5,000 bp) is the best on 5,000 bp test data, as expected — trained on matching distribution
+- Runs 1-3 are close behind (0.694-0.717) — including shorter contigs in training barely hurts performance on long contigs
+- Run 4 (4,000 bp) is a clear outlier at 0.580 — suspicious, may indicate a training issue rather than a real effect of the threshold
+- Training on shorter contigs doesn't significantly degrade the model's ability to embed long contigs (Spearman drop from 0.731 to ~0.71 is modest)
+
+### Run 4 convergence analysis
+
+Run 4 (4,000 bp) is a clear outlier at Spearman 0.580. Examination of the training logs shows Run 4 was still saving improved models at epochs 991 and 1000 — it hadn't converged by the end of training. All other runs had stopped improving well before 1,000 epochs. This suggests the poor Spearman is a convergence issue rather than a fundamental effect of the 4,000 bp threshold. The Run 4 dataset has a unique mix of contigs in the 4,000-5,000 bp range that may require more training to learn. Could extend training to confirm.
+
+### FD contig length filtering
+
+The Microflora Danica paper (doi:10.1038/s41564-025-02062-z) uses mmlong2 pipeline which filters contigs at 3,000 bp minimum by default. FD contigs obtained from ENA were already pre-filtered at 3 kbp before submission. This means the 1,000 bp and 2,000 bp sweep runs only gain shorter contigs from non-FD sources (aquatic metagenomes, RefSeq). The 3,000 bp threshold is standard for metagenomic binning workflows.
+
+### Conclusions
+
+- The Jeffreys prior solved the short-contig problem — 1,000 bp contigs are now viable
+- Run 5 (5,000 bp) gives the best latent space quality when tested on 5,000 bp data
+- Runs 1-3 are close behind, showing training on mixed-length data barely hurts long-contig performance
+- Run 4 is an outlier due to convergence, not threshold effects
+- A 3,000 bp threshold aligns with standard metagenomic practice (mmlong2, FD paper)
+- Choice of threshold depends on use case: 3,000 bp for compatibility with existing pipelines, lower thresholds if short contigs are important

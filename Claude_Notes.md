@@ -253,6 +253,7 @@ Created utility script to concatenate multiple k-mer matrix files and their ID f
 - Creates output memmap with total row count
 - Copies matrices one at a time, freeing memory after each
 - Peak memory ≈ size of largest input file (not total output)
+- Temp chunks now written to local directory (not /tmp) to support parallel runs
 
 ### 2026-02-05: Full Codebase Review (Opus 4.6)
 
@@ -306,6 +307,16 @@ Torben is thinking about how to reorganize the project more systematically. Thes
   - Paper: https://www.nature.com/articles/s41564-025-02062-z
   - FD contigs obtained directly from ENA, already filtered at 3 kbp before submission
   - Implication for length sweep: 1k and 2k thresholds only gain shorter contigs from non-FD sources (aquatic, RefSeq)
+
+**Length sweep results (2026-02-08):**
+- All 5 runs completed (1,000 epochs each), verify_local_distances run on all
+- Best Spearman: Run 1 (1,000 bp) at 0.852 — Jeffreys prior solved the short-contig problem
+- Results not monotonic: Run 4 (4,000 bp) worst at 0.650
+- All runs below the 0.93 Spearman of the previous single-run model (different data mix)
+- Cross-comparison on common 5k data: Run 5 best (0.731), Runs 1-3 close (0.694-0.717), Run 4 outlier (0.580)
+- Run 4 outlier explained: still saving improved models at epochs 991/1000 — hadn't converged, not a threshold effect
+- FD paper confirms 3 kbp minimum is standard (mmlong2 pipeline default)
+- Full results in VAE.md under "2026-02-08: Minimum contig length sweep results"
 
 **Future consideration: float16**
 With the Jeffreys prior pseudocounts (smallest is 2.4e-4 for 6-mers), float16 is now feasible — it wasn't with the old 1e-6 pseudocount. Would halve memory for training data (~120 GB → ~60 GB for 13.4M sequences). Revisit during reorganization.

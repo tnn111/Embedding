@@ -11,6 +11,7 @@ wheels/
 
 # Bulky data.
 Data/
+VAE_Training/
 
 # Database
 .chroma/
