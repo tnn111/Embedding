@@ -1020,3 +1020,18 @@ Tested all 6 models on test data at each threshold (1k, 2k, 3k, 4k, 5k). Each te
 7. **SFE_SE_5 underperforms on cross-comparison** — despite good per-k-mer reconstruction, it lags the sweep runs on most test sets. Training data diversity (4 sources vs 2) matters more than environment specialization for generalization.
 
 8. **The monotonic trend on 5k data persists** — 0.694 → 0.712 → 0.717 → 0.727 → 0.731, but this is specific to the 5k test condition. On other test sets, the pattern is more complex.
+
+### Sample size stability check (1k data, 100k samples)
+
+Repeated the 1k test with 100,000 samples (vs standard 50,000) to check stability:
+
+| Model | 50k samples | 100k samples | Δ |
+|-------|-------------|--------------|-----|
+| Run 1 (1k) | 0.852 | 0.858 | +0.006 |
+| Run 2 (2k) | 0.867 | 0.874 | +0.007 |
+| Run 3 (3k) | 0.871 | 0.873 | +0.002 |
+| Run 4' (4k) | 0.869 | 0.874 | +0.005 |
+| Run 5 (5k) | 0.847 | 0.852 | +0.005 |
+| SFE_SE_5 | 0.851 | 0.848 | -0.003 |
+
+All deltas < 0.01, rankings unchanged. The 50k sample size is sufficient for stable cross-comparison results.
