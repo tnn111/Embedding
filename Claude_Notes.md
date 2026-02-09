@@ -323,7 +323,9 @@ Torben is thinking about how to reorganize the project more systematically. Thes
   - NOT a convergence issue — the loss converged fine, but the latent space organization suffered
   - **Fix: retraining as Run_4_prime with starting LR=5e-5** — started 2026-02-08
   - Run_4_prime LR schedule is normal: reductions at epochs 266, 292, 365 (vs epoch 566 for original Run 4)
-  - Confirms original outlier was a scheduling artifact
+  - Full LR schedule normal: reductions at 266, 292, 365, 388, 409
+  - **Spearman 0.751 at ~epoch 410 (still training)** — already best of any sweep run, +0.171 over original Run 4
+  - Confirms original outlier was entirely a scheduling artifact, not a threshold effect
 - FD paper confirms 3 kbp minimum is standard (mmlong2 pipeline default)
 - Full results in VAE.md under "2026-02-08: Minimum contig length sweep results"
 
@@ -334,6 +336,13 @@ Torben is thinking about how to reorganize the project more systematically. Thes
 - Spearman 0.714 on common 5k test data — on par with Runs 1-3 despite 3x fewer samples
 - LR schedule: 1st reduction at epoch 248 (between sweep runs and Run 4)
 - Key insight: diversity (FD + RefSeq) helps reconstruction more than retrieval quality
+
+**Key insight: reconstruction loss is not enough**
+- Run 4 proved that best reconstruction MSE ≠ best embedding quality
+- Need independent metrics: Spearman (ranking) and count-vs-distance linearity (geometry)
+- The LR scheduling artifact would not have been visible at typical training lengths (100-500 epochs)
+- Worth highlighting in the paper: most metagenomic embedding papers only report reconstruction loss
+- TODO: re-run count-vs-distance analysis on final model to confirm linear regime persists
 
 **Future consideration: float16**
 With the Jeffreys prior pseudocounts (smallest is 2.4e-4 for 6-mers), float16 is now feasible — it wasn't with the old 1e-6 pseudocount. Would halve memory for training data (~120 GB → ~60 GB for 13.4M sequences). Revisit during reorganization.

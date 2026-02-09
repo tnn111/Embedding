@@ -875,9 +875,24 @@ LR schedule is now behaving normally:
 | → 2.5e-5 | 146 | 201 | 225 | 148 | 266 |
 | → 1.25e-5 | 170 | 253 | 253 | 194 | 292 |
 | → 6.25e-6 | 232 | 276 | 301 | 233 | 365 |
+| → 3.125e-6 | 286 | 339 | 352 | 319 | 388 |
+| → 1.56e-6 | 311 | 364 | 383 | 345 | 409 |
 | (original Run 4: 1st reduction at epoch 566) |||||
 
-Slightly later than average but well within normal range. Should reach min LR by ~epoch 450-500, giving 500+ epochs of fine-tuning — exactly what the original Run 4 lacked (only 146 epochs at min LR). Confirms the original Run 4 outlier was a scheduling artifact.
+Normal LR schedule. Should reach min LR by ~epoch 440-450, giving 550+ epochs of fine-tuning.
+
+**Spearman at ~epoch 410 (still training, on common 5k test data):** 0.751
+
+| Model | Spearman r | Status |
+|-------|-----------|--------|
+| Run 4 (original) | 0.580 | LR artifact |
+| Run 1 (1k) | 0.694 | finished |
+| Run 2 (2k) | 0.712 | finished |
+| Run 3 (3k) | 0.717 | finished |
+| Run 5 (5k) | 0.731 | finished |
+| **Run 4' (4k)** | **0.751** | **~epoch 410, still training** |
+
+Already the best of any sweep run — +0.171 over original Run 4, +0.020 over Run 5. Confirms the LR scheduling theory: the original Run 4's poor Spearman was entirely due to the anomalous LR schedule, not the 4,000 bp threshold.
 
 ### FD contig length filtering
 
@@ -940,3 +955,22 @@ The Microflora Danica paper (doi:10.1038/s41564-025-02062-z) uses mmlong2 pipeli
 - Only slightly behind Run 5 (0.731), which was trained on the same test distribution with 2.8x more data
 - Adding FD + RefSeq diversity improves reconstruction quality (lower MSE) more than retrieval quality (Spearman)
 - The model trained on just two environments generalizes well to the full 4-source dataset
+
+---
+
+## 2026-02-08: Observations on embedding quality evaluation
+
+### Reconstruction loss is insufficient
+
+The Run 4 analysis revealed that reconstruction MSE alone is insufficient to evaluate embedding quality. Run 4 had the best or near-best reconstruction across all k-mer sizes, yet the worst Spearman correlation (latent space retrieval quality). Without an independent metric like Spearman, all 5 sweep runs would have looked comparable — especially at typical training lengths (100-500 epochs), where Run 4's LR scheduling anomaly would not have been visible.
+
+### Two complementary latent space quality metrics
+
+1. **Spearman correlation** (latent distance vs input-space MSE): Measures whether the *ranking* of neighbors is preserved — closest in latent space should be closest in k-mer space. Scale-independent, directly relevant to retrieval.
+
+2. **Count-vs-distance linearity** (from earlier analysis on the original model): The number of neighbors within distance r grows linearly with r for r < 0.5 (R² = 0.954). In a 384-dimensional space, volume grows as r^383, so linear growth implies the data lies on a low-dimensional manifold. This means the local *metric structure* is well-behaved — distances are meaningful, not just rankings.
+
+Together: Spearman validates the ordering, count-vs-distance validates the geometry. Neither is captured by reconstruction loss.
+
+### TODO
+- Re-run the count-vs-distance analysis on the final model (per-group CLR + Jeffreys prior) to confirm the linear regime persists. The clustering notebook has the original analysis.
