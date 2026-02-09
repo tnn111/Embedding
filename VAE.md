@@ -865,7 +865,19 @@ Run 4 has the best or near-best MSE across all k-mer sizes (dominant on 5-mer, 3
 2. Extend training for 1000+ more epochs at min LR (uncertain benefit — latent structure learned at high LR may be fundamentally different)
 3. Accept as a scheduler artifact and note in the paper
 
-**Fix chosen:** Retraining Run 4 with a much lower starting learning rate (5e-5 matches the effective LR the other runs used after their first reduction at epoch ~22). With 1000 epochs and ReduceLROnPlateau still in place, this should produce a comparable training regime to the other runs. Run started 2026-02-08.
+**Fix chosen:** Retraining Run 4 as Run_4_prime with starting LR=5e-5 (matches the effective LR the other runs used after their first reduction at epoch ~22). With 1000 epochs and ReduceLROnPlateau still in place, this should produce a comparable training regime to the other runs. Run started 2026-02-08.
+
+**Run_4_prime early results (in progress):**
+LR schedule is now behaving normally:
+
+| LR tier | Run 1 | Run 2 | Run 3 | Run 5 | Run 4' |
+|---------|-------|-------|-------|-------|--------|
+| → 2.5e-5 | 146 | 201 | 225 | 148 | 266 |
+| → 1.25e-5 | 170 | 253 | 253 | 194 | 292 |
+| → 6.25e-6 | 232 | 276 | 301 | 233 | 365 |
+| (original Run 4: 1st reduction at epoch 566) |||||
+
+Slightly later than average but well within normal range. Should reach min LR by ~epoch 450-500, giving 500+ epochs of fine-tuning — exactly what the original Run 4 lacked (only 146 epochs at min LR). Confirms the original Run 4 outlier was a scheduling artifact.
 
 ### FD contig length filtering
 
