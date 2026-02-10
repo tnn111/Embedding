@@ -37,3 +37,19 @@ This produces:
 ### Memory usage
 
 Peak memory is approximately the size of the largest input .npy file, not the total output size.
+
+## 2026-02-09: Added --shuffle flag
+
+### Problem
+
+The VAE uses a contiguous 90/10 train/val split (first 90% train, last 10% val) and assumes pre-shuffled data. When individual source datasets are shuffled internally but then concatenated in order, the validation set ends up dominated by whichever source was last — creating a systematic distribution shift between train and val.
+
+### Solution
+
+Added `--shuffle` flag that, after concatenation, generates a random permutation and applies it to both the matrix rows and ID lines, ensuring uniform mixing of all sources.
+
+### Implementation
+
+- Loads the entire memmap into RAM, applies the permutation, writes back
+- Shuffles IDs with the same permutation to maintain row correspondence
+- Peak memory with `--shuffle`: ~2x the output matrix size (memmap + RAM copy)

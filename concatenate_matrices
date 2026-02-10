@@ -54,6 +54,10 @@ def main():
         '-o', '--output', type = str, required = True,
         help = 'Output base name (produces <name>.npy and <name>.txt)'
     )
+    parser.add_argument(
+        '--shuffle', action = 'store_true',
+        help = 'Shuffle rows randomly after concatenation'
+    )
     args = parser.parse_args()
 
     npy_files = args.input
@@ -141,6 +145,29 @@ def main():
                 f'({row_offset:,}/{total_rows:,} total)',
                 file = sys.stderr
             )
+
+    # Shuffle if requested
+    if args.shuffle:
+        print('Shuffling rows...', file = sys.stderr)
+        perm = np.random.permutation(total_rows)
+
+        # Shuffle matrix - load into RAM, permute, write back
+        print('  Loading matrix into memory...', file = sys.stderr)
+        data = np.array(output_matrix)
+        print('  Applying permutation...', file = sys.stderr)
+        output_matrix[:] = data[perm]
+        del data
+
+        # Shuffle IDs with same permutation
+        print('  Shuffling IDs...', file = sys.stderr)
+        with open(output_txt, 'r') as f:
+            ids = f.readlines()
+        with open(output_txt, 'w') as f:
+            for idx in perm:
+                f.write(ids[idx])
+        del ids
+
+        print('  Shuffle complete.', file = sys.stderr)
 
     # Flush memmap
     del output_matrix

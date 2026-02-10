@@ -1081,3 +1081,17 @@ Trained Run_SFE_SE_1 through Run_SFE_SE_4 (≥1k through ≥4k, SFE+SE data only
 5. **Reversed monotonic trend on SFE_SE_5** — 0.782→0.778→0.761→0.754→0.695. Lower threshold models perform better on the aquatic 5k test data, opposite of the mixed 5k data trend (0.694→0.712→0.717→0.727→0.731).
 
 6. **SFE_SE_1 and SFE_SE_2 are harder than expected** — Spearman 0.747-0.791, lower than the mixed 1k/2k data. With only 2 environments, neighboring sequences are harder to distinguish.
+
+## 2026-02-09: Data shuffling concern and concatenate_matrices fix
+
+### Problem
+
+The VAE uses a contiguous 90/10 train/val split (first 90% train, last 10% val) and assumes pre-shuffled data. The individual source datasets were shuffled internally, but `concatenate_matrices` stacked them in order without shuffling. This means the validation set is dominated by whichever source was concatenated last — creating a systematic distribution shift between train and val sets. This likely explains some of the apparent "overtraining" patterns in the SFE_SE experiments.
+
+### Fix
+
+Added `--shuffle` flag to `concatenate_matrices`. After concatenation, it generates a random permutation and applies it to both the matrix rows and ID lines. Also works with a single input file pair for reshuffling existing datasets.
+
+### Impact
+
+All concatenated datasets used for training should be regenerated with `--shuffle`. Previous train/val loss comparisons may be unreliable due to the distribution shift.

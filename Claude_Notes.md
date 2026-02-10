@@ -389,3 +389,10 @@ Key: Run 2 best on aquatic data (not Run 3 as on mixed). Run 5 collapses on SFE_
 
 **Future consideration: float16**
 With the Jeffreys prior pseudocounts (smallest is 2.4e-4 for 6-mers), float16 is now feasible — it wasn't with the old 1e-6 pseudocount. Would halve memory for training data (~120 GB → ~60 GB for 13.4M sequences). Revisit during reorganization.
+
+**Data shuffling fix (2026-02-09):**
+- Individual source datasets were shuffled, but concatenation stacked them in order
+- With contiguous 90/10 split, val set is dominated by the last concatenated source
+- Added `--shuffle` flag to `concatenate_matrices` — shuffles both matrix rows and IDs together
+- All concatenated training datasets need to be regenerated with `--shuffle`
+- Also works with a single file pair for reshuffling existing datasets
