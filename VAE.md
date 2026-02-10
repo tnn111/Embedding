@@ -1052,3 +1052,32 @@ The MSE and per-k-mer breakdown are still computed from the validation sample (u
 
 ### Impact
 All previous "Recon" values in training logs should NOT be compared to "Val" for overtraining assessment. They measured different things. Reruns with the fixed code will provide accurate train/val comparisons.
+
+---
+
+## 2026-02-09: SFE_SE cross-comparison (models × aquatic-only test data)
+
+Trained Run_SFE_SE_1 through Run_SFE_SE_4 (≥1k through ≥4k, SFE+SE data only) to complement the existing Run_SFE_SE_5. Tested all 6 sweep models on all 5 SFE_SE test datasets. Spearman correlation (50k samples, 100 queries, 50 neighbors):
+
+| Model | SFE_SE_1 | SFE_SE_2 | SFE_SE_3 | SFE_SE_4 | SFE_SE_5 |
+|-------|----------|----------|----------|----------|----------|
+| Run 1 (1k) | 0.761 | 0.747 | 0.831 | **0.871** | 0.782 |
+| Run 2 (2k) | **0.791** | 0.764 | **0.844** | **0.874** | 0.778 |
+| Run 3 (3k) | 0.779 | **0.773** | 0.841 | 0.859 | 0.761 |
+| Run 4' (4k) | 0.789 | 0.779 | 0.808 | 0.841 | 0.754 |
+| Run 5 (5k) | 0.790 | 0.763 | 0.700 | 0.785 | 0.695 |
+| SFE_SE_5 | 0.777 | 0.776 | 0.744 | 0.842 | 0.742 |
+
+### Observations
+
+1. **SFE_SE_4 is the easiest test set** — all models score 0.785-0.874, highest column. The 4k aquatic-only data hits a sweet spot.
+
+2. **Run 5 collapses on SFE_SE_3 and SFE_SE_5** — 0.700 and 0.695. Same "polarized" pattern as on mixed data.
+
+3. **Run 2 is best on aquatic data** — wins on SFE_SE_1 (0.791), SFE_SE_3 (0.844), and tied for SFE_SE_4 (0.874). On mixed data, Run 3 was the generalist; on aquatic-only, Run 2 takes that role.
+
+4. **Sweep models beat the aquatic-only model on aquatic data** — Run 1 (0.782), Run 2 (0.778) both outperform SFE_SE_5 (0.742) on its own SFE_SE_5 test data. Training data diversity (4 sources) helps even for aquatic retrieval.
+
+5. **Reversed monotonic trend on SFE_SE_5** — 0.782→0.778→0.761→0.754→0.695. Lower threshold models perform better on the aquatic 5k test data, opposite of the mixed 5k data trend (0.694→0.712→0.717→0.727→0.731).
+
+6. **SFE_SE_1 and SFE_SE_2 are harder than expected** — Spearman 0.747-0.791, lower than the mixed 1k/2k data. With only 2 environments, neighboring sequences are harder to distinguish.

@@ -367,5 +367,25 @@ Key findings:
 - Run 5 is polarized: best on 5k but worst on 3k (0.657) and near-worst on 4k (0.749)
 - Models aren't best on their "own" threshold data — Run 3 beats Run 4' on 4k data
 
+**SFE_SE cross-comparison (2026-02-09):**
+Trained Run_SFE_SE_1 through _4, tested all 6 sweep models on all 5 SFE_SE test datasets:
+
+| Model | SFE_SE_1 | SFE_SE_2 | SFE_SE_3 | SFE_SE_4 | SFE_SE_5 |
+|-------|----------|----------|----------|----------|----------|
+| Run 1 (1k) | 0.761 | 0.747 | 0.831 | 0.871 | 0.782 |
+| Run 2 (2k) | 0.791 | 0.764 | 0.844 | 0.874 | 0.778 |
+| Run 3 (3k) | 0.779 | 0.773 | 0.841 | 0.859 | 0.761 |
+| Run 4' (4k) | 0.789 | 0.779 | 0.808 | 0.841 | 0.754 |
+| Run 5 (5k) | 0.790 | 0.763 | 0.700 | 0.785 | 0.695 |
+| SFE_SE_5 | 0.777 | 0.776 | 0.744 | 0.842 | 0.742 |
+
+Key: Run 2 best on aquatic data (not Run 3 as on mixed). Run 5 collapses on SFE_SE_3/5. Sweep models beat aquatic-only model on its own data. Reversed monotonic trend on SFE_SE_5 test.
+
+**Metrics logging bug fix (2026-02-09):**
+- "Recon" in logs was computed on 5000-sample val subset, NOT training data
+- Created false overtraining signal for SFE_SE_3 (val subset happened to be unrepresentatively easy)
+- Fixed: now logs actual Keras training loss as "Train"
+- All previous "Recon" values should not be compared to "Val" for overtraining assessment
+
 **Future consideration: float16**
 With the Jeffreys prior pseudocounts (smallest is 2.4e-4 for 6-mers), float16 is now feasible — it wasn't with the old 1e-6 pseudocount. Would halve memory for training data (~120 GB → ~60 GB for 13.4M sequences). Revisit during reorganization.
