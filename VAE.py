@@ -107,11 +107,10 @@ class VAEMetricsCallback(keras.callbacks.Callback):
         reconstruction = ops.concatenate(reconstructions, axis = 0)
         target = sample_x
 
-        # MSE loss (total)
+        # MSE loss (total, on validation sample)
         mse = float(ops.mean(ops.square(target - reconstruction)))
-        recon_loss = mse * INPUT_DIM
 
-        # Per-k-mer MSE breakdown
+        # Per-k-mer MSE breakdown (on validation sample)
         target_np = np.array(target)
         recon_np = np.array(reconstruction)
         kmer_mse = []
@@ -120,10 +119,12 @@ class VAEMetricsCallback(keras.callbacks.Callback):
             kmer_mse.append(f'{name}={kmer_mse_val:.6f}')
         kmer_mse_str = ', '.join(kmer_mse)
 
+        train_loss = logs.get('loss')
+        train_loss_str = f'{train_loss:.3f}' if train_loss is not None else 'N/A'
         val_loss = logs.get('val_loss')
         val_loss_str = f'{val_loss:.3f}' if val_loss is not None else 'N/A'
         logger.info(
-            f'Epoch {epoch + 1}/{self.params["epochs"]}: Recon: {recon_loss:.3f}, KL: {kl_loss:.3f} (w={kl_weight:.4f}), Val: {val_loss_str}, MSE: {mse:.3f} [{kmer_mse_str}]'
+            f'Epoch {epoch + 1}/{self.params["epochs"]}: Train: {train_loss_str}, Val: {val_loss_str}, KL: {kl_loss:.3f} (w={kl_weight:.4f}), MSE: {mse:.3f} [{kmer_mse_str}]'
         )
 
 

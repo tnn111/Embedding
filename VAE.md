@@ -1035,3 +1035,20 @@ Repeated the 1k test with 100,000 samples (vs standard 50,000) to check stabilit
 | SFE_SE_5 | 0.851 | 0.848 | -0.003 |
 
 All deltas < 0.01, rankings unchanged. The 50k sample size is sufficient for stable cross-comparison results.
+
+---
+
+## 2026-02-09: Metrics logging bug fix
+
+### Bug
+The "Recon" value logged by VAEMetricsCallback was computed on a **5000-sample validation subset**, not on training data. This was misleading because comparing "Recon" to "Val" (full validation loss) looked like a train-vs-val gap when it was actually a sampling artifact. For SFE_SE_3, the first 5000 validation samples happened to be unrepresentatively easy, creating a false overtraining signal (118.4 vs 251.5).
+
+### Fix
+Replaced "Recon" with the actual Keras training loss (`logs.get('loss')`). The log line now shows:
+```
+Epoch N: Train: <actual_train_loss>, Val: <full_val_loss>, KL: ..., MSE: ..., [per-k-mer]
+```
+The MSE and per-k-mer breakdown are still computed from the validation sample (useful granularity) but are no longer confused with training loss.
+
+### Impact
+All previous "Recon" values in training logs should NOT be compared to "Val" for overtraining assessment. They measured different things. Reruns with the fixed code will provide accurate train/val comparisons.
