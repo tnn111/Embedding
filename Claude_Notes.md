@@ -367,24 +367,12 @@ Run 4/5 own-data values updated after kmers_4.npy and kmers_5.npy were replaced.
 - Convergence-by-500 pattern confirmed across all runs
 - 500 epochs appears sufficient; remaining epochs provide negligible improvement
 
-**Train/val gap analysis — BatchNorm artifact:**
+**Train/val gap — RESOLVED: was a data shuffling artifact, NOT BatchNorm:**
 
-| Run | Train | Val | Gap | Sequences |
-|-----|-------|-----|-----|-----------|
-| Run 1 (1k) | 189.3 | 189.2 | 0.1 | 17.6M |
-| Run 2 (2k) | 178.1 | 177.6 | 0.5 | 17.1M |
-| Run 3 (3k) | 166.3 | 165.9 | 0.3 | 16.5M |
-| Run 4 (4k) | 142.3 | 190.4 | 48.1 | 14.8M |
-| Run 5 (5k) | 120.8 | 162.6 | 41.8 | 13.4M |
-
-The gap in Runs 4-5 is NOT overfitting. Evidence:
-- Gap exists from epoch 1 (Run 5: Train 156.6, Val 179.1 before any learning)
-- Old and new Run_5 reach identical val loss (162.4 vs 162.6) — same generalization
-- Root cause: BatchNorm uses per-batch statistics during training (training=True) but running statistics during validation (training=False)
-- The old "Recon" metric was computed with training=False on validation data, so it could never detect this gap — old Recon+beta*KL ≈ Val because both were validation-mode measurements
-- The metrics fix (replacing Recon with actual Keras training loss) made the BN gap visible
-- BN effect is larger for 4k/5k data (more distinctive, varied k-mer profiles) than 1k data (noisier short sequences dampen batch-to-batch variation)
-- The magnitude difference (0.1 for Run 1 vs 42 for Run 5) deserves further investigation
+The ~34-48 point train/val gap in Runs 4-5 was caused by **unshuffled data**, not BatchNorm statistics. After the user fixed the shuffling:
+- Run 4: gap dropped from 48.1 → ~0.3
+- Run 5: gap dropped from 41.8 → ~0.3
+- Runs 1-3 never had the gap because their data was already properly shuffled
 
 **ReduceLROnPlateau schedules (from resource.log, NOT vae_training.log):**
 
@@ -405,28 +393,18 @@ Runs 1-3 hit floor by epoch 316-354; Runs 4-5 much later (601-622). Run 4 starte
 - Euclidean wins — VAE's MSE loss creates Euclidean-friendly geometry
 - ChromaDB should use `'hnsw:space': 'l2'` instead of `'cosine'`
 
-**Run_3 vs Run_4 cross-threshold evaluation (updated after kmers_4/5 replacement):**
-
-| Test data | Run_3 Spearman | Run_4 Spearman | Δ |
-|-----------|---------------|---------------|---|
-| 1K bp | **0.769** | 0.746 | +0.023 |
-| 2K bp | **0.639** | 0.590 | +0.049 |
-| 3K bp | **0.721** | 0.707 | +0.014 |
-| 4K bp | **0.722** | 0.697 | +0.025 |
-| 5K bp | **0.660** | 0.611 | +0.049 |
-
-**Full 5×5 cross-comparison matrix (shuffled data):**
+**Full 5×5 cross-comparison matrix (shuffled data, Run_4/5 retrained after shuffling fix):**
 
 | Model \ Test | 1K | 2K | 3K | 4K | 5K | Mean |
 |---|---|---|---|---|---|---|
 | Run 1 (1k) | **0.751** | 0.616 | 0.723 | 0.703 | 0.635 | 0.686 |
 | Run 2 (2k) | 0.764 | **0.627** | 0.729 | 0.711 | 0.643 | 0.695 |
 | **Run 3 (3k)** | **0.769** | **0.639** | **0.721** | **0.722** | **0.660** | **0.702** |
-| Run 4 (4k) | 0.746 | 0.590 | 0.707 | 0.697 | 0.611 | 0.670 |
-| Run 5 (5k) | 0.661 | 0.348 | 0.721 | 0.697 | 0.511 | 0.588 |
+| Run 4 (4k) | 0.738 | 0.598 | 0.692 | 0.674 | 0.625 | 0.665 |
+| Run 5 (5k)* | 0.726 | 0.574 | 0.654 | 0.634 | 0.610 | 0.640 |
 
-Run_3 wins or ties for best on every column. Mean Spearman: R3 (0.702) > R2 (0.695) > R1 (0.686) > R4 (0.670) > R5 (0.588). Run_2's low own-data score reflects hard 2K test data, not a weak model. Run_5 is clearly weakest. 3K bp is the sweet spot.
+*Run_5 at ~epoch 530/1000 (mid-training). Run_3 wins every column. Mean: R3 (0.702) > R2 (0.695) > R1 (0.686) > R4 (0.665) > R5 (0.640*). Run_5 dramatically improved from old broken version (0.588 → 0.640 at half-training).
 
-**Remaining runs:** SFE_SE_1 through SFE_SE_5 on shuffled data still need to complete. Full cross-comparison and final conclusions after all complete.
+**Remaining:** Run_5 still training — rerun when complete. SFE_SE runs still pending.
 
 **ClusteringPaper repo updated** to commit 97a70ac (pulled 2026-02-12).

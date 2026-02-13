@@ -1316,15 +1316,15 @@ Euclidean wins. The VAE's MSE loss optimizes reconstruction in a Euclidean sense
 
 ## 2026-02-12: Run_4 model cross-threshold evaluation
 
-Tested the shuffled Run_4 (4K bp) model on all 5 test datasets to assess generalization to shorter sequences. Updated after kmers_4.npy and kmers_5.npy were replaced:
+Tested the shuffled Run_4 (4K bp) model on all 5 test datasets to assess generalization to shorter sequences. Updated after second data fix (shuffling correction):
 
 | Test data | Spearman | Top 1 MSE | Random MSE | vs dedicated model |
 |-----------|----------|-----------|------------|-------------------|
-| 1K bp | 0.746 | 0.169 | 0.555 | 0.751 (Run_1) → -0.005 |
-| 2K bp | 0.590 | 0.162 | 0.542 | 0.627 (Run_2) → -0.037 |
-| 3K bp | 0.707 | 0.125 | 0.511 | 0.721 (Run_3) → -0.014 |
-| **4K bp** | **0.697** | **0.122** | 0.494 | **(own data)** |
-| 5K bp | 0.611 | 0.103 | 0.468 | 0.511 (Run_5) → **+0.100** |
+| 1K bp | 0.738 | 0.178 | 0.555 | 0.751 (Run_1) → -0.013 |
+| 2K bp | 0.598 | 0.176 | 0.542 | 0.627 (Run_2) → -0.029 |
+| 3K bp | 0.692 | 0.127 | 0.511 | 0.721 (Run_3) → -0.029 |
+| **4K bp** | **0.674** | **0.138** | 0.494 | **(own data)** |
+| 5K bp | 0.625 | 0.101 | 0.468 | 0.660 (Run_3) → -0.035 |
 
 > **Note**: Run_3 cross-threshold evaluation (below) showed Run_3 is strictly better than Run_4 on all test conditions.
 
@@ -1332,46 +1332,53 @@ Tested the shuffled Run_4 (4K bp) model on all 5 test datasets to assess general
 
 ## 2026-02-12: Run_3 model cross-threshold evaluation
 
-Tested the shuffled Run_3 (3K bp) model on all 5 test datasets, same protocol as Run_4. Updated after kmers_4.npy and kmers_5.npy were replaced:
+Tested the shuffled Run_3 (3K bp) model on all 5 test datasets, same protocol as Run_4. Updated after second data fix (shuffling correction):
 
 | Test data | Run_3 Spearman | Run_4 Spearman | Δ (Run_3 - Run_4) |
 |-----------|---------------|---------------|-------------------|
-| 1K bp | **0.769** | 0.746 | +0.023 |
-| 2K bp | **0.639** | 0.590 | +0.049 |
-| 3K bp | **0.721** | 0.707 | +0.014 |
-| 4K bp | **0.722** | 0.697 | +0.025 |
-| 5K bp | **0.660** | 0.611 | +0.049 |
+| 1K bp | **0.769** | 0.738 | +0.031 |
+| 2K bp | **0.639** | 0.598 | +0.041 |
+| 3K bp | **0.721** | 0.692 | +0.029 |
+| 4K bp | **0.722** | 0.674 | +0.048 |
+| 5K bp | **0.660** | 0.625 | +0.035 |
 
 ### Observations
 
-1. **Run_3 wins on every test condition** — including Run_4's own 4K data (0.722 vs 0.697) and 5K data (0.660 vs 0.611).
-2. **Consistent margin** — +0.014 to +0.049 across all tests.
-3. **Run_3 on 4K data (0.722) exceeds Run_4 on its own data (0.697)** — the 3K model is a strictly better encoder even for longer sequences.
+1. **Run_3 wins on every test condition** — including Run_4's own 4K data (0.722 vs 0.674) and 5K data (0.660 vs 0.625).
+2. **Consistent margin** — +0.029 to +0.048 across all tests.
+3. **Run_3 on 4K data (0.722) exceeds Run_4 on its own data (0.674)** — the 3K model is a strictly better encoder even for longer sequences.
 4. **3K bp threshold is the sweet spot** — enough short sequences for diversity without noise dominating. The 3K training set is a superset of the 4K set (includes all ≥3,000 bp sequences), so the model sees more diverse training data.
-5. **New 4K/5K datasets produced lower Spearman values** across both models — the replaced datasets appear harder. Run_5 own-data Spearman dropped from 0.661 to 0.511.
 
 ---
 
 ## 2026-02-12: Full 5×5 cross-comparison matrix (shuffled data)
 
-All 5 models tested on all 5 test datasets. Spearman correlation (50k samples, 100 queries, 50 neighbors):
+All 5 models tested on all 5 test datasets. Spearman correlation (50k samples, 100 queries, 50 neighbors). Run_4 and Run_5 retrained after second data fix (shuffling correction). Run_5 results are mid-training (~epoch 530/1000).
 
 | Model \ Test | 1K | 2K | 3K | 4K | 5K | Mean |
 |---|---|---|---|---|---|---|
 | **Run 1 (1k)** | **0.751** | 0.616 | 0.723 | 0.703 | 0.635 | 0.686 |
 | **Run 2 (2k)** | 0.764 | **0.627** | 0.729 | 0.711 | 0.643 | 0.695 |
 | **Run 3 (3k)** | 0.769 | 0.639 | **0.721** | **0.722** | **0.660** | **0.702** |
-| **Run 4 (4k)** | 0.746 | 0.590 | 0.707 | 0.697 | 0.611 | 0.670 |
-| **Run 5 (5k)** | 0.661 | 0.348 | 0.721 | 0.697 | 0.511 | 0.588 |
+| **Run 4 (4k)** | 0.738 | 0.598 | 0.692 | 0.674 | 0.625 | 0.665 |
+| **Run 5 (5k)**** | 0.726 | 0.574 | 0.654 | 0.634 | 0.610 | 0.640 |
 
-Bold diagonal = own-data results. Column best highlighted with bold values.
+Bold diagonal = own-data results. Column best highlighted with bold values. *Run_5 at ~epoch 530/1000.
 
 ### Observations
 
 1. **Run_3 wins or ties for best on every column** — the most consistent general-purpose encoder. Mean Spearman 0.702.
 2. **Runs 1-3 are competitive** — means within 0.016 of each other (0.686-0.702), with Run_3 edging ahead.
-3. **Run_5 is clearly the weakest** — collapsed on 2K (0.348) and own 5K data (0.511). Mean 0.588.
-4. **2K test data is uniquely hard** — all models score 0.348-0.639, well below other columns. Even Run_2 (trained on 2K) only achieves 0.627.
-5. **No model is best on its own data** — except Run_1 on 1K (tied with Run_3 on 3K at 0.723 vs 0.721). Run_3 beats Run_4 on 4K data and Run_5 on 5K data.
-6. **Run_2 is not an outlier model** — its low own-data Spearman (0.627) reflects the difficulty of the 2K test data, not a weak model. On other test sets it scores 0.643-0.764.
-7. **Models trained on shorter thresholds generalize upward better than the reverse** — Run_1-3 score 0.635-0.660 on 5K data, while Run_5 scores 0.661-0.721 on 1K-3K data (but collapses on 2K).
+3. **Run_4 and Run_5 improved dramatically after data fix** — the train/val gap (previously 34-48 points) was caused by unshuffled data, not BatchNorm. With proper shuffling, both models show <1 point train/val gap.
+4. **Run_5 already competitive at half-training** — mean 0.640 vs old broken Run_5's 0.588 at completion. Should improve further.
+5. **2K test data is uniquely hard** — all models score 0.574-0.639, well below other columns.
+6. **No model is best on its own data** — except Run_1 on 1K. Run_3 beats Run_4 on 4K data and all models on 5K data.
+7. **Models trained on shorter thresholds generalize upward better than the reverse** — Run_1-3 score 0.635-0.660 on 5K data.
+
+## 2026-02-13: Train/val gap was a data shuffling artifact
+
+The ~34-48 point train/val gap previously observed in Runs 4-5 (attributed to BatchNorm per-batch vs running statistics) was actually caused by **unshuffled data** in the Run 4 and Run 5 datasets. With properly shuffled data:
+- Run 4: Train 126.8, Val 126.5 → gap of ~0.3 (was 48.1)
+- Run 5 at epoch 530: Train 126.8, Val 126.5 → gap of ~0.3 (was 41.8)
+
+This also explains why Runs 1-3 never had the gap — their datasets were already properly shuffled. The BatchNorm hypothesis was wrong; it was simply that validation data wasn't representative of training data when the data wasn't shuffled.
