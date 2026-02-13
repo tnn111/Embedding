@@ -757,6 +757,8 @@ Note: MSE values are not directly comparable due to different CLR scales. The Sp
 
 ## 2026-02-08: Minimum contig length sweep results
 
+> **SUPERSEDED**: These results used unshuffled data with biased train/val splits (val set dominated by last concatenated source). See "2026-02-12: All 5 shuffled runs complete" for corrected results. Retained for development history only.
+
 ### Setup
 - 5 datasets filtered at 1,000 / 2,000 / 3,000 / 4,000 / 5,000 bp minimum
 - Sources: FD (Microflora Danica), NCBI RefSeq, SE (Baltic), SFE (San Francisco Estuary)
@@ -924,6 +926,8 @@ The Microflora Danica paper (doi:10.1038/s41564-025-02062-z) uses mmlong2 pipeli
 
 ## 2026-02-08: Run_SFE_SE — aquatic-only baseline with new preprocessing
 
+> **SUPERSEDED**: Trained on unshuffled data. Retained for development history only.
+
 ### Setup
 - **Data:** SFE + SE contigs ≥ 5,000 bp only (4,776,770 samples) — same data as the original 4.8M aquatic model
 - **Preprocessing:** Per-group CLR + Jeffreys prior (new pipeline)
@@ -992,6 +996,8 @@ Together: Spearman validates the ordering, count-vs-distance validates the geome
 
 ## 2026-02-08: Full cross-comparison matrix (models × test datasets)
 
+> **SUPERSEDED**: All models trained on unshuffled data. See "2026-02-12: Run_4 model cross-threshold evaluation" and "Run_3 cross-threshold evaluation" for shuffled results. Retained for development history only.
+
 Tested all 6 models on test data at each threshold (1k, 2k, 3k, 4k, 5k). Each test: 50k samples, 100 queries, 50 neighbors. Spearman correlation (latent distance vs k-mer MSE):
 
 | Model | 1k data | 2k data | 3k data | 4k data | 5k data |
@@ -1056,6 +1062,8 @@ All previous "Recon" values in training logs should NOT be compared to "Val" for
 ---
 
 ## 2026-02-09: SFE_SE cross-comparison (models × aquatic-only test data)
+
+> **SUPERSEDED**: All models trained on unshuffled data. Retained for development history only.
 
 Trained Run_SFE_SE_1 through Run_SFE_SE_4 (≥1k through ≥4k, SFE+SE data only) to complement the existing Run_SFE_SE_5. Tested all 6 sweep models on all 5 SFE_SE test datasets. Spearman correlation (50k samples, 100 queries, 50 neighbors):
 
@@ -1325,3 +1333,27 @@ Tested the shuffled Run_4 (4K bp) model on all 5 test datasets to assess general
 3. **2K data is the weak spot** — 0.590 vs 0.627, but Run_2 is an outlier across all conditions anyway.
 4. **Run_4 is the best or near-best on every test condition** — strong case for the 4K threshold as the general-purpose choice.
 5. The 4K training data includes all sequences ≥ 4,000 bp, which is a subset of the 3K data (≥ 3,000 bp). Training on a slightly more curated (longer) subset produces better generalization even to shorter sequences.
+
+> **Note**: Run_3 cross-threshold evaluation (below) showed Run_3 is strictly better than Run_4 on all test conditions, reversing this conclusion.
+
+---
+
+## 2026-02-12: Run_3 model cross-threshold evaluation
+
+Tested the shuffled Run_3 (3K bp) model on all 5 test datasets, same protocol as Run_4:
+
+| Test data | Run_3 Spearman | Run_4 Spearman | Δ (Run_3 - Run_4) |
+|-----------|---------------|---------------|-------------------|
+| 1K bp | **0.769** | 0.746 | +0.023 |
+| 2K bp | **0.639** | 0.590 | +0.049 |
+| 3K bp | **0.721** | 0.707 | +0.014 |
+| 4K bp | **0.832** | 0.783 | +0.049 |
+| 5K bp | **0.791** | 0.742 | +0.049 |
+
+### Observations
+
+1. **Run_3 wins on every test condition** — including Run_4's own 4K data (0.832 vs 0.783) and 5K data (0.791 vs 0.742).
+2. **Consistent margin** — ~0.05 on most tests, large enough to be meaningful.
+3. **Run_3 on 4K data (0.832) exceeds Run_4 on its own data (0.783)** — the 3K model is a strictly better encoder even for longer sequences.
+4. **Confirms unshuffled finding** — Run_3 was also the best generalist in the earlier unshuffled cross-comparison matrix.
+5. **3K bp threshold is the sweet spot** — enough short sequences for diversity without noise dominating. The 3K training set is a superset of the 4K set (includes all ≥3,000 bp sequences), so the model sees more diverse training data.

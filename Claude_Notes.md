@@ -308,35 +308,14 @@ Torben is thinking about how to reorganize the project more systematically. Thes
   - FD contigs obtained directly from ENA, already filtered at 3 kbp before submission
   - Implication for length sweep: 1k and 2k thresholds only gain shorter contigs from non-FD sources (aquatic, RefSeq)
 
-**Length sweep results (2026-02-08):**
-- All 5 runs completed (1,000 epochs each), verify_local_distances run on all
-- Best Spearman: Run 1 (1,000 bp) at 0.852 — Jeffreys prior solved the short-contig problem
-- Results not monotonic: Run 4 (4,000 bp) worst at 0.650
-- All runs below the 0.93 Spearman of the previous single-run model (different data mix)
-- Cross-comparison on common 5k data: Run 5 best (0.731), Runs 1-3 close (0.694-0.717), Run 4 outlier (0.580)
-- **Run 4 outlier root cause: ReduceLROnPlateau scheduling artifact**
-  - All other runs: 1st LR reduction at epoch 21-23 (right after KL warmup plateau)
-  - Run 4: 1st LR reduction at epoch **566** — val_loss on a long slow descent, never triggered patience=20
-  - Run 4 spent only 146 epochs at min LR vs 547-661 for others
-  - Run 4 has the best reconstruction MSE (especially 5-mer, 3-mer, 2-mer) but worst Spearman
-  - Classic reconstruction-representation tradeoff: high LR prevented latent space local structure from stabilizing
-  - NOT a convergence issue — the loss converged fine, but the latent space organization suffered
-  - **Fix: retraining as Run_4_prime with starting LR=5e-5** — started 2026-02-08
-  - Run_4_prime LR schedule is normal: reductions at epochs 266, 292, 365 (vs epoch 566 for original Run 4)
-  - Full LR schedule normal: reductions at 266, 292, 365, 388, 409
-  - Min LR at epoch 459 (541 epochs at min LR — comparable to other runs)
-  - **Final: Spearman 0.727 on common 5k data, 0.786 on own 4k data**
-  - Falls between Run 3 (0.717) and Run 5 (0.731) — exactly where 4,000 bp threshold should be
-  - With Run 4' corrected, Spearman increases monotonically with threshold: 0.694→0.712→0.717→0.727→0.731
-  - Confirms original outlier was entirely a scheduling artifact, not a threshold effect
+**Length sweep results (2026-02-08): SUPERSEDED — unshuffled data with biased train/val splits.**
+See shuffled retraining results below for current analysis. Key findings that remain valid:
+- Jeffreys prior solved the short-contig problem (1,000 bp contigs now viable)
+- Reconstruction loss alone is insufficient to evaluate embedding quality
 - FD paper confirms 3 kbp minimum is standard (mmlong2 pipeline default)
-- Full results in VAE.md under "2026-02-08: Minimum contig length sweep results"
+- ReduceLROnPlateau scheduling can cause reconstruction-representation tradeoff (Run 4 artifact)
 
-**Run_SFE_SE (2026-02-08):**
-- Aquatic-only (SFE+SE ≥ 5kbp), 4.8M samples, new preprocessing (per-group CLR + Jeffreys)
-- Final: Val=184.8, MSE=0.055, KL=403 (lowest of any run)
-- Short k-mers dramatically better than sweep runs (4-mer 0.0013 vs 0.0024), 6-mer slightly worse
-- Spearman 0.714 on common 5k test data — on par with Runs 1-3 despite 3x fewer samples
+**Run_SFE_SE / cross-comparison matrices (2026-02-08/09): SUPERSEDED — unshuffled data.**
 - LR schedule: 1st reduction at epoch 248 (between sweep runs and Run 4)
 - Key insight: diversity (FD + RefSeq) helps reconstruction more than retrieval quality
 
@@ -347,39 +326,9 @@ Torben is thinking about how to reorganize the project more systematically. Thes
 - Worth highlighting in the paper: most metagenomic embedding papers only report reconstruction loss
 - TODO: re-run count-vs-distance analysis on final model to confirm linear regime persists
 
-**Full cross-comparison matrix (2026-02-08):**
-Tested all 6 models on test data at each threshold (1k, 2k, 3k, 5k). Spearman:
+**Full cross-comparison matrix (2026-02-08): SUPERSEDED — unshuffled data.** Run_3 was already the best generalist; confirmed with shuffled data (see below).
 
-| Model | 1k data | 2k data | 3k data | 4k data | 5k data |
-|-------|---------|---------|---------|---------|---------|
-| Run 1 (1k) | 0.852 | 0.720 | 0.680 | 0.755 | 0.694 |
-| Run 2 (2k) | 0.867 | 0.742 | 0.710 | 0.786 | 0.712 |
-| Run 3 (3k) | **0.871** | 0.730 | **0.714** | **0.797** | 0.717 |
-| Run 4' (4k) | 0.869 | 0.734 | 0.707 | 0.786 | 0.727 |
-| Run 5 (5k) | 0.847 | **0.742** | 0.657 | 0.749 | **0.731** |
-| SFE_SE_5 | 0.851 | 0.696 | 0.686 | 0.760 | 0.714 |
-
-Key findings:
-- No single model dominates all test conditions
-- Run 3 (3k) is the best generalist — highest on 1k, 3k, and 4k, competitive elsewhere
-- Shorter test data is "easier" — all models 0.847-0.871 on 1k vs 0.657-0.731 on 5k
-- The monotonic trend on 5k data doesn't hold for other test sets
-- Run 5 is polarized: best on 5k but worst on 3k (0.657) and near-worst on 4k (0.749)
-- Models aren't best on their "own" threshold data — Run 3 beats Run 4' on 4k data
-
-**SFE_SE cross-comparison (2026-02-09):**
-Trained Run_SFE_SE_1 through _4, tested all 6 sweep models on all 5 SFE_SE test datasets:
-
-| Model | SFE_SE_1 | SFE_SE_2 | SFE_SE_3 | SFE_SE_4 | SFE_SE_5 |
-|-------|----------|----------|----------|----------|----------|
-| Run 1 (1k) | 0.761 | 0.747 | 0.831 | 0.871 | 0.782 |
-| Run 2 (2k) | 0.791 | 0.764 | 0.844 | 0.874 | 0.778 |
-| Run 3 (3k) | 0.779 | 0.773 | 0.841 | 0.859 | 0.761 |
-| Run 4' (4k) | 0.789 | 0.779 | 0.808 | 0.841 | 0.754 |
-| Run 5 (5k) | 0.790 | 0.763 | 0.700 | 0.785 | 0.695 |
-| SFE_SE_5 | 0.777 | 0.776 | 0.744 | 0.842 | 0.742 |
-
-Key: Run 2 best on aquatic data (not Run 3 as on mixed). Run 5 collapses on SFE_SE_3/5. Sweep models beat aquatic-only model on its own data. Reversed monotonic trend on SFE_SE_5 test.
+**SFE_SE cross-comparison (2026-02-09): SUPERSEDED — unshuffled data.**
 
 **Metrics logging bug fix (2026-02-09):**
 - "Recon" in logs was computed on 5000-sample val subset, NOT training data
@@ -464,7 +413,17 @@ Runs 1-3 hit floor by epoch 316-354; Runs 4-5 much later (601-622). Run 4 starte
 | 4K bp | 0.783 | (own data) |
 | 5K bp | 0.742 | 0.661 (Run_5) → **+0.081** |
 
-Run_4 beats Run_5 on 5K data and nearly matches dedicated models on shorter sequences. Strong case for 4K threshold as the general-purpose choice — best on own data and generalizes well to all other thresholds.
+**Run_3 cross-threshold evaluation (shuffled model on all test datasets):**
+
+| Test data | Run_3 Spearman | Run_4 Spearman | Δ |
+|-----------|---------------|---------------|---|
+| 1K bp | **0.769** | 0.746 | +0.023 |
+| 2K bp | **0.639** | 0.590 | +0.049 |
+| 3K bp | **0.721** | 0.707 | +0.014 |
+| 4K bp | **0.832** | 0.783 | +0.049 |
+| 5K bp | **0.791** | 0.742 | +0.049 |
+
+**Run_3 wins on every test condition**, including Run_4's own 4K data. The 3K bp threshold is the sweet spot — more training data diversity without noise dominating. Run_3 is the best general-purpose encoder.
 
 **Remaining runs:** SFE_SE_1 through SFE_SE_5 on shuffled data still need to complete. Full cross-comparison and final conclusions after all complete.
 
