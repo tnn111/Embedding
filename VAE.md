@@ -1095,3 +1095,137 @@ Added `--shuffle` flag to `concatenate_matrices`. After concatenation, it genera
 ### Impact
 
 All concatenated datasets used for training should be regenerated with `--shuffle`. Previous train/val loss comparisons may be unreliable due to the distribution shift.
+
+---
+
+## 2026-02-10: Run_1 mid-training verification (epoch ~570)
+
+### Setup
+- Run_1 is retraining on shuffled data (1,000 bp threshold, all 4 sources)
+- At epoch 570/1000: Train: 189.35, Val: 189.14, MSE: 0.059, 6-mer: 0.0768
+- verify_local_distances.py run with 50k samples on CPU
+
+### Results
+
+| Metric | Value |
+|--------|-------|
+| Spearman r | 0.766 |
+| Pearson r | 0.543 |
+| Top 1 MSE | 0.108 ± 0.094 |
+| Top 5 MSE | 0.113 ± 0.079 |
+| Top 10 MSE | 0.119 ± 0.078 |
+| Top 20 MSE | 0.129 ± 0.086 |
+| Top 50 MSE | 0.149 ± 0.112 |
+| Random MSE | 0.456 ± 0.275 |
+| NN/Random ratio | 4.2x |
+
+### Comparison to previous Run 1 (1000 epochs, unshuffled data)
+
+| Metric | Run 1 (1000 ep, unshuffled) | Run 1 (570 ep, shuffled) |
+|--------|---------------------------|------------------------|
+| Spearman (own data) | 0.852 | 0.766 |
+| Top 1 MSE | 0.121 | 0.108 |
+| Top 50 MSE | 0.165 | 0.149 |
+| Random MSE | 0.555 | 0.456 |
+
+Still training — Spearman at 0.766 is lower than the previous Run 1's 0.852 at convergence, but the model is only 57% through training. The lower random baseline MSE (0.456 vs 0.555) reflects the shuffled validation set now being representative of the full data distribution.
+
+### Follow-up at epoch ~750
+
+| Metric | Epoch ~570 | Epoch ~750 | Δ |
+|--------|-----------|-----------|---|
+| Spearman r | 0.766 | 0.768 | +0.002 |
+| Pearson r | 0.543 | 0.525 | -0.018 |
+| Top 1 MSE | 0.108 | 0.109 | +0.001 |
+| Top 50 MSE | 0.149 | 0.152 | +0.003 |
+
+Essentially converged — Spearman and reconstruction metrics both flat since epoch ~570. The remaining 250 epochs are unlikely to produce meaningful improvement.
+
+### Training duration observation
+
+500 epochs would likely be sufficient. Evidence: MSE flat at 0.059 since at least epoch 570, Spearman only +0.002 from epoch 570→750, val loss barely moving. The previous sweep runs reached min LR by epoch 339-459, meaning 500 epochs gives 50-160 epochs of fine-tuning at min LR — apparently enough for convergence. Would save ~3 hours per run. Keeping 1,000 epochs for all reruns to confirm this pattern across all thresholds.
+
+### Run_2 shuffled results (1000 epochs)
+
+| Metric | Run 1 (shuffled) | Run 2 (shuffled) | Old Run 2 (unshuffled) |
+|--------|-----------------|-----------------|----------------------|
+| Spearman r | 0.768 | 0.627 | 0.742 |
+| Pearson r | 0.525 | 0.360 | 0.487 |
+| Top 1 MSE | 0.109 | 0.167 | 0.129 |
+| Top 50 MSE | 0.152 | 0.236 | 0.168 |
+| Random MSE | 0.456 | 0.542 | 0.521 |
+
+Run_2 Spearman dropped more than Run_1 after shuffling (0.742→0.627 vs 0.852→0.768). The higher random baseline (0.542 vs 0.456 for Run_1) is not because the 2k subset is "more diverse" — it's a strict subset of the 1k data. Rather, the short sequences (1000-1999 bp) excluded from 2k have noisy, less distinctive k-mer profiles that regress toward the mean in CLR space. Including them in the 1k set deflates average pairwise distances. Need to see the remaining runs to understand the pattern.
+
+### Run_3 shuffled results (1000 epochs, complete)
+
+Checked at epoch ~480 and again at 1000: Spearman 0.724 → 0.721. No improvement in last 500 epochs — confirms convergence-by-500 pattern.
+
+### Shuffled runs summary so far
+
+| Run | Epochs | Spearman | Pearson | Top 1 MSE | Top 50 MSE | Random MSE |
+|-----|--------|----------|---------|-----------|-----------|------------|
+| Run 1 (1k) | ~750 | 0.768 | 0.525 | 0.109 | 0.152 | 0.456 |
+| Run 2 (2k) | 1000 | 0.627 | 0.360 | 0.167 | 0.236 | 0.542 |
+| Run 3 (3k) | 1000 | 0.721 | 0.388 | 0.119 | 0.194 | 0.511 |
+
+### Run_4 shuffled results (epoch ~184, in progress)
+
+Run_4 at epoch ~184: Spearman 0.789, Pearson 0.620 — best of the shuffled runs so far despite being early in training. Notable train/val gap (145 vs 196). Starting LR set to 1e-5 (lower than Run_4' at 5e-5, learning from the original Run_4 scheduling artifact).
+
+| Run | Epochs | Spearman | Pearson | Top 1 MSE | Random MSE |
+|-----|--------|----------|---------|-----------|------------|
+| Run 1 (1k) | ~750 | 0.768 | 0.525 | 0.109 | 0.456 |
+| Run 2 (2k) | 1000 | 0.627 | 0.360 | 0.167 | 0.542 |
+| Run 3 (3k) | 1000 | 0.721 | 0.388 | 0.119 | 0.511 |
+| Run 4 (4k) | ~184 | 0.789 | 0.620 | 0.118 | 0.516 |
+
+### Run_5 shuffled results (epoch ~378, in progress)
+
+Run_5 at epoch ~378: Spearman 0.690, Pearson 0.402. Starting LR=1e-5. Train/val gap of ~42, similar to Run_4.
+
+| Run | Epochs | Spearman | Pearson | Top 1 MSE | Random MSE | Train/Val gap |
+|-----|--------|----------|---------|-----------|------------|---------------|
+| Run 1 (1k) | ~750 | 0.768 | 0.525 | 0.109 | 0.456 | 0.2 |
+| Run 2 (2k) | 1000 | 0.627 | 0.360 | 0.167 | 0.542 | 0.5 |
+| Run 3 (3k) | 1000 | 0.721 | 0.388 | 0.119 | 0.511 | 0.4 |
+| Run 4 (4k) | ~184 | 0.789 | 0.620 | 0.118 | 0.516 | 50.2 |
+| Run 5 (5k) | ~378 | 0.690 | 0.402 | 0.109 | 0.492 | 42.1 |
+
+### Train/val gap analysis — BatchNorm artifact, not overfitting
+
+| Run | Train | Val | Gap | Sequences |
+|-----|-------|-----|-----|-----------|
+| Run 1 (1k) | 189.3 | 189.2 | 0.1 | 17.6M |
+| Run 2 (2k) | 178.1 | 177.6 | 0.5 | 17.1M |
+| Run 3 (3k) | 166.3 | 165.9 | 0.3 | 16.5M |
+| Run 4 (4k) | 142.3 | 190.4 | 48.1 | 14.8M |
+| Run 5 (5k) | 120.8 | 162.6 | 41.8 | 13.4M |
+
+**Root cause: BatchNorm's different behavior in training vs eval mode.**
+
+The gap exists from epoch 1 (Run 5: Train 156.6, Val 179.1 at epoch 1 — before any memorization is possible). BN is the only component that differs between modes:
+- `training=True` (Keras training loss): BN uses per-batch statistics
+- `training=False` (Keras val loss): BN uses running statistics
+
+**The old "Recon" metric was computed with `training=False` on validation data**, so it could never detect this gap. Old Recon + beta*KL ≈ Val because both were validation-mode measurements. The metrics fix (replacing Recon with `logs.get('loss')`) made the BN gap visible for the first time.
+
+**Confirmation:** Old Run_5 val_loss = 162.4, new Run_5 val_loss = 162.6 — nearly identical. The models learn the same thing; the gap is purely in how training loss is measured.
+
+**Why the BN effect is larger for Runs 4-5:** The 4k/5k datasets have longer sequences with more distinctive k-mer profiles → more variation between batches → BN's per-batch statistics provide a larger "advantage" over fixed running statistics. The 1k data has shorter, noisier sequences → more homogeneous → batch stats ≈ global stats → negligible BN mode difference.
+
+### Run_4 final shuffled results (1000 epochs)
+
+Spearman 0.782 (vs 0.789 at epoch ~184). Confirms convergence-by-500 and shows the train/val gap doesn't hurt latent space quality — VAE bottleneck prevents memorization.
+
+| Run | Epochs | Spearman | Pearson | Top 1 MSE | Random MSE |
+|-----|--------|----------|---------|-----------|------------|
+| Run 1 (1k) | 1000 | 0.768 | 0.525 | 0.109 | 0.456 |
+| Run 2 (2k) | 1000 | 0.627 | 0.360 | 0.167 | 0.542 |
+| Run 3 (3k) | 1000 | 0.721 | 0.388 | 0.119 | 0.511 |
+| Run 4 (4k) | 1000 | 0.782 | 0.528 | 0.121 | 0.516 |
+| Run 5 (5k) | ~378 | 0.690 | 0.402 | 0.109 | 0.492 |
+
+### Plan: final analysis after all shuffled reruns
+
+9 remaining runs (Run 2-5, Run 4', SFE_SE 1-5) on shuffled data, ~3-4 days of GPU time. Once complete: full cross-comparison on matched conditions, draw final conclusions on threshold selection and training duration, then move forward with downstream analyses.

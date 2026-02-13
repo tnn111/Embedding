@@ -396,3 +396,45 @@ With the Jeffreys prior pseudocounts (smallest is 2.4e-4 for 6-mers), float16 is
 - Added `--shuffle` flag to `concatenate_matrices` — shuffles both matrix rows and IDs together
 - All concatenated training datasets need to be regenerated with `--shuffle`
 - Also works with a single file pair for reshuffling existing datasets
+
+### 2026-02-10/11/12: Shuffled retraining sweep — correlation analysis
+
+Rerunning all models on shuffled data (1000 epochs each). Correlation results so far (verify_local_distances, 50k samples, own data):
+
+| Run | Epochs | Spearman | Pearson | Top 1 MSE | Random MSE |
+|-----|--------|----------|---------|-----------|------------|
+| Run 1 (1k) | 1000 | 0.768 | 0.525 | 0.109 | 0.456 |
+| Run 2 (2k) | 1000 | 0.627 | 0.360 | 0.167 | 0.542 |
+| Run 3 (3k) | 1000 | 0.721 | 0.388 | 0.119 | 0.511 |
+| Run 4 (4k) | 1000 | 0.782 | 0.528 | 0.121 | 0.516 |
+| Run 5 (5k) | ~378 | 0.690 | 0.402 | 0.109 | 0.492 |
+
+**Key findings:**
+- Spearman values are lower than unshuffled runs (e.g., Run 1: 0.852→0.768) because the old unshuffled validation set was biased toward one source, making the ranking task artificially easier
+- Run 4 has the best Spearman (0.782) despite having started with LR=1e-5
+- Run 2 is an unexplained outlier at 0.627
+- Convergence-by-500 pattern confirmed: Run 1 (0.766→0.768 from epoch 570→750), Run 3 (0.724→0.721 from epoch 480→1000), Run 4 (0.789→0.782 from epoch 184→1000)
+- 500 epochs appears sufficient; remaining epochs provide negligible improvement
+
+**Train/val gap analysis — BatchNorm artifact:**
+
+| Run | Train | Val | Gap | Sequences |
+|-----|-------|-----|-----|-----------|
+| Run 1 (1k) | 189.3 | 189.2 | 0.1 | 17.6M |
+| Run 2 (2k) | 178.1 | 177.6 | 0.5 | 17.1M |
+| Run 3 (3k) | 166.3 | 165.9 | 0.3 | 16.5M |
+| Run 4 (4k) | 142.3 | 190.4 | 48.1 | 14.8M |
+| Run 5 (5k) | 120.8 | 162.6 | 41.8 | 13.4M |
+
+The gap in Runs 4-5 is NOT overfitting. Evidence:
+- Gap exists from epoch 1 (Run 5: Train 156.6, Val 179.1 before any learning)
+- Old and new Run_5 reach identical val loss (162.4 vs 162.6) — same generalization
+- Root cause: BatchNorm uses per-batch statistics during training (training=True) but running statistics during validation (training=False)
+- The old "Recon" metric was computed with training=False on validation data, so it could never detect this gap — old Recon+beta*KL ≈ Val because both were validation-mode measurements
+- The metrics fix (replacing Recon with actual Keras training loss) made the BN gap visible
+- BN effect is larger for 4k/5k data (more distinctive, varied k-mer profiles) than 1k data (noisier short sequences dampen batch-to-batch variation)
+- The magnitude difference (0.1 for Run 1 vs 42 for Run 5) deserves further investigation
+
+**Remaining runs:** Run 5 finishing, then SFE_SE_1 through SFE_SE_5. ~3-4 days total GPU time. Full cross-comparison and final conclusions after all complete.
+
+**ClusteringPaper repo updated** to commit 97a70ac (pulled 2026-02-12).
