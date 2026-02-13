@@ -1248,11 +1248,11 @@ Spearman 0.782 (vs 0.789 at epoch ~184). Confirms convergence-by-500 and shows t
 |-----|-----------|----------|---------|-----------|-----------|------------|
 | Run 1 | 1K bp | 0.751 | 0.430 | 0.167 | 0.256 | 0.555 |
 | Run 2 | 2K bp | 0.627 | 0.360 | 0.167 | 0.236 | 0.542 |
-| Run 3 | 3K bp | 0.721 | 0.388 | 0.119 | 0.194 | 0.511 |
-| **Run 4** | **4K bp** | **0.783** | **0.528** | **0.121** | **0.179** | 0.516 |
-| Run 5 | 5K bp | 0.661 | 0.348 | 0.118 | 0.189 | 0.492 |
+| **Run 3** | **3K bp** | **0.721** | **0.388** | **0.119** | **0.194** | 0.511 |
+| Run 4 | 4K bp | 0.697 | 0.412 | 0.122 | 0.194 | 0.494 |
+| Run 5 | 5K bp | 0.511 | 0.242 | 0.139 | 0.240 | 0.468 |
 
-Run 4 (4K bp) has the best Spearman correlation by a clear margin.
+Run 4 and Run 5 own-data values updated after kmers_4.npy and kmers_5.npy were replaced. Run 3 (3K bp) has the best Spearman on own data and wins the cross-threshold comparison on every test condition (see below).
 
 ### Sampling variance in verify_local_distances
 
@@ -1305,55 +1305,47 @@ Added `--metric` argument accepting `euclidean` (default) or `cosine`. Motivatio
 
 | Metric | Euclidean | Cosine | Δ |
 |--------|-----------|--------|---|
-| Spearman r | **0.783** | 0.678 | -0.105 |
-| Pearson r | 0.528 | 0.530 | +0.002 |
-| Top 1 MSE | **0.121** | 0.144 | +0.023 |
-| Top 50 MSE | **0.179** | 0.197 | +0.018 |
+| Spearman r | **0.697** | 0.621 | -0.076 |
+| Pearson r | 0.412 | 0.402 | -0.010 |
+| Top 1 MSE | **0.122** | 0.133 | +0.011 |
+| Top 50 MSE | **0.194** | 0.194 | 0.000 |
 
-Euclidean wins convincingly. The VAE's MSE loss optimizes reconstruction in a Euclidean sense, so the latent space geometry favors absolute position over direction. Implication: ChromaDB should use `'hnsw:space': 'l2'` instead of `'cosine'` for this embedding.
+Euclidean wins. The VAE's MSE loss optimizes reconstruction in a Euclidean sense, so the latent space geometry favors absolute position over direction. Implication: ChromaDB should use `'hnsw:space': 'l2'` instead of `'cosine'` for this embedding.
 
 ---
 
 ## 2026-02-12: Run_4 model cross-threshold evaluation
 
-Tested the shuffled Run_4 (4K bp) model on all 5 test datasets to assess generalization to shorter sequences:
+Tested the shuffled Run_4 (4K bp) model on all 5 test datasets to assess generalization to shorter sequences. Updated after kmers_4.npy and kmers_5.npy were replaced:
 
 | Test data | Spearman | Top 1 MSE | Random MSE | vs dedicated model |
 |-----------|----------|-----------|------------|-------------------|
 | 1K bp | 0.746 | 0.169 | 0.555 | 0.751 (Run_1) → -0.005 |
 | 2K bp | 0.590 | 0.162 | 0.542 | 0.627 (Run_2) → -0.037 |
 | 3K bp | 0.707 | 0.125 | 0.511 | 0.721 (Run_3) → -0.014 |
-| **4K bp** | **0.783** | **0.121** | 0.516 | **(own data)** |
-| 5K bp | 0.742 | 0.107 | 0.492 | 0.661 (Run_5) → **+0.081** |
+| **4K bp** | **0.697** | **0.122** | 0.494 | **(own data)** |
+| 5K bp | 0.611 | 0.103 | 0.468 | 0.511 (Run_5) → **+0.100** |
 
-### Observations
-
-1. **Run_4 beats Run_5 on 5K data** — Spearman 0.742 vs 0.661 (+0.081). The 4K model is a better encoder for 5K sequences than the model trained specifically on them.
-2. **Graceful degradation on shorter sequences** — only -0.005 on 1K data vs the dedicated Run_1 model, -0.014 on 3K data.
-3. **2K data is the weak spot** — 0.590 vs 0.627, but Run_2 is an outlier across all conditions anyway.
-4. **Run_4 is the best or near-best on every test condition** — strong case for the 4K threshold as the general-purpose choice.
-5. The 4K training data includes all sequences ≥ 4,000 bp, which is a subset of the 3K data (≥ 3,000 bp). Training on a slightly more curated (longer) subset produces better generalization even to shorter sequences.
-
-> **Note**: Run_3 cross-threshold evaluation (below) showed Run_3 is strictly better than Run_4 on all test conditions, reversing this conclusion.
+> **Note**: Run_3 cross-threshold evaluation (below) showed Run_3 is strictly better than Run_4 on all test conditions.
 
 ---
 
 ## 2026-02-12: Run_3 model cross-threshold evaluation
 
-Tested the shuffled Run_3 (3K bp) model on all 5 test datasets, same protocol as Run_4:
+Tested the shuffled Run_3 (3K bp) model on all 5 test datasets, same protocol as Run_4. Updated after kmers_4.npy and kmers_5.npy were replaced:
 
 | Test data | Run_3 Spearman | Run_4 Spearman | Δ (Run_3 - Run_4) |
 |-----------|---------------|---------------|-------------------|
 | 1K bp | **0.769** | 0.746 | +0.023 |
 | 2K bp | **0.639** | 0.590 | +0.049 |
 | 3K bp | **0.721** | 0.707 | +0.014 |
-| 4K bp | **0.832** | 0.783 | +0.049 |
-| 5K bp | **0.791** | 0.742 | +0.049 |
+| 4K bp | **0.722** | 0.697 | +0.025 |
+| 5K bp | **0.660** | 0.611 | +0.049 |
 
 ### Observations
 
-1. **Run_3 wins on every test condition** — including Run_4's own 4K data (0.832 vs 0.783) and 5K data (0.791 vs 0.742).
-2. **Consistent margin** — ~0.05 on most tests, large enough to be meaningful.
-3. **Run_3 on 4K data (0.832) exceeds Run_4 on its own data (0.783)** — the 3K model is a strictly better encoder even for longer sequences.
-4. **Confirms unshuffled finding** — Run_3 was also the best generalist in the earlier unshuffled cross-comparison matrix.
-5. **3K bp threshold is the sweet spot** — enough short sequences for diversity without noise dominating. The 3K training set is a superset of the 4K set (includes all ≥3,000 bp sequences), so the model sees more diverse training data.
+1. **Run_3 wins on every test condition** — including Run_4's own 4K data (0.722 vs 0.697) and 5K data (0.660 vs 0.611).
+2. **Consistent margin** — +0.014 to +0.049 across all tests.
+3. **Run_3 on 4K data (0.722) exceeds Run_4 on its own data (0.697)** — the 3K model is a strictly better encoder even for longer sequences.
+4. **3K bp threshold is the sweet spot** — enough short sequences for diversity without noise dominating. The 3K training set is a superset of the 4K set (includes all ≥3,000 bp sequences), so the model sees more diverse training data.
+5. **New 4K/5K datasets produced lower Spearman values** across both models — the replaced datasets appear harder. Run_5 own-data Spearman dropped from 0.661 to 0.511.

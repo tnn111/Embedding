@@ -354,14 +354,16 @@ All models retrained on shuffled data (1000 epochs each). Final correlation resu
 |-----|----------|---------|-----------|-----------|------------|
 | Run 1 (1k) | 0.751 | 0.430 | 0.167 | 0.256 | 0.555 |
 | Run 2 (2k) | 0.627 | 0.360 | 0.167 | 0.236 | 0.542 |
-| Run 3 (3k) | 0.721 | 0.388 | 0.119 | 0.194 | 0.511 |
-| **Run 4 (4k)** | **0.783** | **0.528** | **0.121** | **0.179** | 0.516 |
-| Run 5 (5k) | 0.661 | 0.348 | 0.118 | 0.189 | 0.492 |
+| **Run 3 (3k)** | **0.721** | **0.388** | **0.119** | **0.194** | 0.511 |
+| Run 4 (4k) | 0.697 | 0.412 | 0.122 | 0.194 | 0.494 |
+| Run 5 (5k) | 0.511 | 0.242 | 0.139 | 0.240 | 0.468 |
+
+Run 4/5 own-data values updated after kmers_4.npy and kmers_5.npy were replaced.
 
 **Key findings:**
-- **Run 4 (4K bp) is the best model** on Spearman correlation (0.783), a clear margin over Run 1 (0.751)
-- Spearman values are lower than unshuffled runs (e.g., Run 1: 0.852→0.751) because the old unshuffled validation set was biased toward one source, making the ranking task artificially easier
-- Run 2 is an unexplained outlier at 0.627
+- **Run 3 (3K bp) is the best model** — best own-data Spearman (0.721) and wins cross-threshold comparison on every test condition
+- Spearman values are lower than unshuffled runs (e.g., Run 1: 0.852→0.751) because the old unshuffled validation set was biased toward one source
+- Run 2 is an unexplained outlier at 0.627; Run 5 dropped to 0.511 after dataset replacement
 - Convergence-by-500 pattern confirmed across all runs
 - 500 epochs appears sufficient; remaining epochs provide negligible improvement
 
@@ -398,30 +400,20 @@ Keras writes LR reduction messages to stdout/stderr (captured in `resource.log`)
 
 Runs 1-3 hit floor by epoch 316-354; Runs 4-5 much later (601-622). Run 4 started at lower LR (1e-5), delaying its first reduction. Run 5 had an unusually late first reduction (248 vs 21-22 for Runs 1-3).
 
-**Euclidean vs cosine distance (Run_4 model):**
-- Euclidean Spearman 0.783 vs cosine 0.678 (Δ = -0.105)
-- Euclidean wins convincingly — VAE's MSE loss creates Euclidean-friendly geometry
+**Euclidean vs cosine distance (Run_4 model, updated 4K data):**
+- Euclidean Spearman 0.697 vs cosine 0.621 (Δ = -0.076)
+- Euclidean wins — VAE's MSE loss creates Euclidean-friendly geometry
 - ChromaDB should use `'hnsw:space': 'l2'` instead of `'cosine'`
 
-**Run_4 cross-threshold evaluation (shuffled model on all test datasets):**
-
-| Test data | Spearman | vs dedicated model |
-|-----------|----------|--------------------|
-| 1K bp | 0.746 | 0.751 (Run_1) → -0.005 |
-| 2K bp | 0.590 | 0.627 (Run_2) → -0.037 |
-| 3K bp | 0.707 | 0.721 (Run_3) → -0.014 |
-| 4K bp | 0.783 | (own data) |
-| 5K bp | 0.742 | 0.661 (Run_5) → **+0.081** |
-
-**Run_3 cross-threshold evaluation (shuffled model on all test datasets):**
+**Run_3 vs Run_4 cross-threshold evaluation (updated after kmers_4/5 replacement):**
 
 | Test data | Run_3 Spearman | Run_4 Spearman | Δ |
 |-----------|---------------|---------------|---|
 | 1K bp | **0.769** | 0.746 | +0.023 |
 | 2K bp | **0.639** | 0.590 | +0.049 |
 | 3K bp | **0.721** | 0.707 | +0.014 |
-| 4K bp | **0.832** | 0.783 | +0.049 |
-| 5K bp | **0.791** | 0.742 | +0.049 |
+| 4K bp | **0.722** | 0.697 | +0.025 |
+| 5K bp | **0.660** | 0.611 | +0.049 |
 
 **Run_3 wins on every test condition**, including Run_4's own 4K data. The 3K bp threshold is the sweet spot — more training data diversity without noise dominating. Run_3 is the best general-purpose encoder.
 
