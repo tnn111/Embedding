@@ -116,6 +116,8 @@ def main():
                         help = 'Number of nearest neighbors to find')
     parser.add_argument('--sample-size', type = int, default = 10000,
                         help = 'Size of sample to search within')
+    parser.add_argument('--metric', choices = ['euclidean', 'cosine'], default = 'euclidean',
+                        help = 'Distance metric for latent space (default: euclidean)')
     args = parser.parse_args()
 
     print(f'Loading encoder from {args.encoder}...')
@@ -138,7 +140,7 @@ def main():
     # Get latent representations (z_mean)
     z_mean, _, _ = encoder.predict(data, batch_size = 256, verbose = 0)
 
-    print(f'Computing pairwise distances for {args.num_queries} queries...')
+    print(f'Computing pairwise distances for {args.num_queries} queries (metric: {args.metric})...')
 
     # Select random queries
     np.random.seed(42)
@@ -151,7 +153,7 @@ def main():
     for i, q_idx in enumerate(query_indices):
         # Compute latent distances from query to all others
         query_latent = z_mean[q_idx:q_idx + 1]
-        latent_distances = cdist(query_latent, z_mean, metric = 'euclidean')[0]
+        latent_distances = cdist(query_latent, z_mean, metric = args.metric)[0]
 
         # Compute k-mer MSE from query to all others
         query_kmer = data[q_idx:q_idx + 1]

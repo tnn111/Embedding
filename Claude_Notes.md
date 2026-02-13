@@ -397,23 +397,23 @@ With the Jeffreys prior pseudocounts (smallest is 2.4e-4 for 6-mers), float16 is
 - All concatenated training datasets need to be regenerated with `--shuffle`
 - Also works with a single file pair for reshuffling existing datasets
 
-### 2026-02-10/11/12: Shuffled retraining sweep — correlation analysis
+### 2026-02-10/11/12: Shuffled retraining sweep — all 5 runs complete
 
-Rerunning all models on shuffled data (1000 epochs each). Correlation results so far (verify_local_distances, 50k samples, own data):
+All models retrained on shuffled data (1000 epochs each). Final correlation results (verify_local_distances, 50k samples, own data):
 
-| Run | Epochs | Spearman | Pearson | Top 1 MSE | Random MSE |
-|-----|--------|----------|---------|-----------|------------|
-| Run 1 (1k) | 1000 | 0.768 | 0.525 | 0.109 | 0.456 |
-| Run 2 (2k) | 1000 | 0.627 | 0.360 | 0.167 | 0.542 |
-| Run 3 (3k) | 1000 | 0.721 | 0.388 | 0.119 | 0.511 |
-| Run 4 (4k) | 1000 | 0.782 | 0.528 | 0.121 | 0.516 |
-| Run 5 (5k) | ~378 | 0.690 | 0.402 | 0.109 | 0.492 |
+| Run | Spearman | Pearson | Top 1 MSE | Top 50 MSE | Random MSE |
+|-----|----------|---------|-----------|-----------|------------|
+| Run 1 (1k) | 0.751 | 0.430 | 0.167 | 0.256 | 0.555 |
+| Run 2 (2k) | 0.627 | 0.360 | 0.167 | 0.236 | 0.542 |
+| Run 3 (3k) | 0.721 | 0.388 | 0.119 | 0.194 | 0.511 |
+| **Run 4 (4k)** | **0.783** | **0.528** | **0.121** | **0.179** | 0.516 |
+| Run 5 (5k) | 0.661 | 0.348 | 0.118 | 0.189 | 0.492 |
 
 **Key findings:**
-- Spearman values are lower than unshuffled runs (e.g., Run 1: 0.852→0.768) because the old unshuffled validation set was biased toward one source, making the ranking task artificially easier
-- Run 4 has the best Spearman (0.782) despite having started with LR=1e-5
+- **Run 4 (4K bp) is the best model** on Spearman correlation (0.783), a clear margin over Run 1 (0.751)
+- Spearman values are lower than unshuffled runs (e.g., Run 1: 0.852→0.751) because the old unshuffled validation set was biased toward one source, making the ranking task artificially easier
 - Run 2 is an unexplained outlier at 0.627
-- Convergence-by-500 pattern confirmed: Run 1 (0.766→0.768 from epoch 570→750), Run 3 (0.724→0.721 from epoch 480→1000), Run 4 (0.789→0.782 from epoch 184→1000)
+- Convergence-by-500 pattern confirmed across all runs
 - 500 epochs appears sufficient; remaining epochs provide negligible improvement
 
 **Train/val gap analysis — BatchNorm artifact:**
@@ -435,6 +435,37 @@ The gap in Runs 4-5 is NOT overfitting. Evidence:
 - BN effect is larger for 4k/5k data (more distinctive, varied k-mer profiles) than 1k data (noisier short sequences dampen batch-to-batch variation)
 - The magnitude difference (0.1 for Run 1 vs 42 for Run 5) deserves further investigation
 
-**Remaining runs:** Run 5 finishing, then SFE_SE_1 through SFE_SE_5. ~3-4 days total GPU time. Full cross-comparison and final conclusions after all complete.
+**ReduceLROnPlateau schedules (from resource.log, NOT vae_training.log):**
+
+Keras writes LR reduction messages to stdout/stderr (captured in `resource.log`). All 5 runs had multiple reductions:
+
+| Run | Start LR | 1st reduction | Floor (1e-6) | Epochs at floor | Reductions |
+|-----|----------|---------------|--------------|-----------------|------------|
+| Run 1 | 1e-4 | Epoch 21 | Epoch 351 | 649 | 7 |
+| Run 2 | 1e-4 | Epoch 21 | Epoch 354 | 646 | 7 |
+| Run 3 | 1e-4 | Epoch 22 | Epoch 316 | 684 | 7 |
+| Run 4 | 1e-5 | Epoch 416 | Epoch 601 | 399 | 4 |
+| Run 5 | 1e-4 | Epoch 248 | Epoch 622 | 378 | 7 |
+
+Runs 1-3 hit floor by epoch 316-354; Runs 4-5 much later (601-622). Run 4 started at lower LR (1e-5), delaying its first reduction. Run 5 had an unusually late first reduction (248 vs 21-22 for Runs 1-3).
+
+**Euclidean vs cosine distance (Run_4 model):**
+- Euclidean Spearman 0.783 vs cosine 0.678 (Δ = -0.105)
+- Euclidean wins convincingly — VAE's MSE loss creates Euclidean-friendly geometry
+- ChromaDB should use `'hnsw:space': 'l2'` instead of `'cosine'`
+
+**Run_4 cross-threshold evaluation (shuffled model on all test datasets):**
+
+| Test data | Spearman | vs dedicated model |
+|-----------|----------|--------------------|
+| 1K bp | 0.746 | 0.751 (Run_1) → -0.005 |
+| 2K bp | 0.590 | 0.627 (Run_2) → -0.037 |
+| 3K bp | 0.707 | 0.721 (Run_3) → -0.014 |
+| 4K bp | 0.783 | (own data) |
+| 5K bp | 0.742 | 0.661 (Run_5) → **+0.081** |
+
+Run_4 beats Run_5 on 5K data and nearly matches dedicated models on shorter sequences. Strong case for 4K threshold as the general-purpose choice — best on own data and generalizes well to all other thresholds.
+
+**Remaining runs:** SFE_SE_1 through SFE_SE_5 on shuffled data still need to complete. Full cross-comparison and final conclusions after all complete.
 
 **ClusteringPaper repo updated** to commit 97a70ac (pulled 2026-02-12).

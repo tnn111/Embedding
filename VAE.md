@@ -1229,3 +1229,99 @@ Spearman 0.782 (vs 0.789 at epoch ~184). Confirms convergence-by-500 and shows t
 ### Plan: final analysis after all shuffled reruns
 
 9 remaining runs (Run 2-5, Run 4', SFE_SE 1-5) on shuffled data, ~3-4 days of GPU time. Once complete: full cross-comparison on matched conditions, draw final conclusions on threshold selection and training duration, then move forward with downstream analyses.
+
+---
+
+## 2026-02-12: All 5 shuffled runs complete — final results
+
+### verify_local_distances (50k samples, 100 queries, 50 neighbors, own data)
+
+| Run | Threshold | Spearman | Pearson | Top 1 MSE | Top 50 MSE | Random MSE |
+|-----|-----------|----------|---------|-----------|-----------|------------|
+| Run 1 | 1K bp | 0.751 | 0.430 | 0.167 | 0.256 | 0.555 |
+| Run 2 | 2K bp | 0.627 | 0.360 | 0.167 | 0.236 | 0.542 |
+| Run 3 | 3K bp | 0.721 | 0.388 | 0.119 | 0.194 | 0.511 |
+| **Run 4** | **4K bp** | **0.783** | **0.528** | **0.121** | **0.179** | 0.516 |
+| Run 5 | 5K bp | 0.661 | 0.348 | 0.118 | 0.189 | 0.492 |
+
+Run 4 (4K bp) has the best Spearman correlation by a clear margin.
+
+### Sampling variance in verify_local_distances
+
+Runs 1, 4, and 5 were tested at multiple timepoints. Differences between readings reflect random query selection (100 queries from 50k pool):
+
+| Run | Mid-training | Final (1000 ep) | Δ |
+|-----|-------------|-----------------|---|
+| Run 1 | 0.768 (ep ~750) | 0.751 | -0.017 |
+| Run 3 | 0.724 (ep ~480) | 0.721 | -0.003 |
+| Run 4 | 0.789 (ep ~184) | 0.783 | -0.006 |
+| Run 5 | 0.690 (ep ~378) | 0.661 | -0.029 |
+
+Run 5's larger drop (0.029) is outside typical noise (~0.01). Could indicate slight latent space degradation in late training, or an unlucky query draw. Rankings are stable across all measurements: Run 4 > Run 1 > Run 3 > Run 5 > Run 2.
+
+### ReduceLROnPlateau schedules (from resource.log)
+
+Keras writes ReduceLROnPlateau messages to stdout/stderr (captured in `resource.log`), NOT to the custom `vae_training.log`. All 5 runs had multiple LR reductions:
+
+| Run | Start LR | 1st reduction | Floor (1e-6) | Epochs at floor | Reductions |
+|-----|----------|---------------|--------------|-----------------|------------|
+| Run 1 | 1e-4 | Epoch 21 | Epoch 351 | 649 | 7 |
+| Run 2 | 1e-4 | Epoch 21 | Epoch 354 | 646 | 7 |
+| Run 3 | 1e-4 | Epoch 22 | Epoch 316 | 684 | 7 |
+| Run 4 | 1e-5 | Epoch 416 | Epoch 601 | 399 | 4 |
+| Run 5 | 1e-4 | Epoch 248 | Epoch 622 | 378 | 7 |
+
+Runs 1-3 hit LR floor by epoch 316-354 (649-684 epochs fine-tuning). Run 4 started at 1e-5 (learning from original Run_4 scheduling artifact), which delayed its first reduction to epoch 416. Run 5 had an unusually late first reduction (epoch 248 vs 21-22 for Runs 1-3) — its val_loss was on a slow descent similar to the original Run 4 pattern, but eventually triggered patience.
+
+### Training dynamics summary
+
+1. **Convergence by ~500 epochs confirmed** — Spearman barely changes after epoch 500 in any run. LR floor reached by epoch 622 at latest.
+2. **Train/val gap bifurcation** — Runs 1-3 near-zero gap; Runs 4-5 ~34-48 point gap. Root cause: BatchNorm train/eval mode difference (per-batch vs running statistics). Not overfitting — gap exists from epoch 1.
+3. **Shuffling produces lower Spearman** — unshuffled val sets were biased toward one source, making ranking artificially easier. The shuffled results are the more honest measurement.
+4. **Run 4 is the best shuffled model** — highest Spearman (0.783) despite starting at lower LR. The 4K bp threshold may be a sweet spot of sequence quality vs dataset diversity.
+5. **Run 2 remains unexplained outlier** — lowest Spearman (0.627) in both shuffled and unshuffled conditions. Needs investigation.
+
+### Still pending
+
+- SFE_SE runs (1-5) on shuffled data — still training
+- Full cross-comparison matrix on shuffled data once all runs complete
+- Final conclusions on threshold selection
+
+---
+
+## 2026-02-12: Added --metric flag to verify_local_distances.py
+
+Added `--metric` argument accepting `euclidean` (default) or `cosine`. Motivation: ChromaDB is configured with `'hnsw:space': 'cosine'`, but verify_local_distances was hardcoded to Euclidean. This mismatch means the validation may not accurately predict real retrieval quality. Cosine distance measures angular similarity (ignoring magnitude), while Euclidean measures absolute distance — these can rank neighbors differently.
+
+### Euclidean vs cosine comparison (Run_4 model, own 4K data)
+
+| Metric | Euclidean | Cosine | Δ |
+|--------|-----------|--------|---|
+| Spearman r | **0.783** | 0.678 | -0.105 |
+| Pearson r | 0.528 | 0.530 | +0.002 |
+| Top 1 MSE | **0.121** | 0.144 | +0.023 |
+| Top 50 MSE | **0.179** | 0.197 | +0.018 |
+
+Euclidean wins convincingly. The VAE's MSE loss optimizes reconstruction in a Euclidean sense, so the latent space geometry favors absolute position over direction. Implication: ChromaDB should use `'hnsw:space': 'l2'` instead of `'cosine'` for this embedding.
+
+---
+
+## 2026-02-12: Run_4 model cross-threshold evaluation
+
+Tested the shuffled Run_4 (4K bp) model on all 5 test datasets to assess generalization to shorter sequences:
+
+| Test data | Spearman | Top 1 MSE | Random MSE | vs dedicated model |
+|-----------|----------|-----------|------------|-------------------|
+| 1K bp | 0.746 | 0.169 | 0.555 | 0.751 (Run_1) → -0.005 |
+| 2K bp | 0.590 | 0.162 | 0.542 | 0.627 (Run_2) → -0.037 |
+| 3K bp | 0.707 | 0.125 | 0.511 | 0.721 (Run_3) → -0.014 |
+| **4K bp** | **0.783** | **0.121** | 0.516 | **(own data)** |
+| 5K bp | 0.742 | 0.107 | 0.492 | 0.661 (Run_5) → **+0.081** |
+
+### Observations
+
+1. **Run_4 beats Run_5 on 5K data** — Spearman 0.742 vs 0.661 (+0.081). The 4K model is a better encoder for 5K sequences than the model trained specifically on them.
+2. **Graceful degradation on shorter sequences** — only -0.005 on 1K data vs the dedicated Run_1 model, -0.014 on 3K data.
+3. **2K data is the weak spot** — 0.590 vs 0.627, but Run_2 is an outlier across all conditions anyway.
+4. **Run_4 is the best or near-best on every test condition** — strong case for the 4K threshold as the general-purpose choice.
+5. The 4K training data includes all sequences ≥ 4,000 bp, which is a subset of the 3K data (≥ 3,000 bp). Training on a slightly more curated (longer) subset produces better generalization even to shorter sequences.
