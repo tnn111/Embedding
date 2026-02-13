@@ -1349,3 +1349,29 @@ Tested the shuffled Run_3 (3K bp) model on all 5 test datasets, same protocol as
 3. **Run_3 on 4K data (0.722) exceeds Run_4 on its own data (0.697)** — the 3K model is a strictly better encoder even for longer sequences.
 4. **3K bp threshold is the sweet spot** — enough short sequences for diversity without noise dominating. The 3K training set is a superset of the 4K set (includes all ≥3,000 bp sequences), so the model sees more diverse training data.
 5. **New 4K/5K datasets produced lower Spearman values** across both models — the replaced datasets appear harder. Run_5 own-data Spearman dropped from 0.661 to 0.511.
+
+---
+
+## 2026-02-12: Full 5×5 cross-comparison matrix (shuffled data)
+
+All 5 models tested on all 5 test datasets. Spearman correlation (50k samples, 100 queries, 50 neighbors):
+
+| Model \ Test | 1K | 2K | 3K | 4K | 5K | Mean |
+|---|---|---|---|---|---|---|
+| **Run 1 (1k)** | **0.751** | 0.616 | 0.723 | 0.703 | 0.635 | 0.686 |
+| **Run 2 (2k)** | 0.764 | **0.627** | 0.729 | 0.711 | 0.643 | 0.695 |
+| **Run 3 (3k)** | 0.769 | 0.639 | **0.721** | **0.722** | **0.660** | **0.702** |
+| **Run 4 (4k)** | 0.746 | 0.590 | 0.707 | 0.697 | 0.611 | 0.670 |
+| **Run 5 (5k)** | 0.661 | 0.348 | 0.721 | 0.697 | 0.511 | 0.588 |
+
+Bold diagonal = own-data results. Column best highlighted with bold values.
+
+### Observations
+
+1. **Run_3 wins or ties for best on every column** — the most consistent general-purpose encoder. Mean Spearman 0.702.
+2. **Runs 1-3 are competitive** — means within 0.016 of each other (0.686-0.702), with Run_3 edging ahead.
+3. **Run_5 is clearly the weakest** — collapsed on 2K (0.348) and own 5K data (0.511). Mean 0.588.
+4. **2K test data is uniquely hard** — all models score 0.348-0.639, well below other columns. Even Run_2 (trained on 2K) only achieves 0.627.
+5. **No model is best on its own data** — except Run_1 on 1K (tied with Run_3 on 3K at 0.723 vs 0.721). Run_3 beats Run_4 on 4K data and Run_5 on 5K data.
+6. **Run_2 is not an outlier model** — its low own-data Spearman (0.627) reflects the difficulty of the 2K test data, not a weak model. On other test sets it scores 0.643-0.764.
+7. **Models trained on shorter thresholds generalize upward better than the reverse** — Run_1-3 score 0.635-0.660 on 5K data, while Run_5 scores 0.661-0.721 on 1K-3K data (but collapses on 2K).

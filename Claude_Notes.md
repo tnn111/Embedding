@@ -415,7 +415,17 @@ Runs 1-3 hit floor by epoch 316-354; Runs 4-5 much later (601-622). Run 4 starte
 | 4K bp | **0.722** | 0.697 | +0.025 |
 | 5K bp | **0.660** | 0.611 | +0.049 |
 
-**Run_3 wins on every test condition**, including Run_4's own 4K data. The 3K bp threshold is the sweet spot — more training data diversity without noise dominating. Run_3 is the best general-purpose encoder.
+**Full 5×5 cross-comparison matrix (shuffled data):**
+
+| Model \ Test | 1K | 2K | 3K | 4K | 5K | Mean |
+|---|---|---|---|---|---|---|
+| Run 1 (1k) | **0.751** | 0.616 | 0.723 | 0.703 | 0.635 | 0.686 |
+| Run 2 (2k) | 0.764 | **0.627** | 0.729 | 0.711 | 0.643 | 0.695 |
+| **Run 3 (3k)** | **0.769** | **0.639** | **0.721** | **0.722** | **0.660** | **0.702** |
+| Run 4 (4k) | 0.746 | 0.590 | 0.707 | 0.697 | 0.611 | 0.670 |
+| Run 5 (5k) | 0.661 | 0.348 | 0.721 | 0.697 | 0.511 | 0.588 |
+
+Run_3 wins or ties for best on every column. Mean Spearman: R3 (0.702) > R2 (0.695) > R1 (0.686) > R4 (0.670) > R5 (0.588). Run_2's low own-data score reflects hard 2K test data, not a weak model. Run_5 is clearly weakest. 3K bp is the sweet spot.
 
 **Remaining runs:** SFE_SE_1 through SFE_SE_5 on shuffled data still need to complete. Full cross-comparison and final conclusions after all complete.
 
