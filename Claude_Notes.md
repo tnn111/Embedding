@@ -401,10 +401,10 @@ Runs 1-3 hit floor by epoch 316-354; Runs 4-5 much later (601-622). Run 4 starte
 | Run 2 (2k) | 0.764 | **0.627** | 0.729 | 0.711 | 0.643 | 0.695 |
 | **Run 3 (3k)** | **0.769** | **0.639** | **0.721** | **0.722** | **0.660** | **0.702** |
 | Run 4 (4k) | 0.738 | 0.598 | 0.692 | 0.674 | 0.625 | 0.665 |
-| Run 5 (5k)* | 0.726 | 0.574 | 0.654 | 0.634 | 0.610 | 0.640 |
+| Run 5 (5k) | 0.726 | 0.584 | 0.655 | 0.640 | 0.616 | 0.644 |
 
-*Run_5 at ~epoch 530/1000 (mid-training). Run_3 wins every column. Mean: R3 (0.702) > R2 (0.695) > R1 (0.686) > R4 (0.665) > R5 (0.640*). Run_5 dramatically improved from old broken version (0.588 → 0.640 at half-training).
+Run_3 wins every column. Mean: R3 (0.702) > R2 (0.695) > R1 (0.686) > R4 (0.665) > R5 (0.644). Run_5 was already well-converged at epoch 530 (final mean only +0.004 vs mid-training). Clear tier structure: Tier 1 (R3), Tier 2 (R1-R2), Tier 3 (R4-R5).
 
-**Remaining:** Run_5 still training — rerun when complete. SFE_SE runs still pending.
+**Remaining:** SFE_SE runs still pending.
 
 **ClusteringPaper repo updated** to commit 97a70ac (pulled 2026-02-12).

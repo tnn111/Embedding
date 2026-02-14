@@ -1361,19 +1361,20 @@ All 5 models tested on all 5 test datasets. Spearman correlation (50k samples, 1
 | **Run 2 (2k)** | 0.764 | **0.627** | 0.729 | 0.711 | 0.643 | 0.695 |
 | **Run 3 (3k)** | 0.769 | 0.639 | **0.721** | **0.722** | **0.660** | **0.702** |
 | **Run 4 (4k)** | 0.738 | 0.598 | 0.692 | 0.674 | 0.625 | 0.665 |
-| **Run 5 (5k)**** | 0.726 | 0.574 | 0.654 | 0.634 | 0.610 | 0.640 |
+| **Run 5 (5k)** | 0.726 | 0.584 | 0.655 | 0.640 | 0.616 | 0.644 |
 
-Bold diagonal = own-data results. Column best highlighted with bold values. *Run_5 at ~epoch 530/1000.
+Bold diagonal = own-data results. Column best highlighted with bold values.
 
 ### Observations
 
 1. **Run_3 wins or ties for best on every column** — the most consistent general-purpose encoder. Mean Spearman 0.702.
 2. **Runs 1-3 are competitive** — means within 0.016 of each other (0.686-0.702), with Run_3 edging ahead.
 3. **Run_4 and Run_5 improved dramatically after data fix** — the train/val gap (previously 34-48 points) was caused by unshuffled data, not BatchNorm. With proper shuffling, both models show <1 point train/val gap.
-4. **Run_5 already competitive at half-training** — mean 0.640 vs old broken Run_5's 0.588 at completion. Should improve further.
-5. **2K test data is uniquely hard** — all models score 0.574-0.639, well below other columns.
+4. **Run_5 was already well-converged at epoch 530** — final mean 0.644 vs mid-training 0.640 (only +0.004).
+5. **2K test data is uniquely hard** — all models score 0.584-0.639, well below other columns.
 6. **No model is best on its own data** — except Run_1 on 1K. Run_3 beats Run_4 on 4K data and all models on 5K data.
 7. **Models trained on shorter thresholds generalize upward better than the reverse** — Run_1-3 score 0.635-0.660 on 5K data.
+8. **Clear tier structure** — Tier 1: Run_3 (0.702), Tier 2: Run_1-2 (0.686-0.695), Tier 3: Run_4-5 (0.644-0.665).
 
 ## 2026-02-13: Train/val gap was a data shuffling artifact
 
