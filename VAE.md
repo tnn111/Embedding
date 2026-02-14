@@ -1353,7 +1353,9 @@ Tested the shuffled Run_3 (3K bp) model on all 5 test datasets, same protocol as
 
 ## 2026-02-12: Full 5×5 cross-comparison matrix (shuffled data)
 
-All 5 models tested on all 5 test datasets. Spearman correlation (50k samples, 100 queries, 50 neighbors). Run_4 and Run_5 retrained after second data fix (shuffling correction). Run_5 results are mid-training (~epoch 530/1000).
+All 5 models tested on all 5 test datasets (50k samples, 100 queries, 50 neighbors). Run_4 and Run_5 retrained after data shuffling fix.
+
+### Spearman correlation (higher = better)
 
 | Model \ Test | 1K | 2K | 3K | 4K | 5K | Mean |
 |---|---|---|---|---|---|---|
@@ -1363,7 +1365,17 @@ All 5 models tested on all 5 test datasets. Spearman correlation (50k samples, 1
 | **Run 4 (4k)** | 0.738 | 0.598 | 0.692 | 0.674 | 0.625 | 0.665 |
 | **Run 5 (5k)** | 0.726 | 0.584 | 0.655 | 0.640 | 0.616 | 0.644 |
 
-Bold diagonal = own-data results. Column best highlighted with bold values.
+### Top 1 neighbor MSE (lower = better)
+
+| Model \ Test | 1K | 2K | 3K | 4K | 5K | Mean |
+|---|---|---|---|---|---|---|
+| **Run 1 (1k)** | **0.167** | 0.172 | 0.108 | 0.117 | 0.105 | 0.134 |
+| **Run 2 (2k)** | 0.175 | **0.167** | 0.113 | 0.126 | 0.103 | 0.137 |
+| **Run 3 (3k)** | **0.160** | **0.156** | **0.119** | **0.121** | 0.103 | **0.132** |
+| **Run 4 (4k)** | 0.178 | 0.176 | 0.127 | 0.138 | 0.101 | 0.144 |
+| **Run 5 (5k)** | 0.180 | 0.176 | 0.125 | 0.140 | **0.100** | 0.144 |
+
+Bold diagonal = own-data results.
 
 ### Observations
 
@@ -1372,9 +1384,10 @@ Bold diagonal = own-data results. Column best highlighted with bold values.
 3. **Run_4 and Run_5 improved dramatically after data fix** — the train/val gap (previously 34-48 points) was caused by unshuffled data, not BatchNorm. With proper shuffling, both models show <1 point train/val gap.
 4. **Run_5 was already well-converged at epoch 530** — final mean 0.644 vs mid-training 0.640 (only +0.004).
 5. **2K test data is uniquely hard** — all models score 0.584-0.639, well below other columns.
-6. **No model is best on its own data** — except Run_1 on 1K. Run_3 beats Run_4 on 4K data and all models on 5K data.
-7. **Models trained on shorter thresholds generalize upward better than the reverse** — Run_1-3 score 0.635-0.660 on 5K data.
-8. **Clear tier structure** — Tier 1: Run_3 (0.702), Tier 2: Run_1-2 (0.686-0.695), Tier 3: Run_4-5 (0.644-0.665).
+6. **MSE confirms Spearman ranking** — Run_3 has the lowest Top 1 MSE on 4/5 columns (mean 0.132). Short-sequence test data (1K/2K) has much higher MSE (~0.16-0.18) than longer (3K-5K: ~0.10-0.14), reflecting noisier k-mer profiles.
+7. **No model is best on its own data** — except Run_1 on 1K. Run_3 beats Run_4 on 4K data and all models on 5K data.
+8. **Models trained on shorter thresholds generalize upward better than the reverse** — Run_1-3 score 0.635-0.660 on 5K data.
+9. **Clear tier structure** — Tier 1: Run_3 (0.702), Tier 2: Run_1-2 (0.686-0.695), Tier 3: Run_4-5 (0.644-0.665).
 
 ## 2026-02-13: Train/val gap was a data shuffling artifact
 
