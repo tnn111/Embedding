@@ -36,7 +36,7 @@ Updated script to match new `calculate_kmer_frequencies` output and VAE encoder:
 | Column | Content |
 |--------|---------|
 | 0 | Sequence length |
-| 1-384 | VAE latent embeddings (z) |
+| 1-384 | VAE latent embeddings (z_mean) |
 
 ### Usage
 

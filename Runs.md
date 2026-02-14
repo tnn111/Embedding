@@ -11,7 +11,7 @@ kmers_SFE_SE{N} contains the kmers generated only from SFE_contigs_{N} and SE_co
 and indicates the threshold for keeping nucleotide sequences. N = 1 means keeping everything longer than 1 kbp, N = 2 means keeping
 everything longer than 2 kbp, N = 3 means keeping everything longer than 3 kbp, N = 4 means keeping everything longer than 4 kbp and N = 5
 means keeping everything longer than 5 kbp. The files named ids_SFE_SE_{N} are the ids from the nucleotide sequences in the same order as
-kmers_{N}.
+kmers_SFE_SE_{N}.
 
 ---
 

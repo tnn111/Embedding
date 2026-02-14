@@ -1167,8 +1167,9 @@ Testing SFE_SE models against the same augmented test datasets used for the augm
 | SFE_SE_2 (2K) | 0.889 | 0.808 | 0.873 | 0.827 | 0.807 | 0.841 |
 | SFE_SE_3 (3K) | 0.886 | 0.802 | 0.868 | 0.813 | 0.811 | 0.836 |
 | SFE_SE_4 (4K) | 0.878 | 0.804 | 0.850 | 0.807 | 0.805 | 0.829 |
+| SFE_SE_5 (5K) | 0.866 | 0.790 | 0.836 | 0.787 | 0.782 | 0.812 |
 
-SFE_SE_5 was not evaluated on augmented data. All SFE_SE models dramatically outperform augmented runs (best augmented: Run_3 at 0.702 mean vs worst SFE_SE: SFE_SE_4 at 0.829). SFE_SE_1 wins every column.
+All SFE_SE models dramatically outperform augmented runs (best augmented: Run_3 at 0.702 mean vs worst SFE_SE: SFE_SE_5 at 0.812). SFE_SE_1 wins every column.
 
 ### SFE_SE models on SFE_SE test data (kmers_SFE_SE_1.npy through kmers_SFE_SE_5.npy)
 

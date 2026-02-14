@@ -378,8 +378,8 @@ Keras writes LR reduction messages to stdout/stderr (captured in `resource.log`)
 | Run 1 | 1e-4 | Epoch 21 | Epoch 351 | 649 | 7 |
 | Run 2 | 1e-4 | Epoch 21 | Epoch 354 | 646 | 7 |
 | Run 3 | 1e-4 | Epoch 22 | Epoch 316 | 684 | 7 |
-| Run 4 | 1e-5 | Epoch 416 | Epoch 601 | 399 | 4 |
-| Run 5 | 1e-4 | Epoch 248 | Epoch 622 | 378 | 7 |
+| Run 4 | 1e-4 | Epoch 22 | Epoch 468 | 532 | 7 |
+| Run 5 | 1e-4 | Epoch 21 | Epoch 346 | 654 | 7 |
 
 Runs 1-3 hit floor by epoch 316-354; Runs 4-5 much later (601-622). Run 4 started at lower LR (1e-5), delaying its first reduction. Run 5 had an unusually late first reduction (248 vs 21-22 for Runs 1-3).
 

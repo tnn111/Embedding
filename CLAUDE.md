@@ -52,20 +52,22 @@ The VAE processes columns 1-2772 (2,772 features total).
 
 ### Loss Function
 
-- **Transform**: CLR (Centered Log-Ratio) with pseudocount 1e-6
+- **Transform**: Per-group CLR (Centered Log-Ratio) with Jeffreys prior pseudocount (0.5/n_features per group)
 - **Loss**: MSE on CLR-transformed features
 
 ### Key Constants (VAE.py)
 
 ```python
-INPUT_DIM = OUTPUT_DIM = 2772
+INPUT_DIM = 2772
 LATENT_DIM = 384
-KMER_6_SLICE = (0, 2080)
-KMER_5_SLICE = (2080, 2592)
-KMER_4_SLICE = (2592, 2728)
-KMER_3_SLICE = (2728, 2760)
-KMER_2_SLICE = (2760, 2770)
-KMER_1_SLICE = (2770, 2772)
+KMER_SIZES = {
+    '6mer': (0, 2080),       # 2080 features
+    '5mer': (2080, 2592),    # 512 features
+    '4mer': (2592, 2728),    # 136 features
+    '3mer': (2728, 2760),    # 32 features
+    '2mer': (2760, 2770),    # 10 features
+    '1mer': (2770, 2772),    # 2 features
+}
 ```
 
 ### Custom Keras Layers
@@ -73,7 +75,6 @@ KMER_1_SLICE = (2770, 2772)
 When loading saved models, register these custom objects:
 - `Sampling`: Reparameterization trick for VAE
 - `ClipLayer`: Clips z_log_var to [-20, 2]
-- `SliceLayer`: Tensor slicing along last axis
 
 ## ChromaDB Integration
 
@@ -107,4 +108,4 @@ Never skip this step. If you forget, add the notes as soon as you realize.
 - Uses JAX backend for Keras (`KERAS_BACKEND = 'jax'`)
 - Training resumes automatically if `vae_best.keras` exists
 - KL warmup over 5 epochs, skipped when resuming
-- Notebooks in `clustering.ipynb`, `umap.ipynb`, `shrub_of_life.ipynb` for analysis
+- Notebooks in `clustering.ipynb`, `shrub_of_life.ipynb` for analysis
