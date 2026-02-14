@@ -15,11 +15,14 @@ This project implements a Variational Autoencoder (VAE) for embedding metagenomi
 ## Running Commands
 
 ```bash
-# Train VAE on k-mer frequency data
-uv run VAE.py -i Data/all_kmers.npy -e 500
+# Train VAE on k-mer frequency data (from within a Run_* directory)
+uv run ../VAE.py -i ../kmers_3.npy -e 1000
+
+# Evaluate embedding quality
+uv run verify_local_distances.py -i Runs/kmers_3.npy -e Runs/Run_3/vae_encoder_best.keras --sample-size 50000
 
 # Load embeddings into ChromaDB (uses PEP 723 inline dependencies)
-./create_and_load_db Data/all_multimer_frequencies_l5000_shuffled.txt
+./create_and_load_db -id Runs/ids_3.txt -k Runs/kmers_3.npy
 
 # Run Jupyter notebooks for analysis
 uv run jupyter notebook
@@ -76,9 +79,8 @@ When loading saved models, register these custom objects:
 
 The `create_and_load_db` script loads VAE embeddings into ChromaDB:
 - Collection: `shrub_of_life`
-- Distance metric: cosine similarity
+- Distance metric: cosine (should be switched to L2 — Euclidean outperforms cosine for this VAE)
 - Metadata: sequence length
-- ~4.8M sequences in full dataset
 
 ## Model Checkpoints
 

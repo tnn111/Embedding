@@ -215,7 +215,7 @@ class VAE(Model):
         """Build fully-connected encoder.
 
         Architecture:
-            Input (2772,) → Dense(1024) → Dense(512) → z_mean(256), z_log_var(256)
+            Input (2772,) → Dense(1024) → Dense(512) → z_mean(384), z_log_var(384)
         """
         encoder_inputs = keras.Input(shape = (INPUT_DIM,), name = 'encoder_input')
 
@@ -239,7 +239,7 @@ class VAE(Model):
         """Build fully-connected decoder (mirror of encoder).
 
         Architecture:
-            Input (256) → Dense(512) → Dense(1024) → Dense(2772)
+            Input (384) → Dense(512) → Dense(1024) → Dense(2772)
         """
         latent_inputs = keras.Input(shape = (self.latent_dim,), name = 'decoder_input')
 

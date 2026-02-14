@@ -62,14 +62,9 @@ Explored three approaches for comparing sample groups (SFE_1_S vs SFE_1_W):
 - β (KL weight): 0.05
 - Learning rate: 1e-4
 - Batch size: 1024
-- Epochs: 500
-- Results: Val loss 2899, MSE 1.030, Spearman r=0.95
-
-### In Progress
-- Running `calculate_kmer_frequencies` on a larger dataset (at least 3x bigger, 14M+ sequences)
-- Planning to train VAE on full larger dataset
-- Will compare metrics to 4.8M baseline (val loss 2899, MSE 1.030, 6-mer MSE 1.319)
-- Memory estimate: ~160 GB for data, should fit in 512 GB
+- Epochs: 1000 (converges by ~500)
+- Per-group CLR with Jeffreys prior pseudocount
+- Best model: Run_3 (3K bp threshold), mean Spearman 0.702 on augmented data
 
 ### Important: Dataset Composition
 - **Current 4.8M dataset**: Aquatic/marine environments
@@ -421,7 +416,7 @@ MSE confirms Spearman ranking. 1K/2K test data has higher MSE (~0.16-0.18) than 
 
 **SFE_SE cross-comparison (2026-02-13):**
 
-SFE_SE models on **base test data** (kmers_1-5):
+SFE_SE models on **augmented test data** (kmers_1-5):
 
 | Model \ Test | 1K | 2K | 3K | 4K | 5K | Mean |
 |---|---|---|---|---|---|---|
@@ -441,9 +436,9 @@ SFE_SE models on **SFE_SE test data** (kmers_SFE_SE_1-5):
 | SFE_SE_5 (5K) | 0.862 | 0.862 | 0.823 | 0.868 | 0.819 | **0.847** |
 
 Key findings:
-- All SFE_SE models dramatically outperform base runs (worst SFE_SE 0.829 > best base 0.702 on base data)
-- On base data: SFE_SE_1 wins (0.856). On SFE_SE data: SFE_SE_5 wins (0.847) — opposite ranking
-- SFE_SE data is harder: models 1-4 score 0.73-0.77 vs 0.83-0.86 on base data
+- All SFE_SE models dramatically outperform augmented runs (worst SFE_SE 0.829 > best augmented 0.702 on augmented data)
+- On augmented data: SFE_SE_1 wins (0.856). On SFE_SE data: SFE_SE_5 wins (0.847) — opposite ranking
+- SFE_SE data is harder: models 1-4 score 0.73-0.77 vs 0.83-0.86 on augmented data
 - SFE_SE_5 dominates every column on SFE_SE data (+0.081 over second place)
 
 **ClusteringPaper repo updated** to commit 97a70ac (pulled 2026-02-12).
