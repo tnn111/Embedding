@@ -419,6 +419,31 @@ MSE confirms Spearman ranking. 1K/2K test data has higher MSE (~0.16-0.18) than 
 
 **Run_5 2-mer/1-mer anomaly**: Run_5 training log shows higher 2-mer (0.000450) and 1-mer (0.000135) MSE than Runs 2-4, despite lower total MSE. Root cause: extreme high-GC sequences (>75% GC) are underrepresented in ≥5K bp training data. Only 46 val samples (0.46%) but their 1-mer MSE is 26x higher than Run_3's (0.0099 vs 0.0004), contributing ~50% of total 1-mer MSE. Not a noise or capacity issue — purely training data coverage at GC distribution tails. 3K data retains more extreme-GC organisms (4 GC peaks vs 3 for 5K), further supporting Run_3 as best general-purpose encoder.
 
-**Remaining:** SFE_SE runs still pending.
+**SFE_SE cross-comparison (2026-02-13):**
+
+SFE_SE models on **base test data** (kmers_1-5):
+
+| Model \ Test | 1K | 2K | 3K | 4K | 5K | Mean |
+|---|---|---|---|---|---|---|
+| SFE_SE_1 (1K) | 0.907 | 0.820 | 0.881 | 0.843 | 0.829 | **0.856** |
+| SFE_SE_2 (2K) | 0.889 | 0.808 | 0.873 | 0.827 | 0.807 | 0.841 |
+| SFE_SE_3 (3K) | 0.886 | 0.802 | 0.868 | 0.813 | 0.811 | 0.836 |
+| SFE_SE_4 (4K) | 0.878 | 0.804 | 0.850 | 0.807 | 0.805 | 0.829 |
+
+SFE_SE models on **SFE_SE test data** (kmers_SFE_SE_1-5):
+
+| Model \ Test | SE_1 | SE_2 | SE_3 | SE_4 | SE_5 | Mean |
+|---|---|---|---|---|---|---|
+| SFE_SE_1 (1K) | 0.773 | 0.739 | 0.723 | 0.816 | 0.779 | 0.766 |
+| SFE_SE_2 (2K) | 0.743 | 0.714 | 0.682 | 0.784 | 0.758 | 0.736 |
+| SFE_SE_3 (3K) | 0.749 | 0.704 | 0.676 | 0.776 | 0.736 | 0.728 |
+| SFE_SE_4 (4K) | 0.751 | 0.684 | 0.687 | 0.781 | 0.726 | 0.726 |
+| SFE_SE_5 (5K) | 0.862 | 0.862 | 0.823 | 0.868 | 0.819 | **0.847** |
+
+Key findings:
+- All SFE_SE models dramatically outperform base runs (worst SFE_SE 0.829 > best base 0.702 on base data)
+- On base data: SFE_SE_1 wins (0.856). On SFE_SE data: SFE_SE_5 wins (0.847) — opposite ranking
+- SFE_SE data is harder: models 1-4 score 0.73-0.77 vs 0.83-0.86 on base data
+- SFE_SE_5 dominates every column on SFE_SE data (+0.081 over second place)
 
 **ClusteringPaper repo updated** to commit 97a70ac (pulled 2026-02-12).

@@ -1435,3 +1435,40 @@ Run_5 has **26x higher 1-mer error** on extreme-GC sequences. Only 46 samples (0
 These organisms likely have small genomes that assemble into shorter contigs, so they're underrepresented in the ≥5K bp training set. Run_3 (≥3K bp) retains more of them, giving it enough examples to learn the pattern. The GC distribution confirms this: 3K data has 4 peaks (0.41, 0.47, 0.63, 0.69) while 5K data has only 3 peaks (lost the 0.47 peak).
 
 **Takeaway**: the 2-mer/1-mer anomaly is a training data coverage issue at the tails of the GC distribution, not a model capacity or noise problem. This further supports Run_3 (3K bp threshold) as the best general-purpose encoder — it captures more biological diversity.
+
+## 2026-02-13: SFE_SE cross-comparison results
+
+### SFE_SE models on base test data (kmers_1.npy through kmers_5.npy)
+
+Testing SFE_SE models against the same base test datasets used for the base run comparison:
+
+| Model \ Test | 1K | 2K | 3K | 4K | 5K | Mean |
+|---|---|---|---|---|---|---|
+| SFE_SE_1 (1K) | **0.907** | **0.820** | **0.881** | **0.843** | **0.829** | **0.856** |
+| SFE_SE_2 (2K) | 0.889 | 0.808 | 0.873 | 0.827 | 0.807 | 0.841 |
+| SFE_SE_3 (3K) | 0.886 | 0.802 | 0.868 | 0.813 | 0.811 | 0.836 |
+| SFE_SE_4 (4K) | 0.878 | 0.804 | 0.850 | 0.807 | 0.805 | 0.829 |
+
+SFE_SE_5 was not evaluated on base data. All SFE_SE models dramatically outperform base runs (best base: Run_3 at 0.702 mean vs worst SFE_SE: SFE_SE_4 at 0.829). SFE_SE_1 wins every column.
+
+### SFE_SE models on SFE_SE test data (kmers_SFE_SE_1.npy through kmers_SFE_SE_5.npy)
+
+| Model \ Test | SFE_SE_1 | SFE_SE_2 | SFE_SE_3 | SFE_SE_4 | SFE_SE_5 | Mean |
+|---|---|---|---|---|---|---|
+| SFE_SE_1 (1K) | 0.773 | 0.739 | 0.723 | 0.816 | 0.779 | 0.766 |
+| SFE_SE_2 (2K) | 0.743 | 0.714 | 0.682 | 0.784 | 0.758 | 0.736 |
+| SFE_SE_3 (3K) | 0.749 | 0.704 | 0.676 | 0.776 | 0.736 | 0.728 |
+| SFE_SE_4 (4K) | 0.751 | 0.684 | 0.687 | 0.781 | 0.726 | 0.726 |
+| **SFE_SE_5 (5K)** | **0.862** | **0.862** | **0.823** | **0.868** | **0.819** | **0.847** |
+
+### Observations
+
+1. **SFE_SE data is harder than base data** — Models 1-4 score 0.73-0.77 on SFE_SE data vs 0.83-0.86 on base data. The SFE_SE test data contains more challenging sequences.
+
+2. **Opposite ranking on SFE_SE vs base data** — On base data, SFE_SE_1 is best (0.856). On SFE_SE data, SFE_SE_5 dominates (0.847) with a massive gap over second-place SFE_SE_1 (0.766). The 5K threshold model excels on SFE_SE sequences.
+
+3. **SFE_SE_5 wins every column on SFE_SE data** — by a huge margin (+0.081 over SFE_SE_1). This is the reverse of the base data pattern where lower thresholds generalize better.
+
+4. **4K column is easiest on SFE_SE data** — consistently the highest score for all models. On base data, 1K was typically easiest. The 2K and 3K SFE_SE columns are the hardest.
+
+5. **SFE_SE models still far outperform base models** — even the worst SFE_SE result on SFE_SE data (SFE_SE_3 on SFE_SE_3 at 0.676) approaches the best base result (Run_3 at 0.702).
