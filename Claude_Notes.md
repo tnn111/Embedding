@@ -417,6 +417,8 @@ Run_3 wins every column. Mean: R3 (0.702) > R2 (0.695) > R1 (0.686) > R4 (0.665)
 
 MSE confirms Spearman ranking. 1K/2K test data has higher MSE (~0.16-0.18) than 3K-5K (~0.10-0.14) — shorter sequences have noisier k-mer profiles.
 
+**Run_5 2-mer/1-mer anomaly**: Run_5 training log shows higher 2-mer (0.000450) and 1-mer (0.000135) MSE than Runs 2-4, despite lower total MSE. Root cause: extreme high-GC sequences (>75% GC) are underrepresented in ≥5K bp training data. Only 46 val samples (0.46%) but their 1-mer MSE is 26x higher than Run_3's (0.0099 vs 0.0004), contributing ~50% of total 1-mer MSE. Not a noise or capacity issue — purely training data coverage at GC distribution tails. 3K data retains more extreme-GC organisms (4 GC peaks vs 3 for 5K), further supporting Run_3 as best general-purpose encoder.
+
 **Remaining:** SFE_SE runs still pending.
 
 **ClusteringPaper repo updated** to commit 97a70ac (pulled 2026-02-12).

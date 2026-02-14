@@ -1396,3 +1396,42 @@ The ~34-48 point train/val gap previously observed in Runs 4-5 (attributed to Ba
 - Run 5 at epoch 530: Train 126.8, Val 126.5 → gap of ~0.3 (was 41.8)
 
 This also explains why Runs 1-3 never had the gap — their datasets were already properly shuffled. The BatchNorm hypothesis was wrong; it was simply that validation data wasn't representative of training data when the data wasn't shuffled.
+
+## 2026-02-13: Per-k-mer MSE analysis and Run_5 2-mer/1-mer anomaly
+
+### Training MSE by k-mer size (epoch 1000)
+
+| Run | Total MSE | 6-mer | 5-mer | 4-mer | 3-mer | 2-mer | 1-mer |
+|-----|-----------|-------|-------|-------|-------|-------|-------|
+| Run 1 (1K) | 0.059 | 0.07680 | 0.00700 | 0.00201 | 0.00104 | 0.000514 | 0.000087 |
+| Run 2 (2K) | 0.055 | 0.07109 | 0.00633 | 0.00172 | 0.000808 | 0.000335 | 0.000080 |
+| Run 3 (3K) | 0.052 | 0.06766 | 0.00609 | 0.00167 | 0.000753 | 0.000327 | 0.000078 |
+| Run 4 (4K) | 0.044 | 0.05692 | 0.00560 | 0.00141 | 0.000662 | 0.000302 | 0.000072 |
+| Run 5 (5K) | 0.038 | 0.04948 | 0.00520 | 0.00135 | 0.000717 | **0.000450** | **0.000135** |
+
+6-mer dominates total MSE (~95-98% of total, 2080 of 2772 features). Total MSE decreases monotonically from Run_1 to Run_5 (longer sequences = cleaner k-mer profiles = easier reconstruction). However, Run_5 breaks the trend on 2-mer and 1-mer — these are *higher* than Runs 2-4.
+
+### Root cause: extreme-GC coverage gap
+
+Investigation ruled out several hypotheses:
+- **Not sampling noise**: the anomaly persists with deterministic z_mean reconstruction
+- **Not stochastic z noise**: Monte Carlo analysis (20 draws) shows identical noise cost between Run_3 and Run_5 for 2-mer (~0.000025) and 1-mer (~0.000004)
+- **Not data distribution**: CLR-transformed 2-mer/1-mer distributions are nearly identical across all datasets
+- **Not 6-mer redundancy**: 2-mer R² from 6-mer top-10 PCs is 0.96 for both 3K and 5K data
+
+The real cause: **extreme high-GC sequences (>75% GC)**. Reconstruction error by GC content bin:
+
+| GC range | Run_3 count | Run_3 1-mer MSE | Run_5 count | Run_5 1-mer MSE |
+|----------|-------------|-----------------|-------------|-----------------|
+| 0.00-0.35 | 673 | 0.000400 | 685 | 0.000114 |
+| 0.35-0.45 | 1278 | 0.000131 | 1186 | 0.000084 |
+| 0.45-0.55 | 1544 | 0.000090 | 1470 | 0.000061 |
+| 0.55-0.65 | 3563 | 0.000047 | 3507 | 0.000026 |
+| 0.65-0.75 | 2877 | 0.000046 | 3106 | 0.000037 |
+| **0.75-1.00** | **65** | **0.000379** | **46** | **0.009854** |
+
+Run_5 has **26x higher 1-mer error** on extreme-GC sequences. Only 46 samples (0.46% of validation data), but their errors are so large (~0.010 vs typical ~0.00003) that they contribute ~50% of the total 1-mer MSE.
+
+These organisms likely have small genomes that assemble into shorter contigs, so they're underrepresented in the ≥5K bp training set. Run_3 (≥3K bp) retains more of them, giving it enough examples to learn the pattern. The GC distribution confirms this: 3K data has 4 peaks (0.41, 0.47, 0.63, 0.69) while 5K data has only 3 peaks (lost the 0.47 peak).
+
+**Takeaway**: the 2-mer/1-mer anomaly is a training data coverage issue at the tails of the GC distribution, not a model capacity or noise problem. This further supports Run_3 (3K bp threshold) as the best general-purpose encoder — it captures more biological diversity.
