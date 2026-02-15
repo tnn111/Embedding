@@ -607,3 +607,61 @@ Increasing k from 15 to 30 barely changed the isolation rate (85.4% → 84.2%). 
 | Weight >= 10 | — | 5,537,050 (5.6%) |
 
 The ~5.5M edges with weight >= 10 in the symmetric graph correspond roughly to the mutual kNN core. The other ~93M edges are weaker asymmetric connections from sparse regions pointing toward dense clusters. 27% of edges have weight 0 (no shared neighbors at all). Good structure for Leiden — strong edges form tight communities, resolution parameter controls whether weakly-connected sequences get pulled in.
+
+### Phase 3: Leiden Community Detection (2026-02-15)
+
+**Scripts created:**
+- `build_snn_graph` — Builds symmetric kNN graph with SNN weights from neighbors TSV (PEP 723 standalone)
+- `leiden_cluster` — Runs Leiden community detection on SNN-weighted graph (PEP 723 standalone)
+- `verify_knn_quality` — Evaluates embedding quality using true kNN from ChromaDB (PEP 723 standalone)
+
+**verify_knn_quality results (SFE_SE_5 model, 100K queries, 50 neighbors each):**
+- Per-query Spearman (latent rank vs CLR k-mer rank): mean 0.2558, median 0.2112, std 0.1936
+- Top-1 MSE: 0.2258, Top-50 MSE: 0.2645, Random baseline MSE: 0.5905
+- Not comparable to verify_local_distances Spearman (~0.77-0.85): that measures global distance correlation in a random subsample; this measures fine-grained local ranking fidelity among true nearest neighbors. Lower values expected because local ranking is a much harder task.
+
+**Leiden results (symmetric kNN, k=15, resolution=1.0, 10 iterations):**
+
+| Metric | 2 iterations | 10 iterations |
+|---|---|---|
+| Communities | 11,137 | 11,180 |
+| Singletons | 9,444 (0.1%) | 9,444 (0.1%) |
+| Non-singleton communities | 1,693 | 1,736 |
+| Median community size | 43 | 45 |
+| Mean community size | 3,879 | 3,851 |
+| Largest community | 737,449 | 737,449 |
+
+The 2-iteration and 10-iteration results are nearly identical — the algorithm had already largely converged after 2 iterations. 43 more communities appeared (likely from splitting a few marginal cases), but the overall structure is unchanged.
+
+**Top 20 communities (10-iteration):**
+
+| Rank | Community | Size |
+|---|---|---|
+| 1 | C0 | 737,449 |
+| 2 | C1 | 698,921 |
+| 3 | C2 | 336,008 |
+| 4 | C3 | 330,097 |
+| 5 | C4 | 282,403 |
+| 6 | C5 | 223,276 |
+| 7 | C6 | 199,614 |
+| 8 | C7 | 129,185 |
+| 9 | C8 | 128,271 |
+| 10 | C9 | 104,892 |
+| 11-20 | C10-C19 | 62,776–95,132 |
+
+Top 2 communities alone contain 21.4% of all sequences. Top 20 contain ~55%. Community size distribution is heavy-tailed — a few massive communities plus a long tail of thousands of small ones.
+
+**Observations:**
+- 99.9% of sequences assigned to non-singleton communities (only 9,444 singletons out of 6.7M)
+- The low singleton rate contrasts sharply with HDBSCAN's 42% noise — Leiden with symmetric kNN guarantees connectivity, so even isolated sequences get assigned to some community
+- Whether this is appropriate depends on the use case: for taxonomy, assigning genomic corpses to communities may add noise; for survey/coverage, it ensures nothing is lost
+- Higher resolution would split the massive top communities into more biologically meaningful groups
+- Weight-0 edges (27.2% of graph) were dropped via `--min-weight 1`; only SNN-weighted edges used
+
+**Cell 20 (t-SNE overlay):** Top 20 communities colored distinctly on t-SNE, rest in grey. Communities map well onto the plaque structure visible in the t-SNE.
+
+**Next steps:**
+- Resolution sweep to find optimal granularity (current top communities are too large for species-level grouping)
+- Characterize communities by GC content, source (SFE vs SE), sequence length
+- Run Leiden on mutual kNN graph for comparison (high-confidence communities only)
+- Re-estimate intrinsic dimensionality within large communities

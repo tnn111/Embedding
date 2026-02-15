@@ -1,0 +1,140 @@
+#!/usr/bin/env -S uv run --quiet --script
+"""
+Run Leiden community detection on an SNN-weighted kNN graph.
+
+Reads an edge list (from build_snn_graph), builds an igraph Graph,
+runs Leiden clustering, and outputs community assignments.
+
+Output: TSV to stdout (sequence_id, community).
+
+Usage:
+    ./leiden_cluster -e edges.tsv -id ids.txt > communities.tsv
+    ./leiden_cluster -e edges.tsv -id ids.txt -r 0.5 > communities.tsv
+"""
+# /// script
+# dependencies = [
+#   "numpy",
+#   "igraph",
+#   "leidenalg",
+# ]
+# ///
+
+import sys
+import numpy as np
+
+DEFAULT_RESOLUTION = 1.0
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description = 'Run Leiden community detection on SNN-weighted kNN graph'
+    )
+    parser.add_argument('-e', '--edges', required = True,
+                        help = 'Path to edge list TSV (source, target, weight)')
+    parser.add_argument('-id', '--ids', required = True,
+                        help = 'Path to IDs file (one ID per line)')
+    parser.add_argument('-r', '--resolution', type = float, default = DEFAULT_RESOLUTION,
+                        help = f'Resolution parameter (default: {DEFAULT_RESOLUTION}). '
+                               'Higher = more smaller communities')
+    parser.add_argument('-n', '--iterations', type = int, default = -1,
+                        help = 'Number of Leiden iterations (default: -1, run until convergence)')
+    parser.add_argument('--min-weight', type = int, default = 1,
+                        help = 'Minimum edge weight to include (default: 1, drops weight-0 edges)')
+    args = parser.parse_args()
+
+    import igraph as ig
+    import leidenalg
+
+    # Load IDs
+    print(f'Loading IDs from {args.ids}...', file = sys.stderr)
+    with open(args.ids, 'r') as f:
+        all_ids = [line.strip() for line in f]
+    n_total = len(all_ids)
+    print(f'Loaded {n_total:,} IDs', file = sys.stderr)
+
+    # Load edge list
+    print(f'Loading edges from {args.edges}...', file = sys.stderr)
+    sources = []
+    targets = []
+    weights = []
+    n_skipped = 0
+
+    with open(args.edges, 'r') as f:
+        next(f)  # skip header
+        for line in f:
+            parts = line.rstrip('\n').split('\t')
+            w = int(parts[2])
+            if w < args.min_weight:
+                n_skipped += 1
+                continue
+            sources.append(int(parts[0]))
+            targets.append(int(parts[1]))
+            weights.append(w)
+
+    n_edges = len(sources)
+    print(f'Loaded {n_edges:,} edges (skipped {n_skipped:,} with weight < {args.min_weight})',
+          file = sys.stderr)
+
+    # Build igraph Graph
+    print(f'Building graph ({n_total:,} vertices, {n_edges:,} edges)...', file = sys.stderr)
+    g = ig.Graph(n = n_total, edges = list(zip(sources, targets)), directed = False)
+    g.es['weight'] = weights
+    del sources, targets, weights
+
+    print(f'Graph: {g.vcount():,} vertices, {g.ecount():,} edges', file = sys.stderr)
+    print(f'Connected components: {len(g.connected_components()):,}', file = sys.stderr)
+
+    # Run Leiden
+    print(f'Running Leiden (resolution={args.resolution}, iterations={args.iterations})...', file = sys.stderr)
+    partition = leidenalg.find_partition(
+        g,
+        leidenalg.RBConfigurationVertexPartition,
+        weights = 'weight',
+        resolution_parameter = args.resolution,
+        n_iterations = args.iterations,
+        seed = 42
+    )
+
+    communities = partition.membership
+    n_communities = len(set(communities))
+    quality = partition.quality()
+
+    # Compute stats
+    community_sizes = np.bincount(communities)
+    nonsingleton = community_sizes[community_sizes > 1]
+
+    print(f'\n{"=" * 60}', file = sys.stderr)
+    print(f'Leiden Results (resolution={args.resolution})', file = sys.stderr)
+    print(f'{"=" * 60}', file = sys.stderr)
+    print(f'Communities: {n_communities:,}', file = sys.stderr)
+    print(f'Quality (modularity): {quality:.4f}', file = sys.stderr)
+    print(f'Singletons: {(community_sizes == 1).sum():,} ({100 * (community_sizes == 1).sum() / n_total:.1f}% of sequences)',
+          file = sys.stderr)
+    print(f'Non-singleton communities: {len(nonsingleton):,}', file = sys.stderr)
+    if len(nonsingleton) > 0:
+        print(f'  Size range: {nonsingleton.min():,} - {nonsingleton.max():,}', file = sys.stderr)
+        print(f'  Mean size: {nonsingleton.mean():.1f}', file = sys.stderr)
+        print(f'  Median size: {np.median(nonsingleton):.0f}', file = sys.stderr)
+        print(f'  Sequences in non-singleton communities: {nonsingleton.sum():,} ({100 * nonsingleton.sum() / n_total:.1f}%)',
+              file = sys.stderr)
+    print(f'{"=" * 60}', file = sys.stderr)
+
+    # Top 20 communities
+    top_indices = np.argsort(-community_sizes)[:20]
+    print(f'\nTop 20 communities:', file = sys.stderr)
+    for rank, idx in enumerate(top_indices, 1):
+        print(f'  {rank:2d}. Community {idx}: {community_sizes[idx]:,} sequences', file = sys.stderr)
+
+    # Output: sequence_id \t community
+    print(f'\nWriting community assignments...', file = sys.stderr)
+    sys.stdout.write('sequence_id\tcommunity\n')
+    for i, (seq_id, comm) in enumerate(zip(all_ids, communities)):
+        sys.stdout.write(f'{seq_id}\t{comm}\n')
+
+    print(f'Done. Wrote {n_total:,} assignments.', file = sys.stderr)
+
+
+if __name__ == '__main__':
+    main()
