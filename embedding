@@ -106,7 +106,7 @@ def clr_transform(data: np.ndarray) -> np.ndarray:
 
 
 def main():
-    parser = argparse.ArgumentParser(description = 'Generate VAE latent embeddings from k-mer frequency data')
+    parser = argparse.ArgumentParser(description = 'Generate VAE latent embeddings from k-mer frequency data. Reads .npy from stdin, writes .npy to stdout.')
     parser.add_argument('-m', '--model', default = 'vae_encoder_best.keras', help = 'Path to encoder .keras model (default: vae_encoder_best.keras)')
     args = parser.parse_args()
 
