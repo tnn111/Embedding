@@ -442,3 +442,124 @@ Key findings:
 - SFE_SE_5 dominates every column on SFE_SE data (+0.081 over second place)
 
 **ClusteringPaper repo updated** to commit 97a70ac (pulled 2026-02-12).
+
+### 2026-02-14: Notebook exploration of SFE_SE embeddings
+
+Working through `clustering.ipynb` with new SFE_SE_1 embeddings (6,693,829 sequences, SFE_SE_5 model).
+
+**Pairwise distance distributions (10K sample):**
+- Euclidean: range 2.67–69.98, mean 27.33, std 7.51 — unimodal, longer right tail
+- Cosine: range 0.025–1.334, mean 1.000, std 0.061 — unimodal, symmetric (was bimodal with old 4.8M data)
+
+The cosine distribution collapsing to unimodal around 1.0 confirms Euclidean is the right metric — cosine has almost no discriminative range (std 0.061) in 384-dim space. Random high-dimensional vectors tend toward orthogonality, so cosine can't distinguish structure that Euclidean preserves.
+
+One-vs-all cosine from random sequence (SFE_2_S_c_194575 vs 6.7M others): mean 1.001, std 0.060 — same shape, no bimodal structure. Old bimodality was likely from mixed marine/terrestrial data.
+
+**Intrinsic dimensionality of latent space — TWO-NN estimate: d̂ ≈ 9:**
+
+Applied the TWO-NN estimator (Facco et al. 2017) to 100K sampled embeddings using Euclidean distance. Result: d̂ = 9.12. The 384-dimensional latent space encodes data on a ~9-dimensional manifold. This is plausible — multiple independent axes of variation (GC content, genome size, taxonomic lineage, codon usage, etc.) each contribute a dimension.
+
+The count-vs-distance plot (cell 9) appeared to show a linear regime at small distances, which naively suggests d ≈ 2 (since the NN distance PDF goes as r^(d-1) at small r). But this was a visual artifact: the early part of an r^8 curve looks approximately linear over a narrow range. The TWO-NN estimator is more reliable because it uses the ratio μ = r₂/r₁ which is density-independent.
+
+Results so far (100K sample, Euclidean distance):
+- Manual TWO-NN (float32): d̂ = 9.12 — WRONG, float32 corrupts μ ratios
+- Manual TWO-NN (float64): d̂ = 7.61 — pulled down by extreme outliers (μ max = 36M, mean = 725)
+- scikit-dimension TWO-NN (10K, float64 internally): d̂ = 66.02
+- scikit-dimension MLE (10K): d̂ = 58.94
+- scikit-dimension lPCA (10K): d̂ = 284 — failure (too few points for 384-d)
+- scikit-dimension DANCo (10K): d̂ = 384 — failure (returned ambient dimension)
+
+The huge discrepancy between our manual TWO-NN (~8) and scikit-dimension's (~66) is due to outlier handling. Our fit-through-origin is dominated by extreme μ values from singletons (isolated sequences with no close relatives). scikit-dimension likely trims or handles these differently.
+
+**TODO: Re-examine intrinsic dimensionality after building ChromaDB database.** Singletons (rare organisms with no family in the dataset) violate the TWO-NN local uniformity assumption. Marine metagenomes (SFE/SE) are expected to produce significant numbers of singletons due to the "rare biosphere" — low-abundance uncultured lineages that appear only once. This could be a substantial fraction of the 6.7M sequences. Easier to filter these once we can query neighbors via ChromaDB. Could filter by nn1 distance percentile before fitting, or use GRIDE (Denti et al. 2022) which is more robust to noise by using higher-order neighbor ratios.
+
+References:
+- Facco, E., d'Errico, M., Rodriguez, A. & Laio, A. "Estimating the intrinsic dimension of datasets by a minimal neighborhood information." Scientific Reports 7, 12140 (2017). https://doi.org/10.1038/s41598-017-11873-y
+- Denti, F. et al. "The generalized ratios intrinsic dimension estimator." Scientific Reports 12, 20005 (2022). https://doi.org/10.1038/s41598-022-20991-1
+- scikit-dimension package: https://github.com/scikit-learn-contrib/scikit-dimension
+
+**ChromaDB updated (2026-02-14):**
+- `create_and_load_db` now supports pre-computed embeddings via `-emb` flag (skips encoder/CLR)
+- Distance metric changed from cosine to L2 (Euclidean)
+- Usage: `./create_and_load_db -id Runs/ids_SFE_SE_1.txt -emb Runs/embeddings_SFE_SE_1.npy`
+
+**Notebook memory optimization (2026-02-14):**
+
+The notebook was crashing the kernel due to excessive memory usage. Key fixes:
+- Replaced all scipy `pdist`/`cdist` calls with float32 numpy matrix operations (dot products for cosine, squared-distance decomposition for Euclidean) — scipy upcasts to float64
+- Replaced 56 GB `six_mers.flatten()` with chunked histogram computation
+- Replaced 80 GB `squareform` (100K×100K pairwise matrix) with chunked nearest-neighbor search
+- Pre-computed `embeddings_normed` once in cell 0 for reuse across cosine distance cells
+- Switched 100K nearest-neighbor analysis from cosine to Euclidean distance (consistent with finding that Euclidean > cosine for this VAE)
+- Switched t-SNE from cosine to Euclidean metric; ran on full 6.7M embeddings (~36 min)
+
+**t-SNE structure (Euclidean, 6.7M points):** Shows distinct "plaques" surrounded by empty space ("moats"). Torben suspects this is where communities will be found — each plaque is a group of organisms with similar k-mer signatures. Leiden community detection should map onto these plaques. This plaque/moat structure also complicates global intrinsic dimensionality estimation (within-plaque dimension is likely low, but the discrete structure between plaques confuses global estimators).
+
+**HDBSCAN on t-SNE (Euclidean, 6.7M points):** 7,391 clusters, 42.2% noise. High noise fraction expected — marine metagenomes contain many "genomic corpses" (degraded DNA from dead cells, viral fragments, free environmental DNA) that produce contigs with incoherent k-mer profiles. These scatter as singletons in the moats. Leiden clustering with a kNN distance threshold should naturally exclude these by requiring minimum connectivity.
+
+**GC-discordant spots in t-SNE:** When colored by GC content, the high-GC regions contain small spots of lower GC, and vice versa. This shows the VAE embeds by higher-order k-mer patterns (6-mer, 5-mer) reflecting phylogeny/codon usage, not just base composition. Species with atypical GC for their lineage end up near their taxonomic neighbors rather than with GC-similar but unrelated organisms. Evidence that multi-scale k-mer input captures signal beyond simple GC content. These GC-discordant spots may split into sub-communities under Leiden clustering.
+
+### kNN graph construction (2026-02-14)
+
+Created `query_neighbors` script — PEP 723 standalone tool that queries ChromaDB for k nearest neighbors and outputs a flat TSV file.
+
+**Output format:** `query_id<TAB>neighbor1(dist1)<TAB>neighbor2(dist2)<TAB>...`
+- Distances are Euclidean (sqrt of ChromaDB's squared L2)
+- Neighbors ordered nearest-first
+- Default k=15 (configurable via `-k`)
+
+**Usage:** `./query_neighbors -id ids.txt -emb embeddings.npy -k 15 > neighbors.tsv`
+
+This intermediate file enables:
+- Distance distribution analysis (singleton identification by nn1 distance)
+- kNN graph construction for Leiden community detection
+- Intrinsic dimensionality re-estimation after singleton filtering
+- General exploration of neighborhood structure
+
+**Ran with k=50:** `./query_neighbors -id Runs/ids_SFE_SE_1.txt -emb Runs/embeddings_SFE_SE_1.npy > Runs/neighbors_SFE_SE_1.tsv`
+- 6,693,829 rows, 7.5 GB, completed overnight
+- Default updated to k=50 (query once, cut to reduce)
+
+### Leiden Community Detection Plan (2026-02-15)
+
+**Phase 1: Distance landscape** (quick, informative, guides all downstream decisions)
+
+Extract the nn1 distance for every sequence and plot the distribution. This tells us:
+- Where the natural "singleton" threshold is (if bimodal, the valley is the cutoff)
+- The overall distance scale and density variation
+- What fraction of the 6.7M sequences are genomic corpses vs connected
+
+Also look at the nn1/nn2 ratio distribution — sequences with nn1 ≈ nn2 are embedded in a dense neighborhood; sequences with nn1 ≪ nn2 are tight pairs or small groups with a moat around them.
+
+**Phase 2: Build a weighted graph for Leiden**
+
+From the k=50 lists, construct a **mutual kNN graph with SNN weights**:
+- **Mutual kNN (k=15)**: edge between i and j only if j is in i's 15-NN *and* i is in j's 15-NN. This removes asymmetric connections — if A thinks B is close but B has much closer neighbors, that's not a real community link.
+- **SNN weight**: for each mutual edge, weight = number of shared neighbors in their k=15 lists. This rewards pairs embedded in the same dense neighborhood and naturally down-weights connections to singletons.
+
+Singletons will have zero or very few mutual connections and fall out naturally — no need for a hard threshold.
+
+**Phase 3: Leiden community detection**
+
+Run Leiden on the SNN-weighted mutual kNN graph. Key decisions:
+- Resolution parameter controls granularity. Start with a moderate value, then sweep.
+- The quality function (modularity vs. CPM) affects how resolution maps to cluster sizes.
+
+**Phase 4: Evaluate and characterize**
+
+- Number of communities, size distribution, noise fraction
+- Overlay community labels on the t-SNE — do they correspond to the plaques?
+- Characterize communities by GC content, source (SFE vs SE), sequence length
+- Re-estimate intrinsic dimensionality within the largest communities (where the local uniformity assumption holds)
+
+### Phase 1 Results: Distance Landscape (2026-02-15)
+
+**Data:** 6,693,829 sequences, k=50 neighbors each from ChromaDB (Euclidean/L2).
+
+**nn1 distances:** Range 0.0000–52.62, mean 16.55, median 15.87. Smooth unimodal distribution — no bimodal gap separating connected from isolated sequences. Percentiles: P10=6.55, P50=15.87, P90=27.25, P95=30.48, P99=37.20. About 10% of sequences have nn1 > 27 (most isolated, likely genomic corpses in moats).
+
+**nn1–nn50 spread:** Remarkably tight. Mean nn1=16.55, mean nn50=18.36 (difference ~1.8). Neighborhoods are compact: if nn1≈10, nn50≈12. Points cluster tightly along a line slightly above the nn50=nn1 diagonal.
+
+**μ = nn2/nn1 ratio:** Median 1.006 — for 98%+ of sequences, nn2 ≈ nn1 (dense, uniform neighborhoods). Only 1.84% have μ > 2 (pairs/small isolated groups), 0.45% have μ > 5 (strongly isolated). 974 sequences (0.015%) have nn1=0 (identical embeddings — biologically legitimate, e.g. same-species contigs from different samples).
+
+**Interpretation:** The latent space is well-structured for community detection. Dense plaques with tight neighborhoods, connected by moats of more isolated sequences. Mutual kNN with SNN weighting should work well — the 98%+ with μ ≈ 1 will form strong mutual connections, while the ~2% pairs/singletons will naturally lack mutual edges. No hard singleton threshold needed.

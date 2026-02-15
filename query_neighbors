@@ -1,0 +1,125 @@
+#!/usr/bin/env -S uv run --quiet --script
+"""
+Query ChromaDB for k nearest neighbors and output as TSV.
+
+Output format (one line per sequence, tab-separated):
+    query_id    neighbor1(dist1)    neighbor2(dist2)    ...
+
+Distances are Euclidean. Neighbors are ordered nearest-first.
+
+Usage:
+    ./query_neighbors -id ids.txt -emb embeddings.npy > neighbors.tsv
+    ./query_neighbors -id ids.txt -emb embeddings.npy -k 20 > neighbors.tsv
+"""
+# /// script
+# dependencies = [
+#   "numpy",
+#   "chromadb",
+# ]
+# ///
+
+import sys
+import numpy as np
+import chromadb
+
+CHROMA_PATH = '.chroma'
+COLLECTION_NAME = 'shrub_of_life'
+QUERY_BATCH_SIZE = 5000
+DEFAULT_K = 50
+PROGRESS_INTERVAL = 100_000
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description = 'Query ChromaDB for k nearest neighbors, output as TSV to stdout'
+    )
+    parser.add_argument('-id', '--ids', required = True,
+                        help = 'Path to IDs file (one ID per line)')
+    parser.add_argument('-emb', '--embeddings', required = True,
+                        help = 'Path to embeddings .npy file (col 0 = length, cols 1+ = embeddings)')
+    parser.add_argument('-k', '--neighbors', type = int, default = DEFAULT_K,
+                        help = f'Number of nearest neighbors (default: {DEFAULT_K})')
+    parser.add_argument('-d', '--db', default = CHROMA_PATH,
+                        help = f'Path to ChromaDB directory (default: {CHROMA_PATH})')
+    args = parser.parse_args()
+
+    # Load IDs
+    print(f'Loading IDs from {args.ids}...', file = sys.stderr)
+    with open(args.ids, 'r') as f:
+        all_ids = [line.strip() for line in f]
+    print(f'Loaded {len(all_ids):,} IDs', file = sys.stderr)
+
+    # Load embeddings (col 0 = length, cols 1+ = embeddings)
+    print(f'Loading embeddings from {args.embeddings}...', file = sys.stderr)
+    data = np.load(args.embeddings, mmap_mode = 'r')
+    n_sequences = len(data)
+    print(f'Found {n_sequences:,} sequences with {data.shape[1] - 1} embedding dimensions',
+          file = sys.stderr)
+
+    if len(all_ids) != n_sequences:
+        print(f'Error: ID count ({len(all_ids)}) != sequence count ({n_sequences})',
+              file = sys.stderr)
+        sys.exit(1)
+
+    # Connect to ChromaDB
+    print(f'Connecting to ChromaDB at {args.db}...', file = sys.stderr)
+    client = chromadb.PersistentClient(path = args.db)
+    collection = client.get_collection(COLLECTION_NAME)
+    db_count = collection.count()
+    print(f'Collection has {db_count:,} items', file = sys.stderr)
+
+    k = args.neighbors
+    print(f'Querying {k} nearest neighbors...', file = sys.stderr)
+
+    total_processed = 0
+    next_progress = PROGRESS_INTERVAL
+
+    for batch_start in range(0, n_sequences, QUERY_BATCH_SIZE):
+        batch_end = min(batch_start + QUERY_BATCH_SIZE, n_sequences)
+
+        # Get embeddings for this batch (skip col 0 = length)
+        batch_embeddings = data[batch_start:batch_end, 1:].astype(np.float32)
+        batch_ids = all_ids[batch_start:batch_end]
+
+        # Query ChromaDB for k+1 neighbors (includes self)
+        results = collection.query(
+            query_embeddings = batch_embeddings.tolist(),
+            n_results = k + 1,
+            include = ['distances']
+        )
+
+        # Format output
+        for i, query_id in enumerate(batch_ids):
+            neighbor_ids = results['ids'][i]
+            distances = results['distances'][i]
+
+            # Build neighbor list, skipping self-match
+            parts = [query_id]
+            count = 0
+            for nid, dist in zip(neighbor_ids, distances):
+                if nid == query_id:
+                    continue
+                # ChromaDB L2 space returns squared Euclidean distances
+                euclidean_dist = np.sqrt(dist)
+                parts.append(f'{nid}({euclidean_dist:.4f})')
+                count += 1
+                if count >= k:
+                    break
+
+            sys.stdout.write('\t'.join(parts))
+            sys.stdout.write('\n')
+
+        total_processed += batch_end - batch_start
+        if total_processed >= next_progress:
+            print(f'Processed {total_processed:,} / {n_sequences:,} sequences...',
+                  file = sys.stderr)
+            next_progress += PROGRESS_INTERVAL
+
+    print(f'Done. Wrote {total_processed:,} rows with {k} neighbors each.',
+          file = sys.stderr)
+
+
+if __name__ == '__main__':
+    main()

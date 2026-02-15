@@ -2,15 +2,13 @@
 """
 Create and load a ChromaDB database with VAE embeddings.
 
-Reads k-mer frequency data from calculate_kmer_frequencies output (.npy format),
-generates embeddings using the VAE encoder, and stores them in ChromaDB.
+Either loads pre-computed embeddings or generates them from k-mer data.
 
-Input files:
-    - IDs: Text file with one sequence ID per line (Data/all_ids.txt)
-    - K-mers: NumPy .npy file with length + 6-mer through 1-mer frequencies (Data/all_kmers.npy)
+Usage with pre-computed embeddings:
+    ./create_and_load_db -id ids.txt -emb embeddings.npy
 
-Usage:
-    ./create_and_load_db -id Data/all_ids.txt -k Data/all_kmers.npy
+Usage with k-mer data (computes embeddings via encoder):
+    ./create_and_load_db -id ids.txt -k kmers.npy -e encoder.keras
 """
 # /// script
 # dependencies = [
@@ -118,22 +116,20 @@ def main():
 
     parser = argparse.ArgumentParser(description = 'Create and load ChromaDB with VAE embeddings')
     parser.add_argument('-id', '--ids', required = True, help = 'Path to IDs file (one ID per line)')
-    parser.add_argument('-k', '--kmers', required = True, help = 'Path to k-mers .npy file')
+    parser.add_argument('-emb', '--embeddings', help = 'Path to pre-computed embeddings .npy file (col 0 = length, cols 1+ = embeddings)')
+    parser.add_argument('-k', '--kmers', help = 'Path to k-mers .npy file (required if no --embeddings)')
     parser.add_argument('-e', '--encoder', default = ENCODER_PATH, help = f'Path to encoder model (default: {ENCODER_PATH})')
     parser.add_argument('-d', '--db', default = CHROMA_PATH, help = f'Path to ChromaDB directory (default: {CHROMA_PATH})')
     args = parser.parse_args()
+
+    if not args.embeddings and not args.kmers:
+        parser.error('Either --embeddings or --kmers is required')
+
 
     # Check if database already exists
     if os.path.exists(args.db):
         print(f'Error: {args.db} already exists. Remove it first.', file = sys.stderr)
         sys.exit(1)
-
-    # Load encoder
-    print(f'Loading encoder from {args.encoder}...', file = sys.stderr)
-    encoder = keras.saving.load_model(
-        args.encoder,
-        custom_objects = {'ClipLayer': ClipLayer, 'Sampling': Sampling}
-    )
 
     # Load IDs
     print(f'Loading IDs from {args.ids}...', file = sys.stderr)
@@ -141,11 +137,24 @@ def main():
         all_ids = [line.strip() for line in f]
     print(f'Loaded {len(all_ids):,} IDs', file = sys.stderr)
 
-    # Memory-map k-mer data
-    print(f'Loading k-mers from {args.kmers}...', file = sys.stderr)
-    data_mmap = np.load(args.kmers, mmap_mode = 'r')
-    n_sequences = len(data_mmap)
-    print(f'Found {n_sequences:,} sequences with {data_mmap.shape[1]} columns', file = sys.stderr)
+    if args.embeddings:
+        # Pre-computed embeddings mode
+        print(f'Loading embeddings from {args.embeddings}...', file = sys.stderr)
+        data_mmap = np.load(args.embeddings, mmap_mode = 'r')
+        n_sequences = len(data_mmap)
+        print(f'Found {n_sequences:,} sequences with {data_mmap.shape[1]} columns', file = sys.stderr)
+        encoder = None
+    else:
+        # K-mer mode: load encoder and k-mer data
+        print(f'Loading encoder from {args.encoder}...', file = sys.stderr)
+        encoder = keras.saving.load_model(
+            args.encoder,
+            custom_objects = {'ClipLayer': ClipLayer, 'Sampling': Sampling}
+        )
+        print(f'Loading k-mers from {args.kmers}...', file = sys.stderr)
+        data_mmap = np.load(args.kmers, mmap_mode = 'r')
+        n_sequences = len(data_mmap)
+        print(f'Found {n_sequences:,} sequences with {data_mmap.shape[1]} columns', file = sys.stderr)
 
     if len(all_ids) != n_sequences:
         print(f'Error: ID count ({len(all_ids)}) != sequence count ({n_sequences})', file = sys.stderr)
@@ -156,7 +165,7 @@ def main():
     client = chromadb.PersistentClient(path = args.db)
     collection = client.create_collection(
         name = COLLECTION_NAME,
-        metadata = {'hnsw:space': 'cosine'}
+        metadata = {'hnsw:space': 'l2'}
     )
 
     # Process in batches
@@ -169,20 +178,22 @@ def main():
         # Get batch IDs
         batch_ids = all_ids[batch_start:batch_end]
 
-        # Get batch lengths (column 0)
-        batch_lengths = data_mmap[batch_start:batch_end, COL_LENGTH].astype(int).tolist()
-
-        # Get batch k-mer features (columns 1-2772) and apply CLR transform
-        batch_features = data_mmap[batch_start:batch_end, COL_KMER_START:COL_KMER_END].astype(np.float32)
-        batch_features = clr_transform(batch_features)
-
-        # Generate embeddings
-        z_mean, _, _ = encoder.predict(batch_features, batch_size = batch_size, verbose = 0)
+        if args.embeddings:
+            # Pre-computed: col 0 = length, cols 1+ = embeddings
+            batch_lengths = data_mmap[batch_start:batch_end, 0].astype(int).tolist()
+            batch_embeddings = data_mmap[batch_start:batch_end, 1:].astype(np.float32)
+        else:
+            # Compute from k-mers
+            batch_lengths = data_mmap[batch_start:batch_end, COL_LENGTH].astype(int).tolist()
+            batch_features = data_mmap[batch_start:batch_end, COL_KMER_START:COL_KMER_END].astype(np.float32)
+            batch_features = clr_transform(batch_features)
+            z_mean, _, _ = encoder.predict(batch_features, batch_size = batch_size, verbose = 0)
+            batch_embeddings = z_mean
 
         # Add to ChromaDB
         collection.add(
             ids = batch_ids,
-            embeddings = z_mean.tolist(),
+            embeddings = batch_embeddings.tolist(),
             metadatas = [{'length': l} for l in batch_lengths]
         )
 
