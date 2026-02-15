@@ -42,10 +42,10 @@ The FD + NCBI fraction (augmented minus SFE_SE) ranges from 10.7M (1K threshold)
 
 ### Data Sources
 
-- **FD**: Microflora Danica metagenomic contigs (aquatic/environmental)
+- **FD**: Microflora Danica metagenomic contigs (aquatic and soil)
 - **NCBI**: NCBI RefSeq representative genomes (curated, taxonomically diverse)
-- **SFE**: San Francisco Estuary metagenomic contigs (aquatic)
-- **SE**: Baltic Sea metagenomic contigs (aquatic)
+- **SFE**: San Francisco Estuary metagenomic contigs (marine)
+- **SE**: Baltic Sea metagenomic contigs (marine)
 
 ### Data Format
 

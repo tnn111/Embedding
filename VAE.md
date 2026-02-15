@@ -1193,6 +1193,31 @@ All SFE_SE models dramatically outperform augmented runs (best augmented: Run_3 
 
 5. **SFE_SE models still far outperform augmented models** — even the worst SFE_SE result on SFE_SE data (SFE_SE_3 on SFE_SE_3 at 0.676) approaches the best augmented result (Run_3 at 0.702).
 
+## 2026-02-14: Model selection for Leiden community detection
+
+### Goal
+Break up SFE and SE sequences into communities using the Leiden algorithm, with VAE embeddings providing the distance metric. The goal is to identify what organisms are present.
+
+### Decision: SFE_SE_5
+
+SFE_SE_5 is the best model for this task. It dominates all SFE_SE test columns (mean Spearman 0.847, +0.081 over second place) and generalizes well downward — it scores 0.862 on kmers_SFE_SE_1 despite being trained only on ≥5K bp sequences.
+
+Use Euclidean distance for kNN graph construction (outperforms cosine by +0.076 Spearman).
+
+### Key insight: training data composition > quantity
+
+SFE_SE models (4.8-6.7M sequences, 2 sources) dramatically outperform augmented models (13.4-17.4M sequences, 4 sources) — even on the augmented test data that includes FD+NCBI sequences the SFE_SE model never saw (worst SFE_SE 0.812 > best augmented 0.702).
+
+The additional FD and NCBI data forces the model to spread its 384-dimensional latent space across a wider range of biology, diluting local distance structure for any particular domain. The SFE_SE models devote all representational capacity to the marine metagenome manifold, producing better-structured embeddings.
+
+### Data source clarification
+
+- **SFE** (San Francisco Estuary) and **SE** (Baltic Sea) are **marine** metagenomic data
+- **FD** (Microflora Danica) contains both **aquatic and soil** data
+- **NCBI** (RefSeq representative genomes) is curated, taxonomically diverse
+
+---
+
 ## 2026-02-12: Documentation cleanup
 
 - Fixed VAE.py docstrings: encoder/decoder docstrings incorrectly said 256-dim latent space, corrected to 384-dim.
