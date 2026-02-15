@@ -41,7 +41,7 @@ Updated script to match new `calculate_kmer_frequencies` output and VAE encoder:
 ### Usage
 
 ```bash
-cat kmers.npy | ./embedding > embeddings.npy
+cat kmers.npy | ./embedding -m vae_encoder_best.keras > embeddings.npy
 ```
 
 Input must be in the format output by `calculate_kmer_frequencies` (2,773 columns).
@@ -51,4 +51,14 @@ In a notebook:
 data = np.load('embeddings.npy')
 lengths = data[:, 0]
 embeddings = data[:, 1:]
+```
+
+---
+
+## 2026-02-14: Added -m/--model argument
+
+Encoder path is now a required CLI argument instead of being hardcoded. Previously the script always loaded `vae_encoder_best.keras` from the current directory, which was inflexible when working with multiple models (e.g., Run_3 vs SFE_SE_5).
+
+```bash
+cat kmers.npy | ./embedding -m Runs/Run_SFE_SE_5/vae_encoder_best.keras > embeddings.npy
 ```

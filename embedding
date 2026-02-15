@@ -9,8 +9,8 @@ Input: NumPy array from stdin (from calculate_kmer_frequencies)
 Output: NumPy array with 385 columns (length + latent embeddings z_mean)
 
 Usage:
-    cat input.npy | embedding > embeddings.npy
-    embedding < input.npy > embeddings.npy
+    cat input.npy | embedding -m model.keras > embeddings.npy
+    embedding -m model.keras < input.npy > embeddings.npy
 """
 # /// script
 # dependencies = [
@@ -20,6 +20,7 @@ Usage:
 # ]
 # ///
 
+import argparse
 import sys
 import os
 os.environ['KERAS_BACKEND'] = 'jax'
@@ -105,10 +106,14 @@ def clr_transform(data: np.ndarray) -> np.ndarray:
 
 
 def main():
+    parser = argparse.ArgumentParser(description = 'Generate VAE latent embeddings from k-mer frequency data')
+    parser.add_argument('-m', '--model', default = 'vae_encoder_best.keras', help = 'Path to encoder .keras model (default: vae_encoder_best.keras)')
+    args = parser.parse_args()
+
     # Load encoder
-    print('Loading encoder...', file = sys.stderr)
+    print(f'Loading encoder from {args.model}...', file = sys.stderr)
     encoder = keras.saving.load_model(
-        'vae_encoder_best.keras',
+        args.model,
         custom_objects = {'ClipLayer': ClipLayer, 'Sampling': Sampling}
     )
 
@@ -128,7 +133,7 @@ def main():
 
     # Get embeddings
     print('Generating embeddings...', file = sys.stderr)
-    z_mean, z_log_var, z = encoder.predict(kmer_data, batch_size = 8192, verbose = 0)
+    z_mean, _, _ = encoder.predict(kmer_data, batch_size = 8192, verbose = 0)
 
     # Concatenate length with embeddings
     output = np.concatenate([lengths, z_mean], axis = 1)
