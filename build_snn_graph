@@ -1,0 +1,107 @@
+#!/usr/bin/env -S uv run --quiet --script
+"""
+Build a symmetric kNN graph with shared-nearest-neighbor (SNN) weights.
+
+Reads a neighbors TSV (from query_neighbors), keeps top k neighbors per
+sequence, and creates an undirected edge between i and j if j is in i's
+k-NN OR i is in j's k-NN (symmetric/union).  Each edge is weighted by the
+number of shared neighbors: |kNN(i) ∩ kNN(j)|.
+
+Output: TSV edge list to stdout (source, target, weight).
+Node indices are 0-based, matching line numbers in the IDs file.
+
+Usage:
+    ./build_snn_graph -n neighbors.tsv -id ids.txt > edges.tsv
+    ./build_snn_graph -n neighbors.tsv -id ids.txt -k 20 > edges.tsv
+"""
+# /// script
+# dependencies = [
+#   "numpy",
+# ]
+# ///
+
+import sys
+
+DEFAULT_K = 15
+PROGRESS_INTERVAL = 1_000_000
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description = 'Build symmetric kNN graph with SNN weights, output edge list to stdout'
+    )
+    parser.add_argument('-n', '--neighbors', required = True,
+                        help = 'Path to neighbors TSV from query_neighbors')
+    parser.add_argument('-id', '--ids', required = True,
+                        help = 'Path to IDs file (one ID per line)')
+    parser.add_argument('-k', '--k-neighbors', type = int, default = DEFAULT_K,
+                        help = f'Number of neighbors to use (default: {DEFAULT_K}, max: columns in TSV)')
+    args = parser.parse_args()
+
+    k = args.k_neighbors
+
+    # Load IDs and build ID -> index mapping
+    print(f'Loading IDs from {args.ids}...', file = sys.stderr)
+    with open(args.ids, 'r') as f:
+        all_ids = [line.strip() for line in f]
+    id_to_idx = {id_: i for i, id_ in enumerate(all_ids)}
+    n_total = len(all_ids)
+    print(f'Loaded {n_total:,} IDs', file = sys.stderr)
+
+    # Parse TSV, keeping top k neighbors as index sets
+    print(f'Parsing neighbors (k={k})...', file = sys.stderr)
+    neighbor_sets = [None] * n_total
+
+    with open(args.neighbors, 'r') as f:
+        for line_num, line in enumerate(f):
+            fields = line.rstrip('\n').split('\t')
+            s = set()
+            for field in fields[1:k + 1]:
+                paren = field.rfind('(')
+                nid = field[:paren]
+                if nid in id_to_idx:
+                    s.add(id_to_idx[nid])
+            neighbor_sets[line_num] = s
+            if (line_num + 1) % PROGRESS_INTERVAL == 0:
+                print(f'  Parsed {line_num + 1:,} / {n_total:,} lines...', file = sys.stderr)
+
+    print(f'Parsed all {n_total:,} neighbor lists', file = sys.stderr)
+
+    # Build symmetric edges with SNN weights
+    # Edge (i, j) exists if j ∈ kNN(i) OR i ∈ kNN(j)
+    # SNN weight = |kNN(i) ∩ kNN(j)|
+    #
+    # Since we process nodes in ascending order:
+    #   j > i: forward edge, always new (j not yet processed)
+    #   j < i: only new if i ∉ kNN(j) (otherwise already emitted when j was processed)
+    print(f'Building symmetric edges with SNN weights...', file = sys.stderr)
+
+    sys.stdout.write('source\ttarget\tweight\n')
+    n_edges = 0
+
+    for i in range(n_total):
+        if neighbor_sets[i] is None:
+            continue
+        for j in neighbor_sets[i]:
+            if j > i:
+                # Forward: j hasn't been processed, so (i, j) is new
+                weight = len(neighbor_sets[i] & neighbor_sets[j])
+                sys.stdout.write(f'{i}\t{j}\t{weight}\n')
+                n_edges += 1
+            elif neighbor_sets[j] is not None and i not in neighbor_sets[j]:
+                # Backward: j was already processed but didn't emit this
+                # edge because i was not in kNN(j). Emit it now.
+                weight = len(neighbor_sets[i] & neighbor_sets[j])
+                sys.stdout.write(f'{j}\t{i}\t{weight}\n')
+                n_edges += 1
+        if (i + 1) % PROGRESS_INTERVAL == 0:
+            print(f'  Processed {i + 1:,} / {n_total:,} nodes, {n_edges:,} edges so far...',
+                  file = sys.stderr)
+
+    print(f'Done. {n_total:,} nodes, {n_edges:,} edges.', file = sys.stderr)
+
+
+if __name__ == '__main__':
+    main()

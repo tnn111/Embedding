@@ -562,4 +562,48 @@ Run Leiden on the SNN-weighted mutual kNN graph. Key decisions:
 
 **μ = nn2/nn1 ratio:** Median 1.006 — for 98%+ of sequences, nn2 ≈ nn1 (dense, uniform neighborhoods). Only 1.84% have μ > 2 (pairs/small isolated groups), 0.45% have μ > 5 (strongly isolated). 974 sequences (0.015%) have nn1=0 (identical embeddings — biologically legitimate, e.g. same-species contigs from different samples).
 
-**Interpretation:** The latent space is well-structured for community detection. Dense plaques with tight neighborhoods, connected by moats of more isolated sequences. Mutual kNN with SNN weighting should work well — the 98%+ with μ ≈ 1 will form strong mutual connections, while the ~2% pairs/singletons will naturally lack mutual edges. No hard singleton threshold needed.
+**Interpretation:** The latent space is well-structured for community detection. Dense plaques with tight neighborhoods, connected by moats of more isolated sequences. No hard singleton threshold needed.
+
+### Phase 2: Graph Construction (2026-02-15)
+
+**Mutual kNN failed — too restrictive for this data:**
+
+| k | Mutual edges | Connected nodes | Isolated |
+|---|---|---|---|
+| 15 | 1,816,191 | 975,459 (14.6%) | 85.4% |
+| 30 | 3,144,013 | 1,055,690 (15.8%) | 84.2% |
+
+Increasing k from 15 to 30 barely changed the isolation rate (85.4% → 84.2%). We gained more edges between already-connected nodes but almost no new nodes. The edges that do exist are very strong (k=30: mean SNN weight 20.4/30, median 21).
+
+**Root cause:** Most sequences have asymmetric nearest-neighbor relationships. Sequences in sparse regions point toward dense clusters, but cluster members don't point back because they have closer neighbors within the cluster. In a latent space with intrinsic dimensionality ~9-60 and wide density variation (nn1 range 0-53), the mutual requirement eliminates the vast majority of edges.
+
+**For comparison:** HDBSCAN on t-SNE found 42% noise. Mutual kNN found 84-85% isolated — almost double. The extra ~42% are sequences that belong to clusters but sit at cluster boundaries or in density gradients where mutual connections don't form.
+
+**Also built symmetric kNN graph for comparison:**
+- Edge (i,j) exists if j ∈ kNN(i) OR i ∈ kNN(j) (union, not intersection)
+- Weight = |kNN(i) ∩ kNN(j)| (shared nearest neighbors)
+- Every node is guaranteed at least k edges (to its k-NN)
+- Truly isolated sequences will have low SNN weights; Leiden handles this via resolution parameter
+- Closer to what Scanpy does (UMAP-style fuzzy simplicial set also guarantees minimum connectivity)
+
+**Important caveat: mutual kNN may not have "failed."** The 85% isolation rate could be biologically correct:
+- Marine metagenomes are expected to have massive numbers of singletons (genomic corpses, rare biosphere)
+- HDBSCAN found 42% noise on 2D t-SNE — in the full 384-dim space, even more sequences may be truly isolated
+- The mutual requirement is biologically meaningful: if A points to B but B has much closer relatives, A isn't truly part of B's community
+- The 975K connected nodes with 1.8M strong edges (mean SNN 9.55/15) may be exactly the real communities — high-confidence connections only
+
+**Plan: Run Leiden on BOTH graphs and compare.** Mutual graph for clean, high-confidence communities; symmetric graph for broader coverage. The mutual graph could give more biologically meaningful results if most "isolated" sequences really are isolated.
+
+**Symmetric graph results (k=15):**
+
+| | Mutual (k=15) | Symmetric (k=15) |
+|---|---|---|
+| Edges | 1,816,191 | 98,591,244 |
+| Connected nodes | 975,459 (14.6%) | 6,693,829 (100%) |
+| Mean SNN weight | 9.55 | 2.90 |
+| Median weight | 10 | 2 |
+| Weight = 0 | 11,100 (0.6%) | 26,811,404 (27.2%) |
+| Weight >= 5 | — | 24,264,805 (24.6%) |
+| Weight >= 10 | — | 5,537,050 (5.6%) |
+
+The ~5.5M edges with weight >= 10 in the symmetric graph correspond roughly to the mutual kNN core. The other ~93M edges are weaker asymmetric connections from sparse regions pointing toward dense clusters. 27% of edges have weight 0 (no shared neighbors at all). Good structure for Leiden — strong edges form tight communities, resolution parameter controls whether weakly-connected sequences get pulled in.

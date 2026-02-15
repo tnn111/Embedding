@@ -1,0 +1,198 @@
+#!/usr/bin/env -S uv run --quiet --script
+"""
+Evaluate embedding quality using true kNN from ChromaDB.
+
+Computes Spearman correlation between latent-space neighbor ranks
+and k-mer-space distance ranks.  Unlike verify_local_distances.py
+which finds neighbors within a random subsample, this uses the true
+nearest neighbors from the full dataset.
+
+Output format matches verify_local_distances.py for comparison.
+
+Usage:
+    ./verify_knn_quality -n neighbors.tsv -k kmers.npy -id ids.txt
+    ./verify_knn_quality -n neighbors.tsv -k kmers.npy -id ids.txt --sample-size 50000
+"""
+# /// script
+# dependencies = [
+#   "numpy",
+#   "scipy",
+# ]
+# ///
+
+import sys
+import numpy as np
+from scipy.stats import spearmanr
+
+KMER_SLICES = [
+    (0, 2080),       # 6-mer
+    (2080, 2592),    # 5-mer
+    (2592, 2728),    # 4-mer
+    (2728, 2760),    # 3-mer
+    (2760, 2770),    # 2-mer
+    (2770, 2772),    # 1-mer
+]
+
+COL_KMER_START = 1
+COL_KMER_END = 2773
+PROGRESS_INTERVAL = 10_000
+
+
+def clr_transform(data):
+    """Per-group CLR with Jeffreys prior pseudocount."""
+    data = data.copy()
+    for start, end in KMER_SLICES:
+        group = data[:, start:end]
+        pseudocount = 0.5 / (end - start)
+        group += pseudocount
+        np.log(group, out = group)
+        log_geom_mean = np.mean(group, axis = 1, keepdims = True)
+        group -= log_geom_mean
+    return data
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description = 'Evaluate embedding quality using kNN data from ChromaDB'
+    )
+    parser.add_argument('-n', '--neighbors', required = True,
+                        help = 'Path to neighbors TSV from query_neighbors')
+    parser.add_argument('-k', '--kmers', required = True,
+                        help = 'Path to k-mers .npy file')
+    parser.add_argument('-id', '--ids', required = True,
+                        help = 'Path to IDs file (one ID per line)')
+    parser.add_argument('--sample-size', type = int, default = 100_000,
+                        help = 'Number of queries to sample (default: 100000)')
+    parser.add_argument('--seed', type = int, default = 42,
+                        help = 'Random seed (default: 42)')
+    args = parser.parse_args()
+
+    # Load IDs and build ID -> index mapping
+    print(f'Loading IDs from {args.ids}...', file = sys.stderr)
+    with open(args.ids, 'r') as f:
+        all_ids = [line.strip() for line in f]
+    id_to_idx = {id_: i for i, id_ in enumerate(all_ids)}
+    n_total = len(all_ids)
+    print(f'Loaded {n_total:,} IDs', file = sys.stderr)
+
+    # Load k-mers (memory-mapped)
+    print(f'Loading k-mers from {args.kmers}...', file = sys.stderr)
+    kmers = np.load(args.kmers, mmap_mode = 'r')
+    print(f'K-mers shape: {kmers.shape}', file = sys.stderr)
+
+    # Sample query indices
+    rng = np.random.default_rng(args.seed)
+    sample_size = min(args.sample_size, n_total)
+    sample_indices = set(rng.choice(n_total, size = sample_size, replace = False).tolist())
+    print(f'Sampling {sample_size:,} queries...', file = sys.stderr)
+
+    # Parse TSV, keeping only sampled lines
+    print(f'Reading neighbors from {args.neighbors}...', file = sys.stderr)
+    # Store: query_idx -> [(neighbor_idx, latent_dist), ...]
+    queries = {}
+    parsed = 0
+
+    with open(args.neighbors, 'r') as f:
+        for line_num, line in enumerate(f):
+            if line_num not in sample_indices:
+                continue
+            fields = line.rstrip('\n').split('\t')
+            neighbors = []
+            for field in fields[1:]:
+                paren = field.rfind('(')
+                nid = field[:paren]
+                dist = float(field[paren + 1:-1])
+                if nid in id_to_idx:
+                    neighbors.append((id_to_idx[nid], dist))
+            queries[line_num] = neighbors
+            parsed += 1
+            if parsed % PROGRESS_INTERVAL == 0:
+                print(f'  Parsed {parsed:,} / {sample_size:,} queries...', file = sys.stderr)
+
+    print(f'Parsed {len(queries):,} queries', file = sys.stderr)
+
+    # Compute per-query Spearman and MSE
+    print(f'Computing correlations...', file = sys.stderr)
+
+    spearmans = []
+    top1_mses = []
+    top50_mses = []
+    processed = 0
+
+    for query_idx, neighbors in queries.items():
+        if len(neighbors) < 2:
+            continue
+
+        # Load k-mer vectors: query + all neighbors
+        all_indices = [query_idx] + [n[0] for n in neighbors]
+        kmer_vectors = kmers[all_indices, COL_KMER_START:COL_KMER_END].astype(np.float32)
+        kmer_vectors = clr_transform(kmer_vectors)
+
+        query_vec = kmer_vectors[0]
+        neighbor_vecs = kmer_vectors[1:]
+
+        # K-mer space Euclidean distances (on CLR-transformed features)
+        diffs = neighbor_vecs - query_vec
+        kmer_dists = np.sqrt(np.sum(diffs ** 2, axis = 1))
+
+        # Latent distances from TSV
+        latent_dists = np.array([n[1] for n in neighbors])
+
+        # Per-query Spearman: does latent rank match k-mer rank?
+        rho, _ = spearmanr(latent_dists, kmer_dists)
+        if np.isfinite(rho):
+            spearmans.append(rho)
+
+        # Top-1 MSE (k-mer MSE between query and its latent-nearest neighbor)
+        top1_mses.append(np.mean(diffs[0] ** 2))
+
+        # Top-50 mean MSE
+        top_n = min(50, len(neighbors))
+        top50_mses.append(np.mean([np.mean(diffs[j] ** 2) for j in range(top_n)]))
+
+        processed += 1
+        if processed % PROGRESS_INTERVAL == 0:
+            print(f'  Processed {processed:,} / {len(queries):,} queries...', file = sys.stderr)
+
+    # Random baseline: MSE between random pairs in CLR k-mer space
+    print(f'Computing random baseline...', file = sys.stderr)
+    n_random = 10_000
+    random_batch = 500
+    random_mses = []
+
+    random_pairs = rng.choice(n_total, size = (n_random, 2), replace = False)
+    for start in range(0, n_random, random_batch):
+        end = min(start + random_batch, n_random)
+        batch_pairs = random_pairs[start:end]
+        idx_a = batch_pairs[:, 0]
+        idx_b = batch_pairs[:, 1]
+        vecs_a = clr_transform(kmers[idx_a, COL_KMER_START:COL_KMER_END].astype(np.float32))
+        vecs_b = clr_transform(kmers[idx_b, COL_KMER_START:COL_KMER_END].astype(np.float32))
+        batch_mses = np.mean((vecs_a - vecs_b) ** 2, axis = 1)
+        random_mses.extend(batch_mses.tolist())
+
+    # Report
+    spearmans = np.array(spearmans)
+    top1_mses = np.array(top1_mses)
+    top50_mses = np.array(top50_mses)
+    random_mses = np.array(random_mses)
+
+    print(f'\n{"=" * 60}', file = sys.stderr)
+    print(f'kNN Quality Evaluation ({len(spearmans):,} queries, full 6.7M dataset)', file = sys.stderr)
+    print(f'{"=" * 60}', file = sys.stderr)
+    print(f'Per-query Spearman (latent rank vs CLR k-mer rank):', file = sys.stderr)
+    print(f'  Mean:   {spearmans.mean():.4f}', file = sys.stderr)
+    print(f'  Median: {np.median(spearmans):.4f}', file = sys.stderr)
+    print(f'  Std:    {spearmans.std():.4f}', file = sys.stderr)
+    print(f'', file = sys.stderr)
+    print(f'MSE (CLR-transformed k-mer space):', file = sys.stderr)
+    print(f'  Top 1:    {top1_mses.mean():.4f}', file = sys.stderr)
+    print(f'  Top 50:   {top50_mses.mean():.4f}', file = sys.stderr)
+    print(f'  Random:   {random_mses.mean():.4f}', file = sys.stderr)
+    print(f'{"=" * 60}', file = sys.stderr)
+
+
+if __name__ == '__main__':
+    main()
