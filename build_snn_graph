@@ -1,23 +1,31 @@
 #!/usr/bin/env -S uv run --quiet --script
 """
-Build a symmetric kNN graph with shared-nearest-neighbor (SNN) weights.
+Build a kNN graph with shared-nearest-neighbor (SNN) weights.
 
 Reads a neighbors TSV (from query_neighbors), keeps top k neighbors per
-sequence, and creates an undirected edge between i and j if j is in i's
-k-NN OR i is in j's k-NN (symmetric/union).  Each edge is weighted by the
-number of shared neighbors: |kNN(i) ∩ kNN(j)|.
+sequence, and creates an undirected edge list.
+
+Weight modes:
+  default              SNN count: |kNN(i) ∩ kNN(j)|
+  --distance-weighted  SNN count / (dist + δ), combining neighbor overlap
+                       with hyperbolic distance decay.  Close pairs get very
+                       high weight; distant pairs get near-zero.
+
+Edge modes:
+  --mutual   Edge (i,j) only if j ∈ kNN(i) AND i ∈ kNN(j) (intersection).
+  default    Edge (i,j) if j ∈ kNN(i) OR i ∈ kNN(j) (union/symmetric).
 
 Output: TSV edge list to stdout (source, target, weight).
 Node indices are 0-based, matching line numbers in the IDs file.
 
 Usage:
     ./build_snn_graph -n neighbors.tsv -id ids.txt > edges.tsv
-    ./build_snn_graph -n neighbors.tsv -id ids.txt -k 20 > edges.tsv
+    ./build_snn_graph -n neighbors.tsv -id ids.txt --mutual > edges.tsv
+    ./build_snn_graph -n neighbors.tsv -id ids.txt --mutual --distance-weighted > edges.tsv
+    ./build_snn_graph -n neighbors.tsv -id ids.txt --mutual --distance-weighted --delta 1.0 > edges.tsv
 """
 # /// script
-# dependencies = [
-#   "numpy",
-# ]
+# dependencies = []
 # ///
 
 import sys
@@ -30,7 +38,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description = 'Build symmetric kNN graph with SNN weights, output edge list to stdout'
+        description = 'Build kNN graph with SNN weights, output edge list to stdout'
     )
     parser.add_argument('-n', '--neighbors', required = True,
                         help = 'Path to neighbors TSV from query_neighbors')
@@ -38,9 +46,16 @@ def main():
                         help = 'Path to IDs file (one ID per line)')
     parser.add_argument('-k', '--k-neighbors', type = int, default = DEFAULT_K,
                         help = f'Number of neighbors to use (default: {DEFAULT_K}, max: columns in TSV)')
+    parser.add_argument('--mutual', action = 'store_true',
+                        help = 'Use mutual kNN (intersection) instead of symmetric (union)')
+    parser.add_argument('--distance-weighted', action = 'store_true',
+                        help = 'Weight edges by SNN / (dist + delta) instead of SNN count alone')
+    parser.add_argument('--delta', type = float, default = 0.1,
+                        help = 'Small constant to avoid division by zero (default: 0.1)')
     args = parser.parse_args()
 
     k = args.k_neighbors
+    use_dist = args.distance_weighted
 
     # Load IDs and build ID -> index mapping
     print(f'Loading IDs from {args.ids}...', file = sys.stderr)
@@ -50,55 +65,89 @@ def main():
     n_total = len(all_ids)
     print(f'Loaded {n_total:,} IDs', file = sys.stderr)
 
-    # Parse TSV, keeping top k neighbors as index sets
+    # Parse TSV, keeping top k neighbors as index sets (and distances if needed)
     print(f'Parsing neighbors (k={k})...', file = sys.stderr)
     neighbor_sets = [None] * n_total
+    neighbor_dists = [None] * n_total if use_dist else None
+    delta = args.delta if use_dist else None
 
     with open(args.neighbors, 'r') as f:
         for line_num, line in enumerate(f):
             fields = line.rstrip('\n').split('\t')
             s = set()
+            d = {} if use_dist else None
             for field in fields[1:k + 1]:
                 paren = field.rfind('(')
                 nid = field[:paren]
                 if nid in id_to_idx:
-                    s.add(id_to_idx[nid])
+                    idx = id_to_idx[nid]
+                    s.add(idx)
+                    if use_dist:
+                        d[idx] = float(field[paren + 1:-1])
             neighbor_sets[line_num] = s
+            if use_dist:
+                neighbor_dists[line_num] = d
             if (line_num + 1) % PROGRESS_INTERVAL == 0:
                 print(f'  Parsed {line_num + 1:,} / {n_total:,} lines...', file = sys.stderr)
 
     print(f'Parsed all {n_total:,} neighbor lists', file = sys.stderr)
 
-    # Build symmetric edges with SNN weights
-    # Edge (i, j) exists if j ∈ kNN(i) OR i ∈ kNN(j)
-    # SNN weight = |kNN(i) ∩ kNN(j)|
-    #
-    # Since we process nodes in ascending order:
-    #   j > i: forward edge, always new (j not yet processed)
-    #   j < i: only new if i ∉ kNN(j) (otherwise already emitted when j was processed)
-    print(f'Building symmetric edges with SNN weights...', file = sys.stderr)
+    if use_dist:
+        print(f'Distance weighting: SNN / (dist + {delta})', file = sys.stderr)
+
+    def edge_weight(i, j):
+        """Compute edge weight between nodes i and j."""
+        snn = len(neighbor_sets[i] & neighbor_sets[j])
+        if not use_dist:
+            return snn
+        # Average distance from both directions (if available)
+        d_ij = neighbor_dists[i].get(j) if neighbor_dists[i] else None
+        d_ji = neighbor_dists[j].get(i) if neighbor_dists[j] else None
+        if d_ij is not None and d_ji is not None:
+            dist = (d_ij + d_ji) / 2
+        elif d_ij is not None:
+            dist = d_ij
+        else:
+            dist = d_ji
+        return snn / (dist + delta)
+
+    # Build edges
+    mode = 'mutual' if args.mutual else 'symmetric'
+    weight_mode = f'SNN / (dist + {delta})' if use_dist else 'SNN count'
+    print(f'Building {mode} edges with {weight_mode}...', file = sys.stderr)
 
     sys.stdout.write('source\ttarget\tweight\n')
     n_edges = 0
+    fmt = '{}\t{}\t{:.4f}\n' if use_dist else '{}\t{}\t{}\n'
 
-    for i in range(n_total):
-        if neighbor_sets[i] is None:
-            continue
-        for j in neighbor_sets[i]:
-            if j > i:
-                # Forward: j hasn't been processed, so (i, j) is new
-                weight = len(neighbor_sets[i] & neighbor_sets[j])
-                sys.stdout.write(f'{i}\t{j}\t{weight}\n')
-                n_edges += 1
-            elif neighbor_sets[j] is not None and i not in neighbor_sets[j]:
-                # Backward: j was already processed but didn't emit this
-                # edge because i was not in kNN(j). Emit it now.
-                weight = len(neighbor_sets[i] & neighbor_sets[j])
-                sys.stdout.write(f'{j}\t{i}\t{weight}\n')
-                n_edges += 1
-        if (i + 1) % PROGRESS_INTERVAL == 0:
-            print(f'  Processed {i + 1:,} / {n_total:,} nodes, {n_edges:,} edges so far...',
-                  file = sys.stderr)
+    if args.mutual:
+        for i in range(n_total):
+            if neighbor_sets[i] is None:
+                continue
+            for j in neighbor_sets[i]:
+                if j > i and neighbor_sets[j] is not None and i in neighbor_sets[j]:
+                    w = edge_weight(i, j)
+                    sys.stdout.write(fmt.format(i, j, w))
+                    n_edges += 1
+            if (i + 1) % PROGRESS_INTERVAL == 0:
+                print(f'  Processed {i + 1:,} / {n_total:,} nodes, {n_edges:,} edges so far...',
+                      file = sys.stderr)
+    else:
+        for i in range(n_total):
+            if neighbor_sets[i] is None:
+                continue
+            for j in neighbor_sets[i]:
+                if j > i:
+                    w = edge_weight(i, j)
+                    sys.stdout.write(fmt.format(i, j, w))
+                    n_edges += 1
+                elif neighbor_sets[j] is not None and i not in neighbor_sets[j]:
+                    w = edge_weight(i, j)
+                    sys.stdout.write(fmt.format(i, j, w))
+                    n_edges += 1
+            if (i + 1) % PROGRESS_INTERVAL == 0:
+                print(f'  Processed {i + 1:,} / {n_total:,} nodes, {n_edges:,} edges so far...',
+                      file = sys.stderr)
 
     print(f'Done. {n_total:,} nodes, {n_edges:,} edges.', file = sys.stderr)
 

@@ -660,8 +660,52 @@ Top 2 communities alone contain 21.4% of all sequences. Top 20 contain ~55%. Com
 
 **Cell 20 (t-SNE overlay):** Top 20 communities colored distinctly on t-SNE, rest in grey. Communities map well onto the plaque structure visible in the t-SNE.
 
+### Symmetric Leiden results biologically meaningless (2026-02-15)
+
+The symmetric kNN Leiden results produced mega-communities (737K sequences in C0) spanning both Baltic Sea and San Francisco Estuary — not biologically meaningful. Even sampling 5 IDs from C0 showed a mix of SE and SFE sources.
+
+### Mutual kNN Leiden (2026-02-15)
+
+Switched to mutual kNN graph and ran Leiden with multiple configurations:
+
+| Config | Singletons | Communities | Largest | Median size |
+|---|---|---|---|---|
+| Mutual k=15, SNN count | 85.6% | 191,113 | 3,092 | 2 |
+| Mutual k=30, SNN count | 84.4% | 170,374 | 4,503 | 2 |
+| Mutual k=30, SNN×exp(-d/15.87) | 84.4% | 170,400 | 4,516 | 2 |
+| Mutual k=30, SNN/(d+0.1) | 84.4% | 170,436 | 4,516 | 2 |
+
+**Key finding: edge weights don't matter.** All three weighting schemes for k=30 produced nearly identical results. The community structure is determined by graph topology (which edges exist), not edge weights. With mutual kNN, the graph is already sparse enough that Leiden has little freedom in partitioning.
+
+**Distance-weighted SNN:** Added `--distance-weighted` and `--delta` flags to `build_snn_graph`. Two schemes implemented:
+1. `SNN × exp(-dist/scale)` — exponential decay, scale auto-computed as median nn1
+2. `SNN / (dist + δ)` — hyperbolic decay, δ=0.1 default
+
+The hyperbolic scheme is theoretically better: identical k-mers get weight SNN/δ (very high), and in a beta-VAE only local distances are meaningful, so 1/dist correctly amplifies close pairs. But in practice neither changed Leiden results.
+
+**`leiden_cluster` updated:** now reads float weights (was int). `--min-weight` default changed to 0.0.
+
+### Neighborhood Growth Analysis (2026-02-15)
+
+**Critical finding: the latent space has two distinct populations.**
+
+Analyzed how many of each sequence's 50 nearest neighbors fall within distance d. The neighborhood growth function is nearly a step function — for any given sequence, either ALL 50 neighbors are close or NONE are.
+
+At d=10 (100K sample): 77% have 0 neighbors, spike at 50 (all neighbors close). Very little in between. Strongly bimodal.
+
+| d | P10 | P25 | P50 | P75 | P90 | Mean |
+|---|---|---|---|---|---|---|
+| 5 | 0 | 0 | 0 | 0 | 0 | 0.6 |
+| 10 | 0 | 0 | 0 | 0 | 50 | 6.9 |
+| 15 | 0 | 0 | 0 | 50 | 50 | 19.3 |
+| 20 | 0 | 0 | 50 | 50 | 50 | 31.3 |
+
+**Implication:** A simple distance threshold (around 8-12) on nn1 naturally separates sequences with dense local neighborhoods from isolated sequences. Connected components at that threshold ARE the clusters — no need for SNN weights, Leiden, or resolution tuning. The data has a natural gap.
+
+This matches Torben's earlier manual exploration of the data. Cell 21 updated to run on all 6.7M sequences (was 100K sample).
+
 **Next steps:**
-- Resolution sweep to find optimal granularity (current top communities are too large for species-level grouping)
-- Characterize communities by GC content, source (SFE vs SE), sequence length
-- Run Leiden on mutual kNN graph for comparison (high-confidence communities only)
-- Re-estimate intrinsic dimensionality within large communities
+- Run full neighborhood growth on all 6.7M sequences (Cell 21)
+- Determine optimal distance threshold from the full data
+- Build simple distance-threshold graph and extract connected components
+- Characterize the resulting clusters

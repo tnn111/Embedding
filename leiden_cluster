@@ -40,8 +40,8 @@ def main():
                                'Higher = more smaller communities')
     parser.add_argument('-n', '--iterations', type = int, default = -1,
                         help = 'Number of Leiden iterations (default: -1, run until convergence)')
-    parser.add_argument('--min-weight', type = int, default = 1,
-                        help = 'Minimum edge weight to include (default: 1, drops weight-0 edges)')
+    parser.add_argument('--min-weight', type = float, default = 0.0,
+                        help = 'Minimum edge weight to include (default: 0, keeps all edges)')
     args = parser.parse_args()
 
     import igraph as ig
@@ -65,7 +65,7 @@ def main():
         next(f)  # skip header
         for line in f:
             parts = line.rstrip('\n').split('\t')
-            w = int(parts[2])
+            w = float(parts[2])
             if w < args.min_weight:
                 n_skipped += 1
                 continue
