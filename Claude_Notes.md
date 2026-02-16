@@ -772,6 +772,22 @@ Top 20 communities: 113,878 / 74,301 / 37,159 / 33,243 / 33,094 / 31,700 / 28,15
 - The largest community (C0, 113K) occupies one of the major central plaques
 - This is the archipelago structure made visible: dense islands of related sequences separated by empty space, with the vast singleton majority in the gaps
 
+**Community coverage table (top N communities by size):**
+
+| Top N | Sequences | % Total | % Clustered | Smallest |
+|---|---|---|---|---|
+| 10 | 432,325 | 6.5% | 25.6% | 26,666 |
+| 20 | 627,976 | 9.4% | 37.2% | 16,015 |
+| 30 | 759,835 | 11.4% | 45.1% | 10,252 |
+| 40 | 846,954 | 12.7% | 50.2% | 7,574 |
+| 50 | 911,887 | 13.6% | 54.1% | 5,749 |
+| 100 | 1,104,897 | 16.5% | 65.5% | 2,319 |
+| 200 | 1,231,518 | 18.4% | 73.0% | 734 |
+| 500 | 1,312,725 | 19.6% | 77.8% | 93 |
+| 1000 | 1,336,803 | 20.0% | 79.3% | 29 |
+
+Coverage flattens hard after ~200 communities. Going from 200 to 1000 only gains 6 percentage points. The remaining ~21% of clustered sequences are spread across 121K tiny communities (pairs, triplets). Top 200 is the natural sweet spot.
+
 **Assessment:** The distance threshold at d=10 does the heavy lifting (deciding what's clusterable), and Leiden handles the internal community structure. Much more convincing than pure kNN Leiden. On the right track but not final — may need resolution tuning, community characterization, or threshold adjustment.
 
 **Next steps:**
