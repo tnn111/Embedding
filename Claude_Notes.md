@@ -702,10 +702,79 @@ At d=10 (100K sample): 77% have 0 neighbors, spike at 50 (all neighbors close). 
 
 **Implication:** A simple distance threshold (around 8-12) on nn1 naturally separates sequences with dense local neighborhoods from isolated sequences. Connected components at that threshold ARE the clusters — no need for SNN weights, Leiden, or resolution tuning. The data has a natural gap.
 
-This matches Torben's earlier manual exploration of the data. Cell 21 updated to run on all 6.7M sequences (was 100K sample).
+This matches Torben's earlier manual exploration of the data.
+
+**Full dataset results (6,693,829 sequences):** Confirms and sharpens the 100K sample. The step-function behavior is even cleaner:
+
+| d | P10 | P25 | P50 | P75 | P90 | Mean |
+|---|---|---|---|---|---|---|
+| 5 | 0 | 0 | 0 | 0 | 0 | 0.6 |
+| 8 | 0 | 0 | 0 | 0 | 2 | 3.4 |
+| 10 | 0 | 0 | 0 | 0 | 50 | 6.9 |
+| 12 | 0 | 0 | 0 | 5 | 50 | 11.5 |
+| 15 | 0 | 0 | 0 | 50 | 50 | 19.3 |
+| 20 | 0 | 0 | 50 | 50 | 50 | 31.4 |
+| 25 | 0 | 50 | 50 | 50 | 50 | 40.9 |
+| 30 | 50 | 50 | 50 | 50 | 50 | 46.6 |
+
+At d=10, the jump from P75=0 to P90=50 is absolute — sequences either have zero or all 50 of their nearest neighbors within that radius. The mean (6.9) is an average of zeros and fifties, not a typical value.
+
+**Key paper finding:** Only a small fraction of metagenomic sequences are clusterable based on sequence characteristics. The majority (~75-80%) sit in sparse, isolated regions of the latent space with no close neighbors. This isn't a limitation of the embedding — it reflects genuine biological diversity in marine metagenomes. The "rare biosphere" (low-abundance, uncultured lineages) and genomic corpses (degraded environmental DNA) produce sequences with unique k-mer signatures that don't group with anything else. Only the minority with dense neighborhoods represent well-sampled, coherent taxonomic groups amenable to sequence-based clustering.
+
+### Distance-threshold clustering at d=10 (2026-02-15)
+
+**Connected components (d < 10):**
+- 42,051,700 edges
+- 74.8% singletons (5,007,254 sequences)
+- 25.2% clustered (1,686,575 sequences)
+- 121,492 non-singleton components
+- **Giant component problem:** Largest component has 1,297,780 sequences (77% of all clustered). Second largest is only 882. Transitivity chains merge distant sequences through intermediaries.
+
+Running Leiden on the d<10 graph to split the giant component.
+
+### Key insight: the latent space is an archipelago, not a continuum (2026-02-15)
+
+The distance-threshold analysis reveals why adding more diverse training data (terrestrial metagenomes, NCBI RefSeq) improved reconstruction loss but did not proportionally improve embedding quality (Spearman correlation) for marine sequences.
+
+The latent space is not a continuum — it is an archipelago. Each species or lineage occupies its own tiny, dense "shell" surrounded by empty space. 74.8% of sequences have no neighbor within Euclidean distance 10. The remaining 25.2% that are clusterable represent well-sampled lineages where multiple sequences from the same or closely related organisms fall within each other's neighborhoods.
+
+Adding more species from different environments (terrestrial, RefSeq) does not make existing clusters denser or tighter. It creates more isolated shells in the vast 384-dimensional space. The VAE faithfully learns to reconstruct each new species in its own region (lower MSE), but none of those new shells are close enough to existing marine sequences to improve their neighborhood structure. More training data = more islands, not denser islands.
+
+This explains several earlier findings:
+1. **SFE_SE models beat augmented models** even on augmented test data (SFE_SE_1 Spearman 0.856 vs Run_3's 0.702). Focused marine training creates denser shells for marine lineages.
+2. **SFE_SE_5 dominates on SFE_SE data** (0.847 vs 0.766 for SFE_SE_1). Deeper sampling of marine lineages at ≥5 kbp means more sequences per shell, making the clusterable fraction more meaningful.
+3. **Loss improved but Spearman didn't track**: Adding 655K RefSeq sequences caused ~30% MSE improvement but the local neighborhood structure for marine sequences was unchanged — those new species just scattered as singletons.
+4. **The bimodal neighborhood structure**: Sequences either have ALL 50 neighbors close (dense shell) or NONE close (isolated). There is no gradual transition. This is a property of biological sequence diversity, not the embedding method.
+
+The practical implication for metagenomic analysis: sequence-based clustering only works for the well-sampled fraction of a community. The majority of metagenomic sequences represent the "rare biosphere" — low-abundance, uncultured lineages that appear as singletons regardless of embedding quality. The only way to improve clustering coverage for a given environment is deeper sampling of that environment (more sequences from the same species), not broader taxonomic diversity in training.
+
+This is a key finding for the paper. It reframes the VAE not as a tool that clusters everything, but as a tool that reveals which fraction of a metagenome is clusterable — and demonstrates that this fraction is determined by sampling depth, not by the embedding method.
+
+### Leiden on d<10 graph results (2026-02-15)
+
+**Connected components had a giant component problem:** 1,297,780 sequences (77% of clustered) merged into one component via transitivity chains. Ran Leiden (resolution=1.0, unweighted) to split it.
+
+| | Connected Components | Leiden |
+|---|---|---|
+| Largest | 1,297,780 | 113,878 |
+| 2nd largest | 882 | 74,301 |
+| Top 20 range | 264–1,297,780 | 16,015–113,878 |
+| Singletons | 74.8% | 74.8% (unchanged) |
+| Non-singleton communities | 121,492 | 122,175 |
+
+Top 20 communities: 113,878 / 74,301 / 37,159 / 33,243 / 33,094 / 31,700 / 28,152 / 27,421 / 26,711 / 26,666 / 24,398 / 22,917 / 22,710 / 21,702 / 19,519 / 17,954 / 17,900 / 16,478 / 16,058 / 16,015
+
+**t-SNE overlay observations:**
+- Each colored top-20 community sits in a distinct, compact region — no splattering across the map
+- Light blue (non-top-20 communities) fills the smaller plaques throughout the space
+- Grey singletons form the "moat" between plaques — the diffuse background
+- Communities don't overlap each other on t-SNE, confirming they correspond to genuine local structure in the high-dimensional space
+- The largest community (C0, 113K) occupies one of the major central plaques
+- This is the archipelago structure made visible: dense islands of related sequences separated by empty space, with the vast singleton majority in the gaps
+
+**Assessment:** The distance threshold at d=10 does the heavy lifting (deciding what's clusterable), and Leiden handles the internal community structure. Much more convincing than pure kNN Leiden. On the right track but not final — may need resolution tuning, community characterization, or threshold adjustment.
 
 **Next steps:**
-- Run full neighborhood growth on all 6.7M sequences (Cell 21)
-- Determine optimal distance threshold from the full data
-- Build simple distance-threshold graph and extract connected components
-- Characterize the resulting clusters
+- Characterize communities (GC, source, length, taxonomy)
+- Try different resolution parameters to control granularity
+- Consider whether d=10 is optimal or if d=8 or d=12 would be better

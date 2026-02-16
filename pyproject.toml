@@ -7,7 +7,9 @@ requires-python = ">=3.12"
 dependencies = [
     "chromadb>=1.3.5",
     "hdbscan>=0.8.40",
+    "igraph>=1.0.0",
     "jax[cuda12]>=0.8.1",
+    "leidenalg>=0.11.0",
     "matplotlib>=3.10.7",
     "nbformat>=5.10.4",
     "numpy>=2.3.5",
