@@ -812,9 +812,36 @@ Created `leiden_sweep` — PEP 723 standalone script for sweeping distance thres
 ### Output columns
 threshold, n_edges, n_singletons, pct_singletons, n_communities, n_nonsingleton, largest, top10_sizes, seqs_in_top200, pct_clustered_in_top200, modularity, median_nonsingleton_size, elapsed_seconds
 
-### Verification
-- Quick test: `--start 10 --stop 10 --step 1` should match notebook d=10 results (~42M edges, 74.8% singletons, 122K communities)
-- Full overnight: 17 thresholds (4.0–12.0, step 0.5), estimated 3–5 hours
+### Full sweep results (SFE_SE_1, resolution=1.0, seed=42)
+
+Sweep completed in ~14 hours. Community files saved in `Runs/sweep/`.
+
+| d | edges | sing% | communities | largest | top 200 coverage |
+|-----|-------|-------|-------------|---------|-----------------|
+| 4.0 | 946K | 96.0% | 66,742 | 1,495 | 19.9% |
+| 4.5 | 1.6M | 94.9% | 78,746 | 3,518 | 23.4% |
+| 5.0 | 2.6M | 93.6% | 89,579 | 7,228 | 27.9% |
+| 5.5 | 4.1M | 92.2% | 98,837 | 11,154 | 32.9% |
+| 6.0 | 5.9M | 90.6% | 106,465 | 16,403 | 38.1% |
+| 6.5 | 8.4M | 88.9% | 112,547 | 21,717 | 43.7% |
+| 7.0 | 11.4M | 87.1% | 117,210 | 31,024 | 48.6% |
+| 7.5 | 15.1M | 85.2% | 120,690 | 38,776 | 53.7% |
+| 8.0 | 19.3M | 83.2% | 122,806 | 48,902 | 58.4% |
+| 8.5 | 24.2M | 81.2% | **123,853** | 60,352 | 62.2% |
+| 9.0 | 29.6M | 79.1% | **123,877** | 73,375 | 66.5% |
+| 9.5 | 35.6M | 77.0% | 123,223 | 89,956 | 70.2% |
+| 10.0 | 42.1M | 74.8% | 122,177 | 109,151 | 72.9% |
+| 10.5 | 49.0M | 72.6% | 120,423 | 132,590 | 76.2% |
+| 11.0 | 56.3M | 70.3% | 118,188 | 157,166 | 78.9% |
+| 11.5 | 64.1M | 68.1% | 115,616 | 181,023 | 81.0% |
+| 12.0 | 72.2M | 65.8% | 112,969 | 215,677 | 83.1% |
+
+Key observations:
+- **Community count peaks at d=8.5–9.0** (~123.9K non-singleton communities), then declines as communities merge at higher thresholds
+- **Largest community grows steadily** from 1.5K (d=4) to 216K (d=12)
+- **Singleton rate** drops roughly linearly from 96% to 66%
+- **Top 200 coverage** (fraction of clustered seqs in top 200 communities) rises from 20% to 83% — increasingly dominated by a few large communities
+- **Median non-singleton size is 2 at all thresholds** — most communities are pairs, the distribution is extremely skewed
 
 ### Length vs clustering at d=10
 
@@ -843,11 +870,16 @@ Largest communities are nearly unaffected by length filtering (108,799 vs 109,15
 
 ### Decision: aggressive length filtering is justified
 
-For large-scale compositional analysis across 32 diverse datasets, short contigs add noise not signal:
-- K-mer profiles from short contigs are inherently noisy (2,772 features from <5 kbp)
-- They inflate singleton counts without contributing to community structure
-- Community structure is robust to filtering — largest communities barely change
-- Goal is large-scale compositional understanding, not exhaustive rare-taxon cataloguing
-- Organisms are represented by a spectrum of contig lengths; longer contigs carry the signal
+This is a question of analytical context. For a small or focused dataset, you would typically run standard 16S analysis to get community composition and identify exactly who might be present — and there, every contig matters, including short ones. But that's not our situation. We have 32 very large datasets with massive diversity, and the goal is understanding composition at scale.
 
-Recommended cutoffs: 10 kbp (balanced — 50/50 singleton/clustered, 3M sequences) or 20 kbp (high confidence — 78% clustered, 1.6M sequences). Short contigs have noisy k-mer profiles → isolated in embedding space. Longer contigs carry enough signal for reliable community assignment.
+**Short contigs add noise, not signal.** The k-mer profile of a 2 kbp contig is inherently noisy — there simply aren't enough bases to reliably estimate 2,772 frequency features. These contigs end up as isolated points in embedding space, inflating the singleton count without contributing to community structure.
+
+**Community structure is robust to filtering.** The largest communities barely change when short contigs are removed (108,799 vs 109,151 at d=10 with 10 kbp cutoff — 0.3% loss). The top 10 communities are all nearly identical. The information content lives in the longer sequences.
+
+**The clustered count is remarkably stable across cutoffs.** Going from 1 kbp to 25 kbp minimum length, the clustered count only drops from 1.69M to 1.04M, while singletons collapse from 5.0M to 189K. We're not losing community members — we're shedding unplaceable fragments.
+
+**Filtering improves signal-to-noise in every downstream analysis.** Every plot, community characterization, and cross-dataset comparison becomes cleaner and more interpretable when the data isn't dominated by unplaceable short fragments.
+
+**We're not losing coverage of diversity.** Organisms produce a spectrum of contig lengths during assembly. The longer contigs carry the genomic signal; the short fragments are often redundant representations of organisms already captured by their longer contigs.
+
+Recommended cutoffs: 10 kbp (balanced — 50/50 singleton/clustered, 3.0M sequences) or 20 kbp (high confidence — 78% clustered, 1.6M sequences).
