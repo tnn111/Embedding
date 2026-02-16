@@ -883,3 +883,9 @@ This is a question of analytical context. For a small or focused dataset, you wo
 **We're not losing coverage of diversity.** Organisms produce a spectrum of contig lengths during assembly. The longer contigs carry the genomic signal; the short fragments are often redundant representations of organisms already captured by their longer contigs.
 
 Recommended cutoffs: 10 kbp (balanced — 50/50 singleton/clustered, 3.0M sequences) or 20 kbp (high confidence — 78% clustered, 1.6M sequences).
+
+## 2026-02-16: New notebook with 10 kbp length filter
+
+Created `clustering_010.ipynb` — copy of `clustering.ipynb` with a 10 kbp minimum contig length filter applied in Cell 1. All arrays (embeddings, kmers, embedding_ids) are filtered to >= 10 kbp (~3.04M sequences, 45.4% of original 6.7M). This notebook will be used for the length-filtered analysis going forward.
+
+Also added sweep results plot (Cell 28) and length distribution plot (Cell 27) to `clustering.ipynb`.
