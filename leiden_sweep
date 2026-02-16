@@ -1,0 +1,266 @@
+#!/usr/bin/env -S uv run --quiet --script
+"""
+Sweep distance thresholds for Leiden clustering on kNN distance graph.
+
+For each threshold, parses the neighbors TSV collecting edges below
+the threshold (breaking early since neighbors are distance-sorted),
+builds an igraph, runs Leiden, and reports summary statistics.
+
+Output: TSV summary to stdout (one row per threshold).
+Per-threshold community assignments optionally saved to --save-dir.
+
+Usage:
+    ./leiden_sweep -n neighbors.tsv -id ids.txt --start 4 --stop 12 --step 0.5
+    ./leiden_sweep -n neighbors.tsv -id ids.txt --start 10 --stop 10 --step 1 > summary.tsv
+    ./leiden_sweep -n neighbors.tsv -id ids.txt --save-dir sweep/ > summary.tsv
+"""
+# /// script
+# dependencies = [
+#   "numpy",
+#   "igraph",
+#   "leidenalg",
+# ]
+# ///
+
+import os
+import sys
+import time
+
+import numpy as np
+
+PROGRESS_INTERVAL = 1_000_000
+
+
+def parse_edges_below(tsv_path, id_to_idx, n_total, threshold):
+    """Parse neighbors TSV, collecting directed edges with dist < threshold.
+
+    Neighbors are distance-sorted per line, so we break early once
+    a neighbor exceeds the threshold.
+    """
+    print(f'Parsing edges with d < {threshold:.1f}...', file = sys.stderr)
+    t0 = time.time()
+
+    edges = []
+
+    with open(tsv_path, 'r') as f:
+        for i, line in enumerate(f):
+            fields = line.rstrip('\n').split('\t')
+            for field in fields[1:]:
+                paren = field.rfind('(')
+                dist = float(field[paren + 1:-1])
+                if dist >= threshold:
+                    break  # distance-sorted
+                nid = field[:paren]
+                if nid in id_to_idx:
+                    edges.append((i, id_to_idx[nid]))
+            if (i + 1) % PROGRESS_INTERVAL == 0:
+                print(f'  Parsed {i + 1:,} / {n_total:,} lines '
+                      f'({len(edges):,} edges)...', file = sys.stderr)
+
+    elapsed = time.time() - t0
+    print(f'Collected {len(edges):,} directed edges in {elapsed:.1f}s',
+          file = sys.stderr)
+
+    return edges
+
+
+def run_threshold(tsv_path, id_to_idx, n_total, threshold, resolution, seed):
+    """Parse edges, build graph, run Leiden, return stats dict."""
+    import igraph as ig
+    import leidenalg
+
+    t0 = time.time()
+
+    print(f'\n{"=" * 60}', file = sys.stderr)
+    print(f'Threshold d < {threshold:.1f}', file = sys.stderr)
+    print(f'{"=" * 60}', file = sys.stderr)
+
+    # Parse edges for this threshold
+    edges = parse_edges_below(tsv_path, id_to_idx, n_total, threshold)
+    n_edges_directed = len(edges)
+
+    if n_edges_directed == 0:
+        elapsed = time.time() - t0
+        return {
+            'threshold': threshold,
+            'n_edges': 0,
+            'n_singletons': n_total,
+            'pct_singletons': 100.0,
+            'n_communities': n_total,
+            'n_nonsingleton': 0,
+            'largest': 0,
+            'top10_sizes': '',
+            'seqs_in_top200': 0,
+            'pct_clustered_in_top200': 0.0,
+            'modularity': 0.0,
+            'median_nonsingleton_size': 0,
+            'elapsed_seconds': elapsed,
+        }
+
+    # Build directed graph, collapse to undirected
+    print('Building graph...', file = sys.stderr)
+    g = ig.Graph(n = n_total, edges = edges, directed = True)
+    del edges
+    g = g.as_undirected(mode = 'collapse')
+    n_edges = g.ecount()
+    print(f'Undirected graph: {g.vcount():,} vertices, {n_edges:,} edges',
+          file = sys.stderr)
+
+    # Run Leiden
+    print(f'Running Leiden (resolution={resolution})...', file = sys.stderr)
+    partition = leidenalg.find_partition(
+        g,
+        leidenalg.RBConfigurationVertexPartition,
+        resolution_parameter = resolution,
+        n_iterations = -1,
+        seed = seed,
+    )
+    del g
+
+    communities = np.array(partition.membership)
+    modularity = partition.quality()
+    del partition
+
+    # Compute stats
+    community_sizes = np.bincount(communities)
+    n_singletons = int((community_sizes == 1).sum())
+    nonsingleton = community_sizes[community_sizes > 1]
+    n_nonsingleton = len(nonsingleton)
+
+    largest = int(nonsingleton.max()) if n_nonsingleton > 0 else 0
+    median_ns = int(np.median(nonsingleton)) if n_nonsingleton > 0 else 0
+
+    # Top 10 sizes
+    if n_nonsingleton > 0:
+        top10 = np.sort(nonsingleton)[::-1][:10]
+        top10_str = ','.join(str(int(s)) for s in top10)
+    else:
+        top10_str = ''
+
+    # Sequences in top 200 communities
+    if n_nonsingleton > 0:
+        top200 = np.sort(nonsingleton)[::-1][:200]
+        seqs_in_top200 = int(top200.sum())
+        n_clustered = int(nonsingleton.sum())
+        pct_clustered_in_top200 = 100.0 * seqs_in_top200 / n_clustered if n_clustered > 0 else 0.0
+    else:
+        seqs_in_top200 = 0
+        pct_clustered_in_top200 = 0.0
+
+    elapsed = time.time() - t0
+
+    print(f'  Singletons: {n_singletons:,} ({100 * n_singletons / n_total:.1f}%)',
+          file = sys.stderr)
+    print(f'  Non-singleton communities: {n_nonsingleton:,}', file = sys.stderr)
+    print(f'  Largest: {largest:,}', file = sys.stderr)
+    print(f'  Modularity: {modularity:.4f}', file = sys.stderr)
+    print(f'  Elapsed: {elapsed:.1f}s', file = sys.stderr)
+
+    return {
+        'threshold': threshold,
+        'n_edges': n_edges,
+        'n_singletons': n_singletons,
+        'pct_singletons': 100.0 * n_singletons / n_total,
+        'n_communities': len(community_sizes),
+        'n_nonsingleton': n_nonsingleton,
+        'largest': largest,
+        'top10_sizes': top10_str,
+        'seqs_in_top200': seqs_in_top200,
+        'pct_clustered_in_top200': pct_clustered_in_top200,
+        'modularity': modularity,
+        'median_nonsingleton_size': median_ns,
+        'elapsed_seconds': elapsed,
+        'communities': communities,
+    }
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description = 'Sweep distance thresholds for Leiden clustering on kNN graph'
+    )
+    parser.add_argument('-n', '--neighbors', required = True,
+                        help = 'Path to neighbors TSV (from query_neighbors)')
+    parser.add_argument('-id', '--ids', required = True,
+                        help = 'Path to IDs file (one ID per line)')
+    parser.add_argument('--start', type = float, default = 4.0,
+                        help = 'Start threshold (default: 4.0)')
+    parser.add_argument('--stop', type = float, default = 12.0,
+                        help = 'Stop threshold, inclusive (default: 12.0)')
+    parser.add_argument('--step', type = float, default = 0.5,
+                        help = 'Threshold step size (default: 0.5)')
+    parser.add_argument('-r', '--resolution', type = float, default = 1.0,
+                        help = 'Leiden resolution parameter (default: 1.0)')
+    parser.add_argument('--save-dir', default = None,
+                        help = 'Directory to save per-threshold community TSVs')
+    parser.add_argument('--seed', type = int, default = 42,
+                        help = 'Leiden random seed (default: 42)')
+    args = parser.parse_args()
+
+    # Load IDs
+    print(f'Loading IDs from {args.ids}...', file = sys.stderr)
+    with open(args.ids, 'r') as f:
+        all_ids = [line.strip() for line in f]
+    id_to_idx = {id_: i for i, id_ in enumerate(all_ids)}
+    n_total = len(all_ids)
+    print(f'Loaded {n_total:,} IDs', file = sys.stderr)
+
+    # Create save directory if needed
+    if args.save_dir:
+        os.makedirs(args.save_dir, exist_ok = True)
+        print(f'Will save community files to {args.save_dir}/', file = sys.stderr)
+
+    # Build threshold list
+    thresholds = []
+    t = args.start
+    while t <= args.stop + 1e-9:
+        thresholds.append(round(t, 4))
+        t += args.step
+    print(f'\nSweeping {len(thresholds)} thresholds: '
+          f'{thresholds[0]} to {thresholds[-1]} (step {args.step})',
+          file = sys.stderr)
+
+    # Print header
+    columns = [
+        'threshold', 'n_edges', 'n_singletons', 'pct_singletons',
+        'n_communities', 'n_nonsingleton', 'largest', 'top10_sizes',
+        'seqs_in_top200', 'pct_clustered_in_top200', 'modularity',
+        'median_nonsingleton_size', 'elapsed_seconds',
+    ]
+    sys.stdout.write('\t'.join(columns) + '\n')
+    sys.stdout.flush()
+
+    # Sweep
+    for threshold in thresholds:
+        stats = run_threshold(tsv_path = args.neighbors,
+                              id_to_idx = id_to_idx,
+                              n_total = n_total,
+                              threshold = threshold,
+                              resolution = args.resolution,
+                              seed = args.seed)
+
+        communities = stats.pop('communities', None)
+
+        # Write summary row
+        row = '\t'.join(str(stats[c]) for c in columns)
+        sys.stdout.write(row + '\n')
+        sys.stdout.flush()
+
+        # Save community assignments if requested
+        if args.save_dir and communities is not None:
+            fname = f'communities_d{threshold:.1f}.tsv'
+            fpath = os.path.join(args.save_dir, fname)
+            print(f'Saving communities to {fpath}...', file = sys.stderr)
+            with open(fpath, 'w') as f:
+                f.write('sequence_id\tcommunity\n')
+                for seq_id, comm in zip(all_ids, communities):
+                    f.write(f'{seq_id}\t{comm}\n')
+
+        del communities
+
+    print(f'\nDone. Swept {len(thresholds)} thresholds.', file = sys.stderr)
+
+
+if __name__ == '__main__':
+    main()

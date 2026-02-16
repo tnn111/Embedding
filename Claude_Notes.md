@@ -794,3 +794,60 @@ Coverage flattens hard after ~200 communities. Going from 200 to 1000 only gains
 - Characterize communities (GC, source, length, taxonomy)
 - Try different resolution parameters to control granularity
 - Consider whether d=10 is optimal or if d=8 or d=12 would be better
+
+## 2026-02-15: leiden_sweep script
+
+Created `leiden_sweep` — PEP 723 standalone script for sweeping distance thresholds on kNN graphs with Leiden clustering.
+
+### Design
+- **v1 (abandoned):** Parse all 335M edges into sorted numpy arrays, then searchsorted per threshold. Failed — building 335M Python list elements took 80+ min due to pure-Python overhead.
+- **v2 (current):** Re-parse TSV per threshold, breaking early since neighbors are distance-sorted. d=4 parses in 14s (1.5M edges), d=12 will be slower but each threshold is independent.
+- Summary stats to stdout as TSV; optional per-threshold community files via `--save-dir`
+
+### CLI
+```
+./leiden_sweep -n neighbors.tsv -id ids.txt --start 4 --stop 12 --step 0.5 --save-dir sweep/
+```
+
+### Output columns
+threshold, n_edges, n_singletons, pct_singletons, n_communities, n_nonsingleton, largest, top10_sizes, seqs_in_top200, pct_clustered_in_top200, modularity, median_nonsingleton_size, elapsed_seconds
+
+### Verification
+- Quick test: `--start 10 --stop 10 --step 1` should match notebook d=10 results (~42M edges, 74.8% singletons, 122K communities)
+- Full overnight: 17 thresholds (4.0–12.0, step 0.5), estimated 3–5 hours
+
+### Length vs clustering at d=10
+
+Singleton rate is heavily driven by short contigs. Clustered count stays remarkably stable (~1.7M→1.0M) while singletons collapse with increasing min length:
+
+| min length | sequences | singletons | % sing | clustered | % clust |
+|------------|-----------|------------|--------|-----------|---------|
+| 1 kbp | 6,693,829 | 5,007,254 | 74.8% | 1,686,575 | 25.2% |
+| 2 kbp | 6,455,140 | 4,774,992 | 74.0% | 1,680,148 | 26.0% |
+| 3 kbp | 5,951,176 | 4,286,534 | 72.0% | 1,664,642 | 28.0% |
+| 4 kbp | 5,309,234 | 3,690,546 | 69.5% | 1,618,688 | 30.5% |
+| 5 kbp | 4,776,770 | 3,189,618 | 66.8% | 1,587,152 | 33.2% |
+| 10 kbp | 3,039,927 | 1,538,479 | 50.6% | 1,501,448 | 49.4% |
+| 15 kbp | 2,117,850 | 729,068 | 34.4% | 1,388,782 | 65.6% |
+| 20 kbp | 1,556,556 | 339,343 | 21.8% | 1,217,213 | 78.2% |
+| 25 kbp | 1,232,447 | 188,500 | 15.3% | 1,043,947 | 84.7% |
+| 30 kbp | 992,584 | 114,910 | 11.6% | 877,674 | 88.4% |
+| 35 kbp | 801,315 | 72,557 | 9.1% | 728,758 | 90.9% |
+| 40 kbp | 652,115 | 45,444 | 7.0% | 606,671 | 93.0% |
+| 45 kbp | 542,492 | 29,646 | 5.5% | 512,846 | 94.5% |
+| 50 kbp | 461,674 | 20,336 | 4.4% | 441,338 | 95.6% |
+
+Crossover from singleton-dominated to cluster-dominated at ~10 kbp. Asymptotes to ~4-5% singletons at 50 kbp — likely genuinely novel/divergent taxa.
+
+Largest communities are nearly unaffected by length filtering (108,799 vs 109,151 at d=10 with 10 kbp cutoff — only 0.3% loss).
+
+### Decision: aggressive length filtering is justified
+
+For large-scale compositional analysis across 32 diverse datasets, short contigs add noise not signal:
+- K-mer profiles from short contigs are inherently noisy (2,772 features from <5 kbp)
+- They inflate singleton counts without contributing to community structure
+- Community structure is robust to filtering — largest communities barely change
+- Goal is large-scale compositional understanding, not exhaustive rare-taxon cataloguing
+- Organisms are represented by a spectrum of contig lengths; longer contigs carry the signal
+
+Recommended cutoffs: 10 kbp (balanced — 50/50 singleton/clustered, 3M sequences) or 20 kbp (high confidence — 78% clustered, 1.6M sequences). Short contigs have noisy k-mer profiles → isolated in embedding space. Longer contigs carry enough signal for reliable community assignment.
