@@ -889,3 +889,95 @@ Recommended cutoffs: 10 kbp (balanced — 50/50 singleton/clustered, 3.0M sequen
 Created `clustering_010.ipynb` — copy of `clustering.ipynb` with a 10 kbp minimum contig length filter applied in Cell 1. All arrays (embeddings, kmers, embedding_ids) are filtered to >= 10 kbp (~3.04M sequences, 45.4% of original 6.7M). This notebook will be used for the length-filtered analysis going forward.
 
 Also added sweep results plot (Cell 28) and length distribution plot (Cell 27) to `clustering.ipynb`.
+
+### Global pairwise distance distribution confirms archipelago model (2026-02-16)
+
+The global pairwise Euclidean distance histogram (10K sample, ~50M pairs) is tightly concentrated and unimodal: range 1.48–63.57, mean 18.70, std 3.98. On cosine distance the concentration is even more extreme (std 0.061 around mean 1.0). This is **not** a problem — it is the expected signature of an archipelago-structured latent space in 384 dimensions.
+
+**Why the histogram looks this way:** Most random pairs come from different islands in the archipelago. In high-dimensional space, between-island distances concentrate around a common value (the "curse of dimensionality"). The histogram is dominated by these inter-island distances, which are all roughly similar. The rare close pairs (left tail) are intra-island pairs — sequences from the same dense shell.
+
+**Why this doesn't matter for clustering:** The signal lives at the local scale, not the global scale. The neighborhood growth analysis already demonstrated this: at d=10, sequences either have ALL 50 neighbors within that radius (dense island) or NONE (isolated). The step-function behavior means distance-threshold clustering cleanly separates clusterable from unclueterable sequences without needing any global distance structure. Leiden then handles the internal community structure within the connected components.
+
+**Key point for the paper:** The concentrated global distance distribution is evidence that the VAE embedding is working correctly — it has created a latent space where biological communities form discrete, compact islands separated by empty space. The right way to analyze this space is through local neighborhood structure (kNN graphs, distance thresholds), not global distance distributions. Standard clustering approaches that rely on global distance structure (e.g., k-means, hierarchical clustering with global linkage) would fail here, but graph-based community detection on local neighborhoods succeeds.
+
+### 10 kbp filtered data files and kNN graph (2026-02-16)
+
+Created filtered versions of the SFE_SE data at >= 10 kbp:
+- `Runs/ids_SFE_SE_10.txt` — 3,039,927 IDs
+- `Runs/embeddings_SFE_SE_10.npy` — shape (3,039,927, 385), col 0 = length
+- `Runs/neighbors_SFE_SE_10.tsv` — k=50 neighbors, queried from a fresh ChromaDB loaded with only the 10 kbp+ sequences (old 6.7M ChromaDB was deleted and rebuilt)
+
+**Important:** The neighbor relationships in `neighbors_SFE_SE_10.tsv` differ from the corresponding entries in `neighbors_SFE_SE_1.tsv` because the ChromaDB only contains 10 kbp+ sequences. Each sequence's neighbors are drawn from the filtered pool only.
+
+### Leiden at d=10 on 10 kbp filtered data (2026-02-16)
+
+| | Unfiltered (6.7M) | 10 kbp filtered (3.0M) |
+|---|---|---|
+| Singletons | 74.8% | 50.8% (1,543,718) |
+| Clustered | 25.2% (1.69M) | 49.2% (1,496,209) |
+| Non-singleton communities | 122K | 55,679 |
+| Largest community | 109,151 | 137,065 |
+| Median non-singleton size | 2 | 2 |
+
+Confirms the length-vs-clustering prediction: singleton rate drops from 75% to 51%, clustered count barely changes (1.69M → 1.50M, only 190K lost). The largest community grew from 109K to 137K — no longer diluted by short-contig noise neighbors.
+
+Top 5 communities: 137,065 / 55,493 / 37,054 / 28,477 / 27,502.
+
+**This is a preliminary result at d=10.** The Leiden sweep is running overnight (`Runs/Sweep_10/`, thresholds 4.0–12.0 in 0.25 steps — finer than the original 0.5 step). Once the sweep identifies the optimal distance threshold, Leiden should be rerun at that threshold for the final community assignments. Old sweep results are in `Runs/Sweep_1/`.
+
+**Largest community is too broad at d=10:** The 137K-sequence top community spans GC content from 23% to 67% — far too wide to be a single lineage. Contains clear same-organism triplets (e.g., SE_5/SE_10/SE_7 all at ~1,743,100 bp, 30.4% GC) but also many unrelated organisms merged via transitivity chains. Two approaches to fix:
+
+1. **Tighter distance threshold** — reduces transitivity chain merging. The sweep will show where the largest community starts growing rapidly.
+2. **Higher Leiden resolution** — splits large communities more aggressively at a given threshold. Current sweep uses resolution=1.0; a resolution sweep (e.g., 0.5, 1.0, 2.0, 5.0) should be run on top of the best distance threshold.
+
+These interact: threshold controls which edges exist, resolution controls how aggressively Leiden partitions the graph. Need to tune both for biologically meaningful communities.
+
+**Pairwise distance validation (d=10, unweighted Leiden):**
+- Top 3 communities: mean pairwise distances 12.6–13.5 (67–72% of global mean 18.70). GC spans 30–82%. Too loose — transitivity chains merging unrelated lineages.
+- Smallest non-singleton communities: tight pairs at distances 5.9–9.1, GC within 1 percentage point. These are the quality we want.
+
+### Distance-weighted Leiden (d=10, 1/(d+0.1) weights, 2026-02-16)
+
+Weighting edges by `1/(distance + 0.1)` had only a modest effect: largest community shrank from 137K to 119K (13% reduction), but overall structure barely changed (55,724 communities vs 55,679). Most edges are near distance 9-10 (weight ≈ 0.1), so they all look nearly identical to Leiden. The distance threshold is the dominant lever, not weighting.
+
+### Hub discovery — root cause of over-merging (2026-02-16)
+
+**In-degree analysis of the directed kNN graph (d<10) revealed massive hubs:**
+- Top hub: 58,377 in-degree (2% of entire dataset pointing to one sequence)
+- Top 20 hubs: all ~28-29% GC, 400 kbp - 1.2 Mbp (large, low-GC marine genomes)
+- Distribution: median in-degree = 0 (most sequences are nobody's closest neighbor), but top hubs have tens of thousands
+- P99.99 = 5,735 in-degree
+
+These hubs are central points in embedding space where many shorter, noisier contigs from related lineages point to. They act as transitivity chain anchors, pulling thousands of loosely related sequences into the same community via A→hub→B chains.
+
+### Mutual kNN Leiden — hub elimination (2026-02-16)
+
+**Mutual filtering keeps only edges where both directions exist**: if B is in A's kNN AND A is in B's kNN. Hubs fail this test because they have closer neighbors than the thousands of sequences pointing at them.
+
+Results at d=10, weighted 1/(d+0.1):
+
+| | Symmetric weighted | Mutual weighted |
+|---|---|---|
+| Singletons | 50.8% | 73.9% |
+| Clustered | 1,496,209 | 793,747 |
+| Non-singleton communities | 55,724 | 89,168 |
+| Largest | 118,858 | **5,656** |
+| Mean non-singleton size | 26.9 | 8.9 |
+
+Largest community collapsed 21× (119K → 5,656). Max mutual degree is 50 (the k=50 neighbor limit) vs 58,377 in the symmetric graph. Hubs completely eliminated.
+
+**Pairwise distance validation (mutual, top 3):**
+- Community #1 (5,656): mean dist 10.4, GC 27.0% ± 2.8%
+- Community #2 (5,567): mean dist 14.2, GC 37.6% ± 2.2%
+- Community #3 (4,708): mean dist 11.7, GC 28.2% ± 2.0%
+
+GC std dropped from huge ranges (30-82%) to 2-3% — major improvement. Mean pairwise distances still above d=10 for most pairs (transitivity chains still exist, just shorter). These ~5K communities may represent genus-level groupings; higher resolution or tighter threshold could split further to species level.
+
+**t-SNE overlay (mutual kNN Leiden, top 200 communities):** Each colored community sits in a compact, distinct region — no splattering across the map. Communities map cleanly onto the t-SNE plaque structure. Light blue (smaller non-top-200 clusters) fills many remaining dense patches. Grey singletons (74%) form the diffuse moat between islands. Top 200 cover 260,515 sequences (8.6% of total, 32.8% of clustered), smallest has 571 members. Confirms the archipelago model: discrete, compact islands with clear separation.
+
+### Remaining action items
+
+- **MCL** — alternative to Leiden based on flow simulation. Run with inflation parameter sweep 2.0–5.0.
+- **Cross-method validation** — clusters stable across both Leiden and MCL are high-confidence.
+- **Resolution sweep** on mutual kNN graph at best distance threshold from sweep.
+- **Sweep results** running overnight in `Runs/Sweep_10/` (4.0–12.0, step 0.25).
