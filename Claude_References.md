@@ -284,3 +284,111 @@ This finding reflects a well-known principle in domain adaptation: domain-specif
 ### (Project-specific finding with biological interpretation)
 
 The archipelago metaphor describes how biological sequence diversity maps into the VAE's latent space: each species' k-mer profile is sufficiently distinct that it occupies a well-separated region, with the density of points in each region depending on sampling depth. This structure is a direct consequence of the genomic signature phenomenon (Karlin & Burge, 1995) -- species-specific oligonucleotide frequencies create naturally separated clusters in k-mer space, which the VAE preserves in its latent representation.
+
+---
+
+## Hub Nodes in kNN Graphs Causing Over-Merging
+
+**Claim:** In-degree analysis of the directed kNN graph (d<10) revealed massive hubs -- single sequences with in-degree up to 58,377 (2% of the entire dataset pointing to one sequence). These hubs act as transitivity chain anchors, pulling thousands of loosely related sequences into the same community via A->hub->B chains, causing the largest connected component to contain 77% of all clustered sequences.
+
+### Radovanovic, Nanopoulos & Ivanovic (2010) -- Hubs in Space: Popular Nearest Neighbors in High-Dimensional Data
+- **Citation:** Radovanovic, M., Nanopoulos, A. & Ivanovic, M. (2010). Hubs in Space: Popular Nearest Neighbors in High-Dimensional Data. *Journal of Machine Learning Research*, 11, 2487-2531. https://www.jmlr.org/papers/v11/radovanovic10a.html
+- **Summary:** Foundational paper identifying the hubness phenomenon as an inherent property of high-dimensional data distributions. Shows that the distribution of k-occurrences (the number of times a point appears in others' k-NN lists) becomes severely right-skewed with increasing dimensionality, producing hubs -- points with very high k-occurrences that become "popular" nearest neighbors. Points closer to the data mean tend to become hubs. Directly explains why certain sequences in our 384-dimensional latent space accumulate tens of thousands of in-links.
+
+### Tomasev, Radovanovic, Mladenic & Ivanovic (2014) -- The Role of Hubness in Clustering High-Dimensional Data
+- **Citation:** Tomasev, N., Radovanovic, M., Mladenic, D. & Ivanovic, M. (2014). The Role of Hubness in Clustering High-Dimensional Data. *IEEE Transactions on Knowledge and Data Engineering*, 26(3), 739-751. https://doi.org/10.1109/TKDE.2013.25
+- **Summary:** Demonstrates that hubness significantly affects clustering algorithms in high-dimensional spaces. Hub points lower between-cluster distances, causing undesirable merging of distinct clusters. Proposes hubness-aware clustering methods. Directly relevant to our finding that hub nodes with 28-58K in-degree cause over-merging in community detection by acting as bridges between unrelated lineages.
+
+---
+
+## Mutual kNN Filtering as Solution to Hubness
+
+**Claim:** Mutual kNN filtering (keeping only edges where both directions exist) eliminates hub nodes because hubs have closer neighbors than the thousands of sequences pointing at them, so the mutual condition fails. This collapsed the largest community from 119K to 5,656 sequences and reduced GC content range from 30-82% to 2-3% standard deviation per community.
+
+### Brito, Chavez, Quiroz & Yukich (1997) -- Connectivity of the Mutual k-Nearest-Neighbor Graph in Clustering and Outlier Detection
+- **Citation:** Brito, M.R., Chavez, E.L., Quiroz, A.J. & Yukich, J.E. (1997). Connectivity of the mutual k-nearest-neighbor graph in clustering and outlier detection. *Statistics & Probability Letters*, 35(1), 33-42. https://doi.org/10.1016/S0167-7152(96)00213-1
+- **Summary:** Foundational theoretical paper establishing the relationship between connectivity of the mutual k-nearest-neighbor graph and the presence of clustering structure and outliers. Shows that connected components of the mutual kNN graph correspond to clusters under specific density bounds. Provides the mathematical basis for using mutual kNN as a cluster identification tool -- exactly our approach of using mutual edges to define community boundaries.
+
+### Maier, Hein & von Luxburg (2009) -- Optimal Construction of k-Nearest-Neighbor Graphs for Identifying Noisy Clusters
+- **Citation:** Maier, M., Hein, M. & von Luxburg, U. (2009). Optimal construction of k-nearest-neighbor graphs for identifying noisy clusters. *Theoretical Computer Science*, 410(19), 1749-1764. https://doi.org/10.1016/j.tcs.2009.01.009
+- **Summary:** Proves bounds on the probability of successful cluster identification using both mutual and symmetric kNN graphs, using random geometric graph theory. Shows that the major difference between mutual and symmetric kNN graphs occurs when detecting the most significant cluster only, and that k must be chosen surprisingly high for reliable cluster identification. Directly relevant to our comparison of mutual vs symmetric kNN graph construction and the observation that mutual filtering produces biologically cleaner communities at the cost of higher singleton rates.
+
+### Schnitzer, Flexer, Schedl & Widmer (2012) -- Local and Global Scaling Reduce Hubs in Space
+- **Citation:** Schnitzer, D., Flexer, A., Schedl, M. & Widmer, G. (2012). Local and Global Scaling Reduce Hubs in Space. *Journal of Machine Learning Research*, 13, 2871-2902. https://jmlr.org/papers/v13/schnitzer12a.html
+- **Summary:** Proposes local and global distance scaling methods to reduce hubness by symmetrizing nearest neighbor relations. Shows that mutual kNN graphs eliminate all hub vertices but at the cost of very poor overall connectivity (many anti-hubs with in-degree zero). This tradeoff matches our observation: mutual kNN filtering raised the singleton rate from 51% to 74% while dramatically improving community quality. The paper suggests mutual proximity as an alternative that balances hub elimination with connectivity.
+
+---
+
+## Transitivity Chain Problem in Connected Components
+
+**Claim:** Connected components at d<10 produced a giant component of 1,297,780 sequences (77% of all clustered) because transitivity chains merge distant sequences through intermediaries. This is equivalent to single-linkage clustering's well-known "chaining effect."
+
+### Sibson (1973) -- SLINK: An Optimally Efficient Algorithm for the Single-Link Cluster Method
+- **Citation:** Sibson, R. (1973). SLINK: An Optimally Efficient Algorithm for the Single-Link Cluster Method. *The Computer Journal*, 16(1), 30-34. https://doi.org/10.1093/comjnl/16.1.30
+- **Summary:** Classic paper on single-linkage clustering establishing the equivalence between single-linkage clusters and connected components of a distance-threshold graph. The "chaining effect" -- where distant objects are merged through chains of close intermediate pairs -- is the fundamental limitation. Our giant component problem at d=10 is exactly this: sequences A and B with distance >> 10 end up connected because there exists a chain A-C-D-...-B where each consecutive pair is within distance 10.
+
+### Wishart (1969) -- Mode Analysis: A Generalization of Nearest Neighbor Which Reduces Chaining Effects
+- **Citation:** Wishart, D. (1969). Mode Analysis: A Generalization of Nearest Neighbor Which Reduces Chaining Effects. In *Numerical Taxonomy*, ed. A.J. Cole, pp. 282-311. Academic Press, London.
+- **Summary:** Earliest known method to address the chaining problem in single-linkage clustering. Proposes first computing density estimates and discarding low-density points before applying single-linkage, so that chains through low-density regions are broken. Conceptually similar to our approach of using distance thresholds to define edges followed by Leiden community detection to split the giant component -- the distance threshold acts as a density filter, and Leiden handles the remaining chain-splitting.
+
+---
+
+## Distance-Threshold Leiden Clustering
+
+**Claim:** Distance-threshold Leiden clustering combines two complementary mechanisms: the distance threshold controls which edges exist (deciding what's clusterable), and Leiden handles the internal community structure (splitting giant components from transitivity chains). This outperforms pure kNN Leiden or pure connected components.
+
+### Traag, Van Dooren & Nesterov (2011) -- Narrow Scope for Resolution-Limit-Free Community Detection
+- **Citation:** Traag, V.A., Van Dooren, P. & Nesterov, Y. (2011). Narrow scope for resolution-limit-free community detection. *Physical Review E*, 84(1), 016114. https://doi.org/10.1103/PhysRevE.84.016114
+- **Summary:** Introduces the Constant Potts Model (CPM) and proves it is resolution-limit-free, unlike modularity-based methods. The CPM resolution parameter acts as a density threshold: communities should have internal density above gamma while inter-community density is below gamma. Directly relevant to our use of Leiden with CPM quality function, where the resolution parameter interacts with the distance threshold to control community granularity.
+
+### Fortunato & Barthelemy (2007) -- Resolution Limit in Community Detection
+- **Citation:** Fortunato, S. & Barthelemy, M. (2007). Resolution limit in community detection. *Proceedings of the National Academy of Sciences*, 104(1), 36-41. https://doi.org/10.1073/pnas.0605965104
+- **Summary:** Proves that modularity optimization has an intrinsic scale that depends on the total number of links in the network, causing communities smaller than this scale to be merged. This resolution limit motivates the use of CPM (which is resolution-limit-free) for our Leiden clustering, where the graph has 42M edges at d=10 and we need to resolve communities ranging from pairs to 100K+ members.
+
+---
+
+## Length Filtering Effects on Clustering
+
+**Claim:** Short contigs (< 10 kbp) are overwhelmingly singletons due to noisy k-mer profiles, while the clustered count remains stable across length cutoffs. At 10 kbp minimum, singleton rate drops from 75% to 51% while clustered count barely changes (1.69M to 1.50M). The largest communities are nearly unaffected (0.3% loss).
+
+### Kang et al. (2015) -- MetaBAT: An Efficient Tool for Accurately Reconstructing Single Genomes from Complex Microbial Communities
+- **Citation:** Kang, D.D., Froula, J., Egan, R. & Wang, Z. (2015). MetaBAT, an efficient tool for accurately reconstructing single genomes from complex microbial communities. *PeerJ*, 3, e1165. https://doi.org/10.7717/peerj.1165
+- **Summary:** Introduces MetaBAT for metagenomic binning using tetranucleotide frequency and abundance. Uses a default minimum contig length of 2,500 bp (lowered to 1,500 bp experimentally), reflecting the recognition that short contigs lack statistically reliable tetranucleotide profiles. Provides empirical support for our finding that short contigs add noise rather than signal to k-mer-based clustering.
+
+### Kang et al. (2019) -- MetaBAT 2: An Adaptive Binning Algorithm for Robust and Efficient Genome Reconstruction from Metagenome Assemblies
+- **Citation:** Kang, D.D., Li, F., Kirton, E., Thomas, A., Egan, R., An, H. & Wang, Z. (2019). MetaBAT 2: an adaptive binning algorithm for robust and efficient genome reconstruction from metagenome assemblies. *PeerJ*, 7, e7359. https://doi.org/10.7717/peerj.7359
+- **Summary:** Updated version of MetaBAT with adaptive parameter tuning. Continues to use tetranucleotide frequency as a primary composition signal and maintains minimum contig length cutoffs. The consensus in the metagenomic binning field that contigs below 1,500-2,500 bp are unreliable for composition-based analysis supports our finding that length filtering dramatically improves clustering signal-to-noise ratio.
+
+### Wu, Simmons & Singer (2016) -- MaxBin 2.0: An Automated Binning Algorithm to Recover Genomes from Multiple Metagenomic Datasets
+- **Citation:** Wu, Y.-W., Simmons, B.A. & Singer, S.W. (2016). MaxBin 2.0: an automated binning algorithm to recover genomes from multiple metagenomic datasets. *Bioinformatics*, 32(4), 605-607. https://doi.org/10.1093/bioinformatics/btv638
+- **Summary:** MaxBin 2.0 uses tetranucleotide frequency and coverage for binning, with a minimum contig length of 1,000 bp. Even this relatively permissive threshold reflects the recognition that k-mer frequency estimation on shorter sequences is statistically unreliable. Our multi-scale k-mer approach (up to 6-mers with 2,772 features) requires even longer sequences for reliable estimation, consistent with our finding that 10 kbp is the natural crossover point from singleton-dominated to cluster-dominated.
+
+---
+
+## Neighborhood Growth Step-Function Behavior
+
+**Claim:** The neighborhood growth function in our latent space is nearly a step function -- for any given sequence, either ALL 50 nearest neighbors are within distance d (dense island) or NONE are (isolated singleton). At d=10, the jump from P75=0 to P90=50 is absolute. This bimodal behavior means a simple distance threshold cleanly separates clusterable from unclustered sequences.
+
+### (Project-specific finding with connections to existing literature)
+
+The step-function behavior in neighborhood growth is a consequence of the archipelago structure of the latent space (see Archipelago Structure section above). Each species' k-mer profile occupies a compact, well-separated region (Karlin & Burge, 1995). Points within an island have all neighbors close; points between islands have no close neighbors. The absence of intermediate cases (partial neighborhoods) distinguishes this from typical high-dimensional data where distance concentration produces a smooth distribution. The bimodality arises because biological sequence diversity is discrete at the species level -- there is no continuum of k-mer profiles between distinct species, only within species/strains.
+
+This step-function structure is related to the concept of "density modes" in nonparametric statistics. Wishart (1969) proposed mode analysis to identify connected components of density level sets, and Hartigan (1975) formalized the connection between density modes and clusters. The sharp transition we observe is evidence that the VAE embedding faithfully preserves the discrete mode structure of k-mer frequency space.
+
+### Hartigan (1975) -- Clustering Algorithms
+- **Citation:** Hartigan, J.A. (1975). *Clustering Algorithms*. John Wiley & Sons, New York.
+- **Summary:** Classic textbook formalizing the connection between density modes and clusters. Defines clusters as connected components of density level sets, providing the theoretical framework for understanding why the neighborhood growth function in our latent space shows step-function behavior -- each island corresponds to a density mode, and the moats between islands correspond to low-density regions where no neighbors exist.
+
+---
+
+## MCL (Markov Cluster Algorithm) as Alternative to Leiden
+
+**Claim:** MCL is mentioned as an alternative to Leiden for community detection, based on flow simulation rather than modularity optimization. MCL uses an inflation parameter to control cluster granularity.
+
+### van Dongen (2000) -- Graph Clustering by Flow Simulation
+- **Citation:** van Dongen, S. (2000). Graph Clustering by Flow Simulation. PhD thesis, University of Utrecht. https://dspace.library.uu.nl/handle/1874/848
+- **Summary:** Introduces the Markov Cluster Algorithm (MCL), which simulates random walks on a graph using alternating expansion (matrix squaring) and inflation (entrywise power + renormalization) operations. The inflation parameter controls cluster granularity: higher values produce finer clusters. MCL is an alternative to modularity-based methods like Leiden, and is particularly well-established in bioinformatics for protein family clustering. Proposed as a cross-validation tool for our Leiden results -- clusters stable across both methods would be high-confidence.
+
+### Enright, Van Dongen & Ouzounis (2002) -- An Efficient Algorithm for Large-Scale Detection of Protein Families
+- **Citation:** Enright, A.J., Van Dongen, S. & Ouzounis, C.A. (2002). An efficient algorithm for large-scale detection of protein families. *Nucleic Acids Research*, 30(7), 1575-1584. https://doi.org/10.1093/nar/30.7.1575
+- **Summary:** Applies MCL to protein sequence similarity networks (TribeMCL), demonstrating its effectiveness for large-scale biological sequence clustering. The method handles multi-domain proteins, promiscuous domains, and fragmented proteins -- challenges analogous to our chimeric contigs and genomic corpses in metagenomic data. Establishes MCL as a standard tool for biological sequence clustering, supporting its use as a complement to Leiden for our metagenomic community detection.

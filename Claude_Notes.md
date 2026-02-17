@@ -975,9 +975,45 @@ GC std dropped from huge ranges (30-82%) to 2-3% — major improvement. Mean pai
 
 **t-SNE overlay (mutual kNN Leiden, top 200 communities):** Each colored community sits in a compact, distinct region — no splattering across the map. Communities map cleanly onto the t-SNE plaque structure. Light blue (smaller non-top-200 clusters) fills many remaining dense patches. Grey singletons (74%) form the diffuse moat between islands. Top 200 cover 260,515 sequences (8.6% of total, 32.8% of clustered), smallest has 571 members. Confirms the archipelago model: discrete, compact islands with clear separation.
 
+### In-degree capped Leiden results (d=10, cap=100, 2026-02-17)
+
+| | Symmetric | In-degree cap=100 | Mutual |
+|---|---|---|---|
+| Singletons | 50.8% | 52.9% | 73.9% |
+| Clustered | 1,496,209 | 1,433,109 | 793,747 |
+| Non-singleton communities | 55,724 | 60,764 | 89,168 |
+| Largest | 118,858 | 55,965 | 5,656 |
+| Mean size | 26.9 | 23.6 | 8.9 |
+
+Middle ground between symmetric and mutual: largest community halved (119K → 56K), only 4% coverage loss. Singleton rate barely changes (50.8% → 52.9%). Top 20 range: 55,965 down to 10,150 — still large communities, likely still have transitivity chain merging but less severe than symmetric.
+
+**Graph saved for MCL:** `Runs/graph_capped100_d10.tsv` — ABC format (source_id\ttarget_id\tweight), 20.8M directed edges, 818 MB.
+
+**Pairwise validation (in-degree capped top 3):**
+- Community #1 (55,965): mean dist 12.5, GC 62.7% ± 3.0%, range 47–80%
+- Community #2 (31,430): mean dist 12.4, GC 28.7% ± 3.5%, range 20–69%
+- Community #3 (28,049): mean dist 12.3, GC 57.9% ± 3.8%, range 30–72%
+
+At cap=100, communities are still broad (GC ranges 40–50 pp). But this is only one point in the parameter space — lower caps (e.g. 20 or 50), different distance thresholds, resolution tuning, and MCL could all produce different tradeoffs. Mutual kNN gives tighter communities (GC std 2–3%) but at the cost of coverage (26% vs 47%). The right approach depends on the use case and needs further exploration.
+
+### Sweep_10 results (partial, d=4.0–9.0 complete, 2026-02-17)
+
+Community count peaks at d=7.0 (75,970) — earlier than unfiltered data's peak at d=8.5–9.0. Filtering short contigs tightens neighborhood structure. After d=7.0, communities merge while largest grows rapidly. Sweep still running for d=9.25–12.0.
+
+| d | Edges | Sing% | Communities | Largest |
+|------|---------|-------|-------------|---------|
+| 4.0 | 911K | 92.9% | 47,129 | 1,495 |
+| 5.0 | 2.6M | 88.3% | 62,378 | 7,232 |
+| 6.0 | 5.8M | 82.4% | 72,230 | 16,561 |
+| 7.0 | 11.3M | 75.3% | **75,970** | 31,973 |
+| 8.0 | 19.1M | 67.5% | 73,896 | 51,878 |
+| 9.0 | 29.4M | 59.3% | 66,411 | 78,541 |
+
 ### Remaining action items
 
-- **MCL** — alternative to Leiden based on flow simulation. Run with inflation parameter sweep 2.0–5.0.
-- **Cross-method validation** — clusters stable across both Leiden and MCL are high-confidence.
-- **Resolution sweep** on mutual kNN graph at best distance threshold from sweep.
-- **Sweep results** running overnight in `Runs/Sweep_10/` (4.0–12.0, step 0.25).
+- **Run pairwise validation cells** (Cells 26-27) for in-degree capped communities
+- **MCL** on saved graph (`Runs/graph_capped100_d10.tsv`) with inflation sweep 2.0–5.0
+- **Cross-method validation** — clusters stable across both Leiden and MCL are high-confidence
+- **Resolution sweep** on mutual kNN graph at best distance threshold from sweep
+- **Complete Sweep_10** — d=9.25–12.0 still running
+- **Update sweep plot** (Cell 22) once Sweep_10 finishes — currently reads old `Runs/sweep_summary.tsv`
