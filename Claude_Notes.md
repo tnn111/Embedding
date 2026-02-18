@@ -996,24 +996,209 @@ Middle ground between symmetric and mutual: largest community halved (119K → 5
 
 At cap=100, communities are still broad (GC ranges 40–50 pp). But this is only one point in the parameter space — lower caps (e.g. 20 or 50), different distance thresholds, resolution tuning, and MCL could all produce different tradeoffs. Mutual kNN gives tighter communities (GC std 2–3%) but at the cost of coverage (26% vs 47%). The right approach depends on the use case and needs further exploration.
 
-### Sweep_10 results (partial, d=4.0–9.0 complete, 2026-02-17)
+### Sweep_10 results (complete, 33 thresholds, 2026-02-17)
 
-Community count peaks at d=7.0 (75,970) — earlier than unfiltered data's peak at d=8.5–9.0. Filtering short contigs tightens neighborhood structure. After d=7.0, communities merge while largest grows rapidly. Sweep still running for d=9.25–12.0.
+Community count peaks at d=7.0 (75,970) — earlier than unfiltered data's peak at d=8.5–9.0. Filtering short contigs tightens neighborhood structure. After d=7.0, communities merge while largest grows rapidly. Full results saved in `Runs/sweep_10_summary.tsv`. Cell 23 updated to read this file.
 
-| d | Edges | Sing% | Communities | Largest |
-|------|---------|-------|-------------|---------|
-| 4.0 | 911K | 92.9% | 47,129 | 1,495 |
-| 5.0 | 2.6M | 88.3% | 62,378 | 7,232 |
-| 6.0 | 5.8M | 82.4% | 72,230 | 16,561 |
-| 7.0 | 11.3M | 75.3% | **75,970** | 31,973 |
-| 8.0 | 19.1M | 67.5% | 73,896 | 51,878 |
-| 9.0 | 29.4M | 59.3% | 66,411 | 78,541 |
+| d | Edges | Sing% | Communities | Largest | Top200 cov% |
+|------|---------|-------|-------------|---------|------------|
+| 4.0 | 911K | 92.9% | 47,129 | 1,495 | 24.7% |
+| 5.0 | 2.6M | 88.3% | 62,378 | 7,232 | 33.4% |
+| 6.0 | 5.8M | 82.4% | 72,230 | 16,561 | 44.5% |
+| **7.0** | **11.3M** | **75.3%** | **75,970** | **31,973** | **55.7%** |
+| 8.0 | 19.1M | 67.5% | 73,896 | 51,878 | 66.1% |
+| 9.0 | 29.4M | 59.3% | 66,411 | 78,541 | 74.8% |
+| 10.0 | 41.7M | 50.8% | 55,676 | 134,704 | 81.8% |
+| 11.0 | 56.0M | 42.1% | 42,974 | 191,856 | 87.5% |
+| 12.0 | 71.8M | 33.5% | 30,911 | 263,550 | 92.0% |
+
+### In-degree capped Leiden at d=7 (cap=100, 2026-02-17)
+
+Max in-degree at d=7: 10,304 (vs 58,377 at d=10). Cap=100 dropped 33% of edges (4.5M of 13.8M).
+
+| | d=10 cap=100 | d=7 cap=100 | d=10 mutual |
+|---|---|---|---|
+| Largest | 55,965 | 13,968 | 5,656 |
+| Clustered | 1,433,109 | 739,634 | 793,747 |
+| Singletons | 52.9% | 75.7% | 73.9% |
+| Non-singleton comm | 60,764 | 77,881 | 89,168 |
+| Mean size | 23.6 | 9.5 | 8.9 |
+
+**Pairwise validation (d=7, cap=100):**
+- Community #1 (13,968): mean dist 10.1, GC 28.3% ± 1.6%, range 22–41%
+- Community #2 (11,120): mean dist 9.7, GC 63.2% ± 2.5%, range 47–76%
+- Community #3 (10,613): mean dist 10.3, GC 27.8% ± 3.1%, range 21–47%
+
+**Assessment: GC ranges still too wide for biological use.** While the GC std improved (1.6–3.1% vs 3.0–3.8% at d=10), the GC ranges are still 19–26 percentage points wide. Because the VAE reconstructs GC content with very low error (~0.001 MSE on 1-mers), sequences with truly similar k-mer profiles would have near-identical GC. A 20+ pp GC range within a community means transitivity chains are still merging unrelated organisms — just shorter chains than at d=10. In-degree capping reduces the problem but does not solve it: the fundamental issue is that even without hubs, A→B→C→D chains can bridge across GC space one small step at a time. Only mutual kNN, which requires bidirectional confirmation of proximity, breaks these chains reliably.
+
+### In-degree capped Leiden at d=5 (cap=100, 2026-02-17)
+
+Max in-degree at d=5: 1,541 (much sparser than d=7's 10,304). Cap=100 only dropped 13% of edges (501K of 3.7M).
+
+| | d=5 cap=100 | d=7 cap=100 | d=10 cap=100 | d=10 mutual |
+|---|---|---|---|---|
+| Largest | 5,620 | 13,968 | 55,965 | 5,656 |
+| Clustered | 354,704 (11.7%) | 739,121 (24.3%) | 1,431,938 (47.1%) | 793,747 (26.1%) |
+| Singletons | 88.3% | 75.7% | 52.9% | 73.9% |
+| Non-singleton comm | 62,804 | 72,806 | 60,764 | 89,168 |
+| Median size | 2 | 2 | 2 | 2 |
+| Mean dist / global | 0.42–0.45 | 0.49–0.55 | — | — |
+| GC range top 3 | 13, 15, 16 pp | 19, 26, 20 pp | 47, 49, 42 pp | — |
+
+**Pairwise validation (d=5, cap=100):**
+- Community #1 (5,620): mean dist 7.80, GC 28.0% ± 1.6%, range 21.5–34.6% (13 pp)
+- Community #2 (2,986): mean dist 8.39, GC 28.4% ± 3.0%, range 21.2–36.2% (15 pp)
+- Community #3 (2,738): mean dist 7.89, GC 43.2% ± 3.1%, range 34.2–50.6% (16 pp)
+
+**Trend:** GC ranges shrink with lower d (13–16 pp at d=5 vs 19–26 at d=7 vs 40–50 at d=10), but are still too wide for biological clustering. 13 pp GC spread means transitivity chains persist even at this tight threshold. Coverage drops sharply — only 11.7% clustered.
+
+### MCL sweep results (2026-02-17)
+
+MCL inflation sweep on `Runs/graph_capped100_d10.tsv` (d=10 capped graph, 20.8M edges).
+Script in `Runs/MCL/run_mcl_sweep.sh`. Binary graph cached in `Runs/MCL/graph.mci` + `graph.tab`.
+
+**Important caveat:** MCL only sees the 1,433,109 nodes present in the graph (47.1% of 3,039,927 total). The remaining 1,606,818 isolated sequences are not in the ABC file.
+
+| I | Non-sing clusters | Largest | Clustered (of total) | MCL singletons |
+|---|---|---|---|---|
+| 1.4 | 109,579 | 3,208 | 1,433,109 (47.1%) | 0 |
+| 2.0 | 174,972 | 431 | 1,430,501 (47.1%) | 2,608 |
+| 3.0 | 238,597 | 216 | 1,408,912 (46.3%) | 24,197 |
+| 4.0 | 273,050 | 204 | 1,376,276 (45.3%) | 56,833 |
+| 5.0 | 292,252 | 180 | 1,345,284 (44.3%) | 87,825 |
+| 6.0 | 303,679 | 142 | 1,319,185 (43.4%) | 113,924 |
+
+**GC validation (top 3 communities per inflation):**
+
+| I | GC spans (pp) | GC std (%) | Sizes |
+|---|---|---|---|
+| 1.4 | 18, 21, 16 | 1.9, 3.9, 2.1 | 3208, 2198, 2001 |
+| 2.0 | 10, 10, 16 | 1.4, 0.8, 1.4 | 431, 420, 361 |
+| 3.0 | 9, 7, 7 | 1.3, 1.3, 1.3 | 216, 189, 186 |
+| 4.0 | 9, 7, 13 | 1.3, 1.3, 2.2 | 204, 174, 164 |
+| 5.0 | 9, 7, 6 | 1.3, 1.3, 1.0 | 180, 163, 155 |
+| 6.0 | 6, 7, 13 | 1.0, 1.1, 2.4 | 142, 141, 133 |
+
+**Key finding: MCL breaks transitivity chains.** At I≥3.0, GC spans drop to 6–9 pp with std ~1.0–1.3% — dramatically better than any Leiden configuration tested. Compare:
+- Leiden capped d=10: 42–49 pp
+- Leiden capped d=7: 19–26 pp
+- Leiden capped d=5: 13–16 pp
+- **MCL I=3–5 on d=10 graph: 6–9 pp**
+
+MCL's flow-based approach naturally attenuates weak transitive connections through iterative expansion and inflation, whereas Leiden's modularity optimization merges anything reachable. The trade-off is cluster size — MCL largest is 142–216 at I≥3.0 vs Leiden's thousands. But for biological coherence these are far superior.
+
+The I=1.4 result (18–21 pp) still shows chain contamination — the inflation is too weak to break flows. The sweet spot appears to be I=3.0–5.0: tight GC, reasonable cluster counts (238K–292K non-singleton), and nearly all connected nodes clustered (93–98% of in-graph nodes).
+
+### MCL d=5 sweep results (2026-02-17)
+
+MCL on `Runs/graph_capped100_d5.tsv` (d=5 capped graph, 354,704 nodes, 4.2M edges). Binary graph + cluster files in `Runs/MCL_d5/`. MCL sweep script moved to `Runs/run_mcl_sweep.sh`, MCL d=10 results moved to `Runs/MCL_d10/`.
+
+Jury pruning scores: "superb" (I=1.4), "marvelous" (I=2–3), "perfect" (I=4–6).
+
+| I | Non-sing clusters | Largest | Clustered (of total) | MCL singletons |
+|---|---|---|---|---|
+| 1.4 | 72,284 | 1,055 | 354,704 (11.7%) | 0 |
+| 2.0 | 82,052 | 281 | 354,676 (11.7%) | 28 |
+| 3.0 | 90,323 | 169 | 353,615 (11.6%) | 1,089 |
+| 4.0 | 95,654 | 153 | 351,168 (11.6%) | 3,536 |
+| 5.0 | 99,077 | 138 | 348,755 (11.5%) | 5,949 |
+| 6.0 | 101,460 | 128 | 346,717 (11.4%) | 7,987 |
+
+**GC validation (top 3 communities per inflation):**
+
+| I | GC spans (pp) | GC std (%) | Sizes |
+|---|---|---|---|
+| 1.4 | 9, 8, 8 | 0.9, 0.8, 1.0 | 1055, 979, 889 |
+| 2.0 | 5, 5, 5 | 0.9, 0.7, 0.8 | 281, 264, 263 |
+| 3.0 | 6, 4, 8 | 1.2, 0.6, 1.8 | 169, 166, 160 |
+| 4.0 | 6, 4, 6 | 1.1, 0.7, 0.9 | 153, 134, 132 |
+| 5.0 | 6, 8, 4 | 1.1, 0.9, 0.7 | 138, 128, 127 |
+| 6.0 | 8, 6, 5 | 0.9, 1.1, 0.8 | 128, 122, 122 |
+
+**Cross-graph MCL comparison (GC spans in top 3, pp):**
+
+| I | d=10 MCL | d=5 MCL |
+|---|---|---|
+| 1.4 | 18, 21, 16 | 9, 8, 8 |
+| 2.0 | 10, 10, 16 | **5, 5, 5** |
+| 3.0 | 9, 7, 7 | 6, 4, 8 |
+| 4.0 | 9, 7, 13 | 6, 4, 6 |
+| 5.0 | 9, 7, 6 | 6, 8, 4 |
+| 6.0 | 6, 7, 13 | 8, 6, 5 |
+
+**Key observations:**
+- d=5 MCL at I=2.0 achieves the best GC coherence seen: **5 pp span, 0.7–0.9% std** across all top 3. Mean pairwise distances 5.1–5.8, well below the d=5 threshold.
+- At low inflation (I=1.4), d=5 already outperforms d=10 at I=3.0 — the tighter graph gives MCL less chain material to work with.
+- At higher inflation (I≥3.0), d=5 and d=10 converge toward similar GC spans (4–9 pp), suggesting the inflation is doing most of the work at that point.
+- Coverage trade-off: d=5 clusters only 11.4–11.7% of sequences vs 43–47% for d=10. The 88% singletons are sequences with no neighbors within d=5.
+
+### Weight transformation and mutual kNN experiments (2026-02-17)
+
+Tested two additional MCL configurations to isolate the effects of weight function and graph construction:
+
+1. **d=10 capped, exp(-d) weights** → `Runs/MCL_d10_expd/`
+2. **Mutual kNN (all k=50 neighbors, no d threshold), exp(-d) weights** → `Runs/MCL_mutual_expd/`
+
+Graphs exported from notebook cells 34–35. MCL sweep script at `Runs/run_mcl_sweep.sh`.
+
+**Mutual kNN exp(-d):** 925,144 nodes (30.4% of total), nearly zero MCL singletons.
+**d=10 capped exp(-d):** 1,433,109 nodes (47.1%), same graph topology as before but different weights.
+
+**Grand comparison — GC spans (pp) in top 3 communities:**
+
+| Method | I=1.4 | I=2.0 | I=3.0 | I=5.0 | Coverage |
+|---|---|---|---|---|---|
+| d=10 capped 1/(d+0.1) | 18, 21, 16 | 10, 10, 16 | 9, 7, 7 | 9, 7, 6 | 47% |
+| **d=10 capped exp(-d)** | 47, 50, 35 | 50, 46, 20 | 20, 18, 45 | 20, 18, 9 | 47% |
+| d=5 capped 1/(d+0.1) | 9, 8, 8 | **5, 5, 5** | 6, 4, 8 | 6, 8, 4 | 12% |
+| **Mutual kNN exp(-d)** | 9, 6, 12 | 8, 27, 9 | 8, 6, 7 | 8, 4, 8 | 30% |
+
+**Key findings:**
+
+- **exp(-d) on d=10 capped is much worse** than 1/(d+0.1). GC spans of 18–50 pp at all inflations. The exponential weighting creates strong local cores, but the larger clusters (4K–7K at I=1.4–2.0) absorb chains through concentrated flow around hubs. The sharp weight contrast amplifies rather than suppresses the chain problem on dense graphs.
+
+- **Mutual kNN exp(-d) is decent but inconsistent.** Most top-3 communities have 6–9 pp GC spans, but outliers appear (27 pp at I=2.0 #2, 15 pp at I=6.0 #3). The chain-breaking from mutual filtering helps, but long-distance mutual pairs (d=10–15, mean pairwise distances often 8–14) still contaminate some clusters. Coverage is 30.4% — better than d=5 (12%) but quality is not as reliable.
+
+- **1/(d+0.1) outperforms exp(-d) on the same graph.** The gentler similarity function works better for MCL because it maintains more uniform flow across moderate-distance edges, letting inflation do the separation work rather than pre-concentrating flow on close pairs.
+
+### MCL d=7 results (2026-02-17)
+
+MCL on `Runs/graph_capped100_d7.tsv` (d=7 capped, 1/(d+0.1) weights, 9.3M edges, 739,634 nodes = 24.3% of total). Results in `Runs/MCL_d7/`.
+
+| I | Non-sing clusters | Largest | Clustered (of total) | MCL singletons |
+|---|---|---|---|---|
+| 1.4 | 104,941 | 2,326 | 739,634 (24.3%) | 0 |
+| 2.0 | 131,996 | 369 | 739,176 (24.3%) | 458 |
+| 3.0 | 157,407 | 177 | 732,642 (24.1%) | 6,992 |
+| 4.0 | 172,450 | 144 | 721,461 (23.7%) | 18,173 |
+| 5.0 | 181,224 | 142 | 711,315 (23.4%) | 28,319 |
+| 6.0 | 186,921 | 134 | 702,756 (23.1%) | 36,878 |
+
+**Complete MCL comparison — GC spans (pp) in top 3, 1/(d+0.1) weights:**
+
+| I | d=5 (12%) | d=7 (24%) | d=10 (47%) |
+|---|---|---|---|
+| 1.4 | 9, 8, 8 | 24, 13, 11 | 18, 21, 16 |
+| 2.0 | **5, 5, 5** | 10, 10, 8 | 10, 10, 16 |
+| 3.0 | 6, 4, 8 | **6, 4, 7** | 9, 7, 7 |
+| 4.0 | 6, 4, 6 | 8, 7, 9 | 9, 7, 13 |
+| 5.0 | 6, 8, 4 | 8, 8, 9 | 9, 7, 6 |
+| 6.0 | 8, 6, 5 | **6, 6, 9** | 6, 7, 13 |
+
+**Key findings:**
+- **d=7 at I=3.0 is the sweet spot for coverage/coherence**: 6, 4, 7 pp GC spans with 24% coverage — double the coverage of d=5 with comparable quality. Largest cluster 177.
+- At I=2.0, d=7 still shows some chain contamination (10, 10, 8 pp) while d=5 is clean (5, 5, 5). But at I≥3.0, d=7 converges to the same quality as d=5.
+- At I=1.4, d=7 is worst (24 pp) — the graph is dense enough for chains at low inflation.
+- The pattern is clear: **graph sparsity and inflation are partially interchangeable** — a sparser graph (d=5) needs less inflation (I=2.0), while a denser graph (d=7, d=10) needs I≥3.0 to achieve the same GC coherence.
+
+**Overall MCL summary (1/(d+0.1) weights):**
+- Best coherence: d=5, I=2.0 — 5 pp, 12% coverage
+- Best coherence/coverage balance: d=7, I=3.0 — 6, 4, 7 pp, 24% coverage
+- Highest coverage with acceptable quality: d=10, I=3.0 — 9, 7, 7 pp, 47% coverage
 
 ### Remaining action items
 
-- **Run pairwise validation cells** (Cells 26-27) for in-degree capped communities
-- **MCL** on saved graph (`Runs/graph_capped100_d10.tsv`) with inflation sweep 2.0–5.0
+- **Size distribution analysis** — characterize full MCL cluster size distribution beyond top 3
 - **Cross-method validation** — clusters stable across both Leiden and MCL are high-confidence
-- **Resolution sweep** on mutual kNN graph at best distance threshold from sweep
-- **Complete Sweep_10** — d=9.25–12.0 still running
-- **Update sweep plot** (Cell 22) once Sweep_10 finishes — currently reads old `Runs/sweep_summary.tsv`
+- **Update sweep plot** (Cell 23) with new `sweep_10_summary.tsv`
+- **Commit and push** — large batch of new results
