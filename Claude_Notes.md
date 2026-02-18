@@ -1215,6 +1215,49 @@ All three follow a power-law-like distribution dominated by pairs and small clus
 
 The 11–50 range is arguably the most useful for biological analysis — large enough to be meaningful, small enough to be coherent. d=10 puts 31% of clustered sequences there vs 15% at d=5. d=7 is in between at 22%.
 
+### 100 kbp analysis — the case for deep long-read metagenomics (2026-02-18)
+
+Created `clustering_100.ipynb` — 154,040 sequences >= 100 kbp from SFE/SE data (2.3% of original 6.7M).
+
+**Cell 6 results (100K sample, nn1 distances):**
+- 78% have a neighbor within d=5 (vs ~12% at 10 kbp)
+- Mean nn1 distance = 3.83 (vs ~16.5 on full dataset)
+- Minimum distance 0.04 (near-identical sequences)
+
+**The argument for long contigs as the unit of analysis:**
+
+1. Deep long-read sequencing produces long contigs for anything present at reasonable abundance
+2. Long contigs have clean k-mer profiles — the signal-to-noise ratio scales with sequence length
+3. Clean profiles produce tight, well-separated embeddings — the archipelago becomes dense islands with clear moats
+4. At that point, even simple clustering works — 78% connected at d=5, no transitivity chain problems
+
+The short fragments we've been wrestling with (1-10 kbp) are essentially noise from the clustering perspective — low-abundance organisms that weren't sequenced deeply enough to assemble into long contigs. They inflate the dataset size and create all the problems (singletons, transitivity chains, hubs) without contributing meaningful community structure.
+
+The 154K sequences at 100 kbp are arguably the "real" dataset — organisms that were present at sufficient abundance to produce high-quality assemblies. And that number will only grow as long-read sequencing gets cheaper and deeper. The fact that we already have 154K sequences above 100 kbp from just two marine environments is evidence that the data is there.
+
+This also reframes the singleton finding from earlier. It's not that "75% of metagenomic sequences are unclusterable" — it's that short fragments from low-abundance organisms shouldn't be the unit of analysis in the first place. With sufficient sequencing depth, the organisms that matter produce long contigs that cluster beautifully.
+
+**t-SNE at 100 kbp — islands without moats:**
+
+t-SNE ran on all 154K points in ~75 seconds. KL divergence 1.99. Intrinsic dimensionality d̂ = 3.74 (down from ~7-9 on full dataset).
+
+GC-colored t-SNE shows clear GC gradient (low-GC upper left to high-GC lower right) with tight, compact islands of uniform color. Islands within the same GC range are spatially separated — the VAE distinguishes them by higher-order k-mer features, not just base composition. No diffuse moat of scattered singletons — just clean empty space between islands.
+
+The 100 kbp t-SNE shows nicely scattered islands but no plaques or moats. This reveals something about the latent space structure. The VAE's latent space is continuous by construction — it has to smoothly map between any two points. But biology is discrete: species A and species B have distinct k-mer signatures with nothing meaningful in between. The VAE resolves this by placing each lineage in its own region with empty moats around it, because any interpolated point in between would have to decode to a k-mer profile that doesn't correspond to any real organism.
+
+The moats aren't noise or singletons filling space — they're the VAE's way of encoding the discontinuity of biological sequence space in a continuous latent manifold. The singletons that appeared in the moats at lower length thresholds were short, noisy contigs whose imprecise k-mer profiles landed them in these interpolation zones rather than cleanly on an island.
+
+At 100 kbp, the k-mer profiles are precise enough that everything lands squarely on its island, so you see clean separation with empty space between.
+
+**Why train on short sequences but analyze long ones:**
+
+- You **train** on short sequences because they're abundant and diverse — they cover more of k-mer space, more species, more GC ranges. The VAE needs to see the full landscape to learn a good embedding function.
+- You **analyze** long sequences because they're the ones with clean enough profiles to cluster reliably.
+
+The training data is the map; the long contigs are the territory you actually navigate. Training on only 154K long sequences would give you a much worse encoder — insufficient diversity, biased toward high-abundance organisms, poor generalization. But the 6.7M shorter sequences teach the encoder the full structure of k-mer space, and then you apply that encoder to the long contigs where the signal is cleanest.
+
+The SFE_SE model results already support this — SFE_SE_5 (trained on >=5 kbp, ~4.8M sequences) outperforms models trained on shorter thresholds for its own test data, but all models were trained on millions of sequences across a wide length range. The 3 kbp threshold (Run_3) was the best general-purpose encoder precisely because it included enough short sequences for diversity while excluding the noisiest fragments.
+
 ### Remaining action items
 
 - **Cross-method validation** — clusters stable across both Leiden and MCL are high-confidence
