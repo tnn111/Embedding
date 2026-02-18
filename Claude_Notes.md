@@ -1196,9 +1196,26 @@ MCL on `Runs/graph_capped100_d7.tsv` (d=7 capped, 1/(d+0.1) weights, 9.3M edges,
 - Best coherence/coverage balance: d=7, I=3.0 — 6, 4, 7 pp, 24% coverage
 - Highest coverage with acceptable quality: d=10, I=3.0 — 9, 7, 7 pp, 47% coverage
 
+### MCL cluster size distributions (2026-02-17)
+
+Analyzed three key configs: d=5 I=2.0, d=7 I=3.0, d=10 I=3.0. Plot saved to `Runs/mcl_size_distributions.png`.
+
+All three follow a power-law-like distribution dominated by pairs and small clusters. No cluster exceeds 281 — MCL naturally caps sizes through inflation.
+
+| Bracket | d=5 I=2.0 | d=7 I=3.0 | d=10 I=3.0 |
+|---|---|---|---|
+| Pairs (2) | 27.1% | 22.9% | 15.0% |
+| 3–10 | 36.5% | 37.9% | 35.3% |
+| 11–50 | 14.7% | 21.6% | 31.1% |
+| 51–100 | 8.3% | 10.6% | 12.0% |
+| 101+ | 13.4% | 7.1% | 6.6% |
+| **Median** | 2 | 2 | 3 |
+| **Mean** | 4.3 | 4.7 | 5.9 |
+| **Max** | 281 | 177 | 216 |
+
+The 11–50 range is arguably the most useful for biological analysis — large enough to be meaningful, small enough to be coherent. d=10 puts 31% of clustered sequences there vs 15% at d=5. d=7 is in between at 22%.
+
 ### Remaining action items
 
-- **Size distribution analysis** — characterize full MCL cluster size distribution beyond top 3
 - **Cross-method validation** — clusters stable across both Leiden and MCL are high-confidence
 - **Update sweep plot** (Cell 23) with new `sweep_10_summary.tsv`
-- **Commit and push** — large batch of new results
