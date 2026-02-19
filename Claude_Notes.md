@@ -1249,6 +1249,90 @@ The moats aren't noise or singletons filling space — they're the VAE's way of 
 
 At 100 kbp, the k-mer profiles are precise enough that everything lands squarely on its island, so you see clean separation with empty space between.
 
+**Distance landscape at 100 kbp (Cells 15-16):**
+- Mean nn1 = 3.69, median 3.42 (vs ~16.5 on full dataset)
+- nn1-nn50 spread tight: 3.69 → 6.52
+- Only 1% have nn1 > 10.6 — almost no truly isolated sequences
+- At d=5: median has 11 neighbors (vs 0 at 10 kbp). At d=8: median has all 50.
+- Step function shifted dramatically left compared to 10 kbp data
+
+**Leiden clustering at d=5 (Cells 17-19):**
+
+| | Symmetric d<5 | Mutual d<5 | Capped d<5 |
+|---|---|---|---|
+| Singletons | 19.3% | 23.5% | 19.6% |
+| Clustered | 80.7% | 76.5% | 80.4% |
+| Largest | 1,806 | 1,398 | 1,637 |
+| Non-sing communities | 6,113 | 6,712 | 6,213 |
+| Mean size | 20.3 | 17.6 | 19.9 |
+
+Key observations:
+- **All three methods broadly agree.** Largest community only 1,400-1,800 — no giant component problem. Compare 10 kbp where symmetric Leiden at d=10 produced a 137K monster.
+- **Mutual kNN no longer crippling.** Only 23.5% isolated (vs 85% at 10 kbp) — neighborhoods are dense and symmetric at this length scale.
+- **In-degree capping barely matters.** Only 457K of 3.1M edges dropped (15%), results nearly identical to symmetric. No extreme hubs at d=5 with 100 kbp sequences.
+- **Three methods converging** — community structure is real and robust, not an artifact of graph construction choices.
+- This is the core argument: at sufficient sequence length, clustering just works. No MCL needed, no aggressive hub mitigation, no transitivity chain problems.
+
+**MCL sweep at 100 kbp (d=5 capped, 1/(d+0.1) weights):**
+
+Graph: 123,783 nodes, 3.4M edges. All 6 inflations completed in 69 seconds total. Jury pruning: marvelous (I=1.4-3.0), perfect (I=4.0-6.0).
+
+| I | Clusters | Singletons | Largest | GC spans top 3 (pp) | GC std top 3 (%) |
+|---|---|---|---|---|---|
+| 1.4 | 7,693 | 0 (0.0%) | 1,056 | 7, 9, 9 | 0.9, 0.9, 0.9 |
+| 2.0 | 9,704 | 6 (0.0%) | 333 | 8, 8, 9 | 1.0, 1.2, 1.2 |
+| 3.0 | 12,305 | 248 (0.2%) | 182 | **4, 6, 5** | 0.6, 0.8, 1.0 |
+| 4.0 | 14,399 | 803 (0.6%) | 147 | 10, 4, 4 | 1.7, 0.6, 1.0 |
+| 5.0 | 15,839 | 1,484 (1.2%) | 132 | 6, 6, 4 | 1.1, 0.9, 0.6 |
+| 6.0 | 16,980 | 2,218 (1.8%) | 132 | 6, 6, 6 | 1.1, 0.9, 1.3 |
+
+Key findings:
+- **Even I=1.4 achieves 7-9 pp GC spans** — matching what required I=3.0+ on 10 kbp d=10 graph.
+- At I=3.0: 4-6 pp with std under 1% — comparable to best-ever result (d=5 MCL I=2.0 on 10 kbp: 5, 5, 5 pp).
+- Top-20 size distributions remarkably flat at I≥2.0 (333 down to 206 at I=2.0) — natural, similarly-sized communities.
+- Nearly zero MCL singletons — even at I=6.0 only 1.8%.
+- **MCL still outperforms Leiden for biological coherence at 100 kbp** (see comparison below), but the gap is much smaller than at 10 kbp.
+
+**Leiden GC validation at 100 kbp (d<5, all three graph constructions):**
+
+Symmetric d<5:
+- #1 (1,806): mean dist 5.86, GC 28.6% ± 1.4%, span 11 pp (23.1-34.6%)
+- #2 (1,471): mean dist 6.76, GC 43.4% ± 2.9%, span 15 pp (35.3-50.4%)
+- #3 (1,426): mean dist 6.00, GC 59.2% ± 0.9%, span 7 pp (55.0-62.2%)
+
+Mutual d<5:
+- #1 (1,398): mean dist 6.76, GC 43.5% ± 2.9%, span 15 pp (35.3-50.4%)
+- #2 (1,098): mean dist 5.52, GC 28.8% ± 1.1%, span 9 pp (24.5-33.4%)
+- #3 (831): mean dist 6.74, GC 61.8% ± 2.9%, span 14 pp (53.0-67.4%)
+
+Capped d<5:
+- #1 (1,637): mean dist 5.74, GC 28.5% ± 1.3%, span 11 pp (23.1-34.6%)
+- #2 (1,447): mean dist 6.72, GC 43.4% ± 3.0%, span 15 pp (35.3-50.4%)
+- #3 (1,314): mean dist 5.93, GC 59.2% ± 0.9%, span 7 pp (55.0-62.2%)
+
+**Leiden vs MCL at 100 kbp — head-to-head GC comparison:**
+
+| Method | GC spans top 3 (pp) | Largest community |
+|---|---|---|
+| Leiden symmetric | 11, 15, 7 | 1,806 |
+| Leiden mutual | 15, 9, 14 | 1,398 |
+| Leiden capped | 11, 15, 7 | 1,637 |
+| MCL I=1.4 | 7, 9, 9 | 1,056 |
+| MCL I=2.0 | 8, 8, 9 | 333 |
+| **MCL I=3.0** | **4, 6, 5** | **182** |
+
+**Key observations for the paper:**
+
+1. **Leiden still shows transitivity chain contamination at 100 kbp**, just less severe. The ~43% GC community appears in all three Leiden methods with 15 pp span and 2.9-3.0% std — a clear chain bridging organisms across 35-50% GC. Even mutual filtering doesn't break it (15 pp for mutual #1).
+
+2. **MCL breaks these chains at any inflation.** Even I=1.4 limits GC spans to 7-9 pp. At I=3.0, spans drop to 4-6 pp with std under 1% — genuinely coherent groups.
+
+3. **The improvement from 10 kbp to 100 kbp is dramatic for Leiden** (40-50 pp → 7-15 pp) **but modest for MCL** (5-9 pp → 4-9 pp). MCL was already solving the chain problem at 10 kbp; longer sequences mainly help Leiden.
+
+4. **The trade-off is community size.** Leiden produces communities of 800-1,800; MCL I=3.0 produces communities of 130-182. Whether this matters depends on the downstream analysis — for taxonomy, MCL's tighter groups are better; for broad community composition surveys, Leiden's larger groups may be more practical.
+
+5. **At 100 kbp, the choice between methods is a preference, not a necessity.** Both produce usable results. At 10 kbp, MCL was essential to get biologically coherent clusters. This reinforces the argument that sequence quality (length) is the primary driver of clustering quality, with algorithm choice as a secondary factor.
+
 **Why train on short sequences but analyze long ones:**
 
 - You **train** on short sequences because they're abundant and diverse — they cover more of k-mer space, more species, more GC ranges. The VAE needs to see the full landscape to learn a good embedding function.
