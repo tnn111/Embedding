@@ -1333,6 +1333,12 @@ Capped d<5:
 
 5. **At 100 kbp, the choice between methods is a preference, not a necessity.** Both produce usable results. At 10 kbp, MCL was essential to get biologically coherent clusters. This reinforces the argument that sequence quality (length) is the primary driver of clustering quality, with algorithm choice as a secondary factor.
 
+**t-SNE overlay of MCL I=2.0 communities (Cell 29):**
+
+Plot saved to `Runs/mcl_tsne_I2.0_100kbp.png`. Top 20 MCL communities colored distinctly, non-top clusters in light blue, singletons in grey.
+
+**Key observation: MCL isolates chunks within Leiden communities.** Where Leiden sees one connected community of 1,400-1,800 sequences, MCL finds multiple subgroups of 200-330 within it, each with tighter GC coherence. MCL communities appear as contiguous chunks within the Leiden communities on t-SNE — not random fragments scattered across them. This confirms both methods are finding real structure, just at different granularity. Leiden gives the broad structure (which sequences are in the same neighborhood), MCL gives the fine structure (which sequences truly belong together). MCL's inflation step splits Leiden's larger communities along natural flow boundaries.
+
 **Why train on short sequences but analyze long ones:**
 
 - You **train** on short sequences because they're abundant and diverse — they cover more of k-mer space, more species, more GC ranges. The VAE needs to see the full landscape to learn a good embedding function.
@@ -1341,6 +1347,38 @@ Capped d<5:
 The training data is the map; the long contigs are the territory you actually navigate. Training on only 154K long sequences would give you a much worse encoder — insufficient diversity, biased toward high-abundance organisms, poor generalization. But the 6.7M shorter sequences teach the encoder the full structure of k-mer space, and then you apply that encoder to the long contigs where the signal is cleanest.
 
 The SFE_SE model results already support this — SFE_SE_5 (trained on >=5 kbp, ~4.8M sequences) outperforms models trained on shorter thresholds for its own test data, but all models were trained on millions of sequences across a wide length range. The 3 kbp threshold (Run_3) was the best general-purpose encoder precisely because it included enough short sequences for diversity while excluding the noisiest fragments.
+
+### Distance threshold experiment at 100 kbp: d=7 vs d=5 (2026-02-18)
+
+The nn1 distribution at 100 kbp (Cell 7) shows a roughly linear decline from peak to ~20, with d=5 cutting through the body rather than at a natural gap. Since there's no giant component at d=5, we tested whether a wider threshold could capture more of the natural neighborhood without degrading cluster quality.
+
+**MCL d=7, 1/(d+0.1) weights** — `Runs/MCL_100kbp_d7/`:
+145,351 nodes (vs 123,783 at d=5), 6.38M edges. Nearly all sequences connected.
+
+| I | Clusters | Singletons | Largest | GC spans top 3 (pp) |
+|---|---|---|---|---|
+| 1.4 | 4,642 | 0 (0.0%) | 1,399 | 13, 12, 18 |
+| 2.0 | 6,502 | 64 (0.0%) | 361 | 22, 8, 10 |
+| 3.0 | 9,416 | 983 (0.7%) | 188 | 5, 7, 8 |
+| 4.0 | 11,578 | 2,610 (1.8%) | 151 | 19, 7, 7 |
+| 5.0 | 13,118 | 4,578 (3.1%) | 151 | 19, 7, 6 |
+| 6.0 | 14,239 | 6,341 (4.4%) | 151 | 19, 6, 10 |
+
+A persistent 151-member high-GC cluster (74.8% mean, 19 pp span) dominates at I≥4.0 — exactly the kind of GC-gradient chaining the tighter threshold avoids.
+
+**MCL d=7, exp(-d) weights** — `Runs/MCL_100kbp_d7_exp/`:
+Same graph topology but exponential weighting to suppress far edges. A d=7 edge gets 0.2% the weight of d=1 (vs 15% with 1/(d+0.1)).
+
+| I | Clusters | Singletons | Largest | GC spans top 3 (pp) |
+|---|---|---|---|---|
+| 1.4 | 7,482 | 0 (0.0%) | 1,475 | 21, 18, 14 |
+| 2.0 | 12,114 | 8 (0.0%) | 644 | 14, 10, 13 |
+| 3.0 | 15,660 | 92 (0.1%) | 301 | 8-13 |
+| 6.0 | 19,444 | 704 (0.5%) | 218 | 8-11 |
+
+Counterintuitively, exp(-d) was **worse** than 1/(d+0.1). The exponential suppression also killed useful medium-range edges (d=3-5), leaving MCL with only nearest-neighbor signal and losing the broader neighborhood structure needed to define clean cluster boundaries.
+
+**Conclusion:** d=5 with 1/(d+0.1) remains the best configuration at 100 kbp. The extra edges beyond d=5 degrade cluster quality regardless of weighting scheme. The nn1 distribution's smooth body doesn't indicate a natural neighborhood boundary — the GC validation shows that d=5 is where signal-to-noise tips in favor of noise.
 
 ### Remaining action items
 

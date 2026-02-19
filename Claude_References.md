@@ -392,3 +392,77 @@ This step-function structure is related to the concept of "density modes" in non
 ### Enright, Van Dongen & Ouzounis (2002) -- An Efficient Algorithm for Large-Scale Detection of Protein Families
 - **Citation:** Enright, A.J., Van Dongen, S. & Ouzounis, C.A. (2002). An efficient algorithm for large-scale detection of protein families. *Nucleic Acids Research*, 30(7), 1575-1584. https://doi.org/10.1093/nar/30.7.1575
 - **Summary:** Applies MCL to protein sequence similarity networks (TribeMCL), demonstrating its effectiveness for large-scale biological sequence clustering. The method handles multi-domain proteins, promiscuous domains, and fragmented proteins -- challenges analogous to our chimeric contigs and genomic corpses in metagenomic data. Establishes MCL as a standard tool for biological sequence clustering, supporting its use as a complement to Leiden for our metagenomic community detection.
+
+### van Dongen & Abreu-Goodger (2012) -- Using MCL to Extract Clusters from Networks
+- **Citation:** van Dongen, S. & Abreu-Goodger, C. (2012). Using MCL to extract clusters from networks. In *Bacterial Molecular Networks*, Methods in Molecular Biology, vol. 804, pp. 281-295. Springer. https://doi.org/10.1007/978-1-61779-361-5_15
+- **Summary:** Practical guide to applying MCL for network clustering, including protocols and case studies for protein sequence similarity and gene expression networks. Discusses the inflation parameter's role in controlling cluster granularity and provides guidelines for parameter selection. Directly relevant to our use of MCL inflation sweeps (I=1.4-6.0) to control community size and biological coherence.
+
+---
+
+## MCL Breaks Transitivity Chains Better Than Leiden
+
+**Claim:** MCL's flow-based approach naturally attenuates weak transitive connections through iterative expansion and inflation, whereas Leiden's modularity/CPM optimization merges anything reachable. At I>=3.0, MCL achieves GC spans of 6-9 pp on the same d=10 graph where Leiden produces 40-50 pp spans. MCL and Leiden are complementary: Leiden finds broad structure, MCL finds fine structure.
+
+### van Dongen (2000) -- Graph Clustering by Flow Simulation (see MCL section above)
+- **Summary (additional relevance):** The expansion step (matrix squaring) propagates flow across paths of length 2, while the inflation step amplifies strong connections and weakens weak ones. After many iterations, flow converges to within-cluster circulation and dies between clusters. This mechanism inherently breaks transitivity chains because weak indirect connections (A->hub->B) are attenuated by inflation at each step, while strong direct connections (within genuine communities) are amplified. This explains why MCL achieves tighter GC coherence than Leiden on the same graph: Leiden treats all edges as equally valid for community membership, while MCL naturally discounts paths through weakly-connected intermediaries.
+
+---
+
+## K-mer Profile Noise and Minimum Contig Length
+
+**Claim:** Short contigs (<2.5-10 kbp) have unreliable k-mer frequency profiles due to insufficient sampling of the underlying genomic composition. The variance of k-mer frequency estimates scales inversely with sequence length, making short contigs inherently noisy for composition-based analysis. This noise causes short contigs to scatter as singletons in embedding space.
+
+### Kang et al. (2015) -- MetaBAT (see Length Filtering section above)
+- **Summary (additional relevance):** MetaBAT explicitly models how tetranucleotide frequency distance probability (TDP) varies with contig size. By shredding 1,414 complete genomes into fragments from 2.5 kb to 500 kb, they empirically demonstrated that inter-species separation improves with increasing fragment size. The ratio of mean to variance of TNF frequencies stabilizes around 2.5 kb, providing the empirical basis for minimum contig length thresholds in composition-based binning. Our finding that the singleton-to-clustered crossover occurs at ~10 kbp for multi-scale k-mer profiles (6-mers through 1-mers, 2,772 features) is consistent with this -- more features require more sequence length for reliable estimation.
+
+### Albertsen et al. (2013) -- Genome Sequences of Rare, Uncultured Bacteria Obtained by Differential Coverage Binning
+- **Citation:** Albertsen, M., Hugenholtz, P., Skarshewski, A., Nielsen, K.L., Tyson, G.W. & Nielsen, P.H. (2013). Genome sequences of rare, uncultured bacteria obtained by differential coverage binning of multiple metagenomes. *Nature Biotechnology*, 31, 533-538. https://doi.org/10.1038/nbt.2579
+- **Summary:** Pioneered differential coverage binning using tetranucleotide frequencies and cross-sample abundance variation. Recovered 31 genomes including rare (<1% abundance) species from activated sludge, including near-complete TM7 genomes. The methodology assumes that contigs from the same genome share similar TNF profiles, which is most reliable for longer contigs. The 2.5 kb minimum fragment size used in their calibration experiments established an influential threshold adopted by many subsequent binning tools.
+
+---
+
+## Long-Read Metagenomics and Long Contigs as the Unit of Analysis
+
+**Claim:** At 100 kbp minimum length, 78% of sequences have a neighbor within d=5 (vs ~12% at 10 kbp), clustering methods broadly agree (no giant component problem), and even simple approaches work well. Deep long-read sequencing produces long contigs for organisms at reasonable abundance, with clean k-mer profiles that cluster beautifully. The case for analyzing long contigs rather than short fragments.
+
+### Benoit et al. (2024) -- High-Quality Metagenome Assembly from Long Accurate Reads with metaMDBG
+- **Citation:** Benoit, G., Raguideau, S., James, R., Phillippy, A.M., Chikhi, R. & Quince, C. (2024). High-quality metagenome assembly from long accurate reads with metaMDBG. *Nature Biotechnology*, 42(9), 1378-1383. https://doi.org/10.1038/s41587-023-01983-6
+- **Summary:** Introduces metaMDBG, a metagenomics assembler for PacBio HiFi reads that obtained up to twice as many high-quality circularized prokaryotic MAGs as existing methods. Demonstrates that long accurate reads enable routine recovery of complete, single-contig bacterial genomes from complex communities. Directly supports our argument that deep long-read sequencing produces the long contigs (>100 kbp) where k-mer-based clustering works best.
+
+### Kim, Ma & Lee (2022) -- HiFi Metagenomic Sequencing Enables Assembly of Accurate and Complete Genomes from Human Gut Microbiota
+- **Citation:** Kim, C.Y., Ma, J. & Lee, I. (2022). HiFi metagenomic sequencing enables assembly of accurate and complete genomes from human gut microbiota. *Nature Communications*, 13, 6367. https://doi.org/10.1038/s41467-022-34149-0
+- **Summary:** Reports 102 complete metagenome-assembled genomes (cMAGs) from HiFi sequencing of human fecal samples, with nucleotide accuracy matching Illumina. cMAGs exceeded 6 Mbp and included genomes of entirely uncultured orders. Demonstrates that HiFi metagenomics routinely produces complete, long contigs suitable for reliable k-mer-based analysis, supporting our finding that sequences >= 100 kbp cluster cleanly with minimal algorithmic complexity.
+
+### Kim, Pongpanich & Porntaveetus (2024) -- Unraveling Metagenomics through Long-Read Sequencing: A Comprehensive Review
+- **Citation:** Kim, C., Pongpanich, M. & Porntaveetus, T. (2024). Unraveling metagenomics through long-read sequencing: a comprehensive review. *Journal of Translational Medicine*, 22, 111. https://doi.org/10.1186/s12967-024-04917-1
+- **Summary:** Comprehensive review covering long-read sequencing workflows for metagenomics. Reports that long-read approaches yield metagenomic assemblies with 9-18x higher contiguity than short-read and hybrid approaches. Discusses how longer reads enable more complete and contiguous genomic information, reinforcing our argument that long contigs provide the clean k-mer profiles necessary for reliable composition-based clustering.
+
+---
+
+## Training Data Composition vs. Quantity (Domain-Specific Training)
+
+**Claim:** Focused SFE_SE models (4.8-6.7M sequences, 2 marine sources) dramatically outperform augmented models (13.4-17.4M sequences, 4 diverse sources) even on augmented test data. Training data composition matters more than quantity. This reflects a well-known principle: domain-specific models outperform generalist models within their domain.
+
+### Gu et al. (2022) -- Domain-Specific Language Model Pretraining for Biomedical Natural Language Processing
+- **Citation:** Gu, Y., Tinn, R., Cheng, H., Lucas, M., Usuyama, N., Liu, X., Naumann, T., Gao, J. & Poon, H. (2022). Domain-Specific Language Model Pretraining for Biomedical Natural Language Processing. *ACM Transactions on Computing for Healthcare*, 3(1), 1-23. https://doi.org/10.1145/3458754
+- **Summary:** Demonstrates that PubMedBERT, pretrained from scratch on biomedical text, consistently outperforms general-domain models (BERT, mixed-domain BioBERT) on biomedical NLP tasks. Shows that domain-specific pretraining produces substantially better representations than continual pretraining from general-domain models when sufficient domain data is available. Directly analogous to our finding: SFE_SE models (marine-only training) outperform augmented models (marine + terrestrial + RefSeq) because they devote all representational capacity to the relevant domain.
+
+---
+
+## Consensus Clustering / Cross-Method Validation
+
+**Claim:** Clusters stable across both Leiden and MCL are high-confidence -- cross-method agreement provides validation that the discovered communities are real structure rather than algorithmic artifacts. MCL isolates chunks within Leiden communities, with MCL communities appearing as contiguous subgroups on t-SNE.
+
+### Monti et al. (2003) -- Consensus Clustering: A Resampling-Based Method for Class Discovery and Visualization of Gene Expression Microarray Data
+- **Citation:** Monti, S., Tamayo, P., Mesirov, J. & Golub, T. (2003). Consensus Clustering: A Resampling-Based Method for Class Discovery and Visualization of Gene Expression Microarray Data. *Machine Learning*, 52, 91-118. https://doi.org/10.1023/A:1023949509487
+- **Summary:** Foundational paper introducing consensus clustering methodology, which uses resampling to assess the stability of discovered clusters. The method provides a principled way to determine the number of clusters and evaluate their robustness. While originally applied to gene expression data, the core principle -- that clusters found consistently across multiple methods or perturbations are more trustworthy -- directly supports our approach of using Leiden-MCL agreement as a quality signal. Clusters found by both flow-based (MCL) and modularity-based (Leiden) algorithms are likely real biological communities rather than method-specific artifacts.
+
+---
+
+## LFR Benchmark and Power-Law Community Size Distributions
+
+**Claim:** Community size distributions in our Leiden and MCL clusterings follow heavy-tailed, power-law-like distributions -- a few large communities plus a long tail of small ones. Median non-singleton size is 2 at all thresholds. This is characteristic of real-world network communities.
+
+### Lancichinetti, Fortunato & Radicchi (2008) -- Benchmark Graphs for Testing Community Detection Algorithms
+- **Citation:** Lancichinetti, A., Fortunato, S. & Radicchi, F. (2008). Benchmark graphs for testing community detection algorithms. *Physical Review E*, 78(4), 046110. https://doi.org/10.1103/PhysRevE.78.046110
+- **Summary:** Introduces the LFR benchmark for community detection, which generates networks with power-law degree and community size distributions -- reflecting the heterogeneity observed in real-world networks. The benchmark's assumption that community sizes follow a power law is consistent with our empirical observation that MCL and Leiden both produce heavily skewed size distributions with many pairs/triplets and a few large communities. This validates our community size distributions as biologically and structurally plausible rather than algorithmic artifacts.
