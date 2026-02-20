@@ -564,68 +564,29 @@ Three methods explored for identifying differences between sample groups in t-SN
 
 ## 2026-02-05: Full Codebase Review (Opus 4.6)
 
-### Critical Issues
+### Issues Found (with resolution status as of 2026-02-19)
 
-**1. Inference scripts use stochastic `z` instead of deterministic `z_mean`**
+**FIXED:**
+1. ~~Inference scripts use stochastic `z` instead of deterministic `z_mean`~~ — Both `embedding` and `create_and_load_db` now use `z_mean, _, _ = encoder.predict(...)`.
+2. ~~`verify_local_distances.py` has stale column indices~~ — Updated to current format.
+3. ~~`convert_txt_to_npy` is outdated~~ — Removed.
+4. ~~Stale model symlink~~ — Now points to `Runs/Run_SFE_SE_5/vae_encoder_best.keras`.
+5. ~~`main.py` is a placeholder~~ — Removed.
+6. ~~CLR applied across mixed compositions~~ — Switched to per-group CLR (see below).
+7. ~~Small CLR pseudocount (1e-6)~~ — Replaced with Jeffreys prior (0.5/n_features).
+8. ~~ChromaDB uses cosine distance~~ — Switched to L2 (Euclidean).
 
-Both `embedding` (line 118) and `create_and_load_db` (line 164) use the sampled `z` output from the encoder rather than `z_mean`. The stochastic `z` includes reparameterization noise, meaning the same input produces different embeddings each run. Standard VAE inference practice is to use `z_mean`. Notably, `verify_local_distances.py` correctly uses `z_mean` — so the validation measured quality under a different regime than the deployed pipeline.
+**REMAINING:**
+1. **Duplicated custom layers across 6 files** — `ClipLayer`, `Sampling`, `clr_transform` copy-pasted into VAE.py, VAE_noGC.py, `embedding`, `create_and_load_db`, `verify_local_distances.py`, `verify_knn_quality`. Should extract to shared module.
+2. **Training history overwritten on resume** — `vae_history.pkl` loses full curve.
+3. **pyproject.toml project name is "clustering"** — minor.
+4. **README.md is empty** — minor.
 
-**2. `verify_local_distances.py` has stale column indices**
+### Architecture & Design Decisions
 
-Still uses `COL_START = 8193`, `COL_END = 10965` (old 7-mer format). Current data uses `COL_START = 1`, `COL_END = 2773`. Script would produce wrong results on current data.
+**No dropout** — Architecture relies on BatchNorm + KL regularization. Train/val gap < 1 pt with shuffled data. Data-to-parameter ratio is healthy (13.4M samples / 7M params).
 
-**3. `convert_txt_to_npy` is outdated**
-
-References `NUM_COLUMNS = 2762` and a format with a "GC" column that no longer exists.
-
-### Code Quality Issues
-
-**4. Duplicated custom layers across 4 files**
-
-`ClipLayer`, `Sampling`, and `clr_transform` are copy-pasted into VAE.py, `embedding`, `create_and_load_db`, and `verify_local_distances.py`. Divergence has already caused bug #2.
-
-**5. Stale model symlink**
-
-Root `vae_encoder_best.keras` symlink points to `Models/Multi_005_384/` (Dec 3, 4.8M dataset). Best model (13.4M dataset, dramatically better metrics) lives in `Data/`. Inference scripts resolve to the old model.
-
-**6. `main.py` is a placeholder**
-
-Just prints "Hello from clustering!" — leftover from `uv init`.
-
-### Architecture & Training Notes
-
-**7. CLR applied across mixed compositions**
-
-`calculate_kmer_frequencies` normalizes each k-size group independently (each sums to 1.0), then VAE.py applies CLR to all 2,772 features together, mixing 6 separate compositions. CLR is designed for a single compositional vector. Per-group CLR would be more theoretically sound. Current approach works well empirically — the joint CLR may create useful cross-scale interactions.
-
-**8. No dropout — decided not to add**
-
-Architecture relies on BatchNorm + KL regularization. Dropout was considered but deemed unnecessary: train/val gap is small (98 vs 101), KL term already prevents memorization, and data-to-parameter ratio is healthy (13.4M samples / 7M params). Adding dropout would likely hurt reconstruction quality without meaningful generalization benefit. Worth revisiting only if length sweep reveals overfitting on smaller datasets.
-
-**9. Training history not merged across runs**
-
-`vae_history.pkl` is overwritten on each resume, losing the full training curve.
-
-**10. Small CLR pseudocount (1e-6)**
-
-For 5,000 bp sequences, many 6-mers have zero counts, producing CLR values near -13.8. A larger pseudocount (e.g., 1e-3 or 1/N) would reduce dynamic range extremes.
-
-### Minor Issues
-
-- pyproject.toml project name is "clustering"
-- README.md is empty
-- `embedding` script hardcodes encoder path (no CLI option unlike `create_and_load_db`)
-- Models scattered across `Models/`, `Data/`, and project root
-- `NumpyBatchDataset` drops last incomplete batch (negligible)
-
-### Prioritized Suggestions
-
-1. Fix inference to use `z_mean` (highest impact, one-line fix each)
-2. Update `verify_local_distances.py` column indices
-3. Update model symlink to point to best current model
-4. Extract shared code (`ClipLayer`, `Sampling`, `clr_transform`) to a module
-5. Remove/update stale files (`convert_txt_to_npy`, `main.py`)
-6. ~~Consider per-group CLR as an experiment~~ — **Done** (see below)
+**NumpyBatchDataset drops last incomplete batch** — negligible impact.
 
 ---
 
