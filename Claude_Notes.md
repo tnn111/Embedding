@@ -1378,7 +1378,125 @@ Same graph topology but exponential weighting to suppress far edges. A d=7 edge 
 
 Counterintuitively, exp(-d) was **worse** than 1/(d+0.1). The exponential suppression also killed useful medium-range edges (d=3-5), leaving MCL with only nearest-neighbor signal and losing the broader neighborhood structure needed to define clean cluster boundaries.
 
-**Conclusion:** d=5 with 1/(d+0.1) remains the best configuration at 100 kbp. The extra edges beyond d=5 degrade cluster quality regardless of weighting scheme. The nn1 distribution's smooth body doesn't indicate a natural neighborhood boundary — the GC validation shows that d=5 is where signal-to-noise tips in favor of noise.
+**Conclusion:** d=5 with 1/(d+0.1) is the best configuration tested so far at 100 kbp. Expanding to d=7 degraded cluster quality with both weighting schemes tried. However, we have not explored intermediate thresholds (e.g., d=6), other weighting functions (e.g., Gaussian kernel), or different in-degree caps — there may be better configurations in the unexplored parameter space.
+
+### Open question: How to choose the minimum length threshold (2026-02-18)
+
+We have tried 10 kbp and 100 kbp as minimum sequence length thresholds for clustering. 100 kbp produces dramatically better results — tight GC spans, no giant components, convergence across methods. But we have not established a principled stopping criterion for this parameter. Going from 10 kbp to 100 kbp improved everything; should we try 50 kbp? 200 kbp? When do we stop?
+
+**The fundamental trade-off:**
+1. **Cluster quality** — improves with length. Longer sequences have cleaner k-mer profiles, producing tighter and better-separated embeddings. At 100 kbp, even Leiden produces usable clusters (7-15 pp GC spans) that required MCL at 10 kbp.
+2. **Coverage** — drops with length. We have 154K sequences at ≥100 kbp (2.3% of 6.7M total). At ≥200 kbp this would probably halve again. At some point there aren't enough sequences for meaningful community structure.
+
+**Three possible approaches to deciding:**
+
+**1. Empirical: sweep length thresholds and find the knee.** We already have embeddings and nn1 distances for all sequences, and we know their lengths. We could bin sequences by length (e.g., 10, 20, 50, 100, 200, 500 kbp) and plot a quality metric against the threshold — for example, mean nn1 distance, fraction with nn1 < 5, or even run quick MCL at each threshold and measure GC spans. If there's a plateau where additional length stops improving quality, that's the natural stopping point. This would be the most rigorous approach and would produce a compelling figure for the paper.
+
+**2. Pragmatic: minimum viable dataset size.** At some point communities become too small for downstream analysis. 154K sequences at 100 kbp gives healthy communities (100-300 members at MCL I=3.0). At 500 kbp we might have ~10K sequences with communities of 5-10 — too small for statistical characterization. The threshold where community sizes drop below some useful minimum sets a floor. This interacts with sequencing depth — deeper sequencing pushes the floor higher.
+
+**3. Argument-driven: one convincing demonstration suffices.** The paper's argument isn't "100 kbp is the optimal threshold" — it's that sequence quality (length) is the primary driver of clustering quality, and algorithm choice is secondary. We just need one length that demonstrates this convincingly. The exact number matters less than the principle. At 100 kbp, both Leiden and MCL produce usable results, three graph constructions converge, and there's no giant component — the case is already made. Trying more thresholds might be thoroughness for its own sake rather than advancing the argument.
+
+**What would actually help the paper:** A lightweight sweep — plotting nn1 statistics (mean, median, fraction with nn1 < 5) by length bin, without running full MCL at each threshold — would produce a figure showing how embedding quality improves with sequence length. This strengthens the narrative without requiring extensive computation. If the curve shows a clear knee (quality plateauing above some length), that's even better — it provides a principled recommendation for practitioners.
+
+**Note on generality:** The optimal length threshold is likely dataset-dependent. A deeply sequenced single environment might have abundant long contigs; a diverse multi-environment survey might have fewer. The principle (longer is better for clustering) is general, but the specific threshold where "good enough" kicks in will vary with sequencing depth, community complexity, and assembler performance.
+
+### Length threshold sweep results (2026-02-18)
+
+Computed nn1 (nearest neighbor Euclidean distance) for 10K sampled queries against ALL sequences at each minimum length threshold. No sampling bias — queries are matched against the complete filtered set. Plot saved to `Runs/nn1_vs_length_threshold.png`.
+
+| Threshold | Sequences | Mean nn1 | Median nn1 | IQR | nn1 < 5 |
+|-----------|-----------|----------|------------|-----|---------|
+| 3 kbp | 5,951,176 | 12.76 | 12.28 | [8.12, 17.09] | 9.5% |
+| 5 kbp | 4,776,770 | 11.43 | 11.17 | [7.76, 14.99] | 10.0% |
+| 10 kbp | 3,039,927 | 9.27 | 9.20 | [6.58, 11.91] | 13.8% |
+| 20 kbp | 1,556,556 | 7.11 | 7.02 | [5.02, 8.96] | 24.8% |
+| **50 kbp** | **461,674** | **4.99** | **4.82** | **[3.39, 6.29]** | **53.4%** |
+| **100 kbp** | **154,040** | **3.58** | **3.38** | **[2.24, 4.56]** | **81.6%** |
+| 200 kbp | 53,138 | 2.64 | 2.36 | [1.55, 3.32] | 92.8% |
+| 500 kbp | 11,006 | 2.08 | 1.70 | [1.01, 2.55] | 93.4% |
+
+**Key observations:**
+
+1. **The knee is at 50-100 kbp.** Below 50 kbp, most sequences are isolated — fewer than 54% have a nearest neighbor within d=5 (the clustering threshold). Above 100 kbp, connectivity is high (82%+) and improving slowly. The transition from "mostly isolated" to "mostly connected" happens in this one-octave range.
+
+2. **50 kbp is where median nn1 crosses below 5** — the same distance threshold used for graph construction and clustering. This is the transition point where the typical sequence goes from having no neighbor within the clustering radius to having at least one. It marks the boundary between "noise-dominated" and "signal-dominated" embedding neighborhoods.
+
+3. **Diminishing returns above 200 kbp.** Connectivity plateaus: 92.8% at 200 kbp vs 93.4% at 500 kbp — a gain of only 0.6 pp for losing 80% of the data (53K → 11K sequences). The quality improvement is real but negligible compared to the coverage cost.
+
+4. **The quality-coverage trade-off has a clear sweet spot.** At 100 kbp: 82% connectivity with 154K sequences — enough for robust community structure (MCL I=3.0 gives communities of 130-180). At 200 kbp: 93% connectivity but only 53K sequences — communities would be ~3× smaller. At 500 kbp: 93.4% but only 11K — too few for meaningful community analysis.
+
+5. **The 3-10 kbp range is the "noise floor."** Only 10-14% of sequences have nn1 < 5, and the IQR spans 8-17. This is where transitivity chains, hubs, and giant components originate — most sequences are far from their nearest neighbor, forcing wide distance thresholds that connect dissimilar sequences.
+
+6. **The improvement is monotonic but not linear.** Mean nn1 drops from 12.8 (3 kbp) to 2.1 (500 kbp) — a 6× improvement. But the gains per octave of length are uneven: 3→10 kbp saves 3.5 distance units, 10→100 kbp saves 5.7, 100→500 kbp saves only 1.5. Most of the improvement is concentrated in the 10-100 kbp range.
+
+**Implications for the paper:**
+
+This figure directly supports the argument that sequence quality (length) is the primary driver of clustering quality. The choice of clustering algorithm (Leiden vs MCL), graph construction method (symmetric vs mutual vs capped), and distance threshold are all secondary to having sequences long enough to produce clean embeddings. At ≥100 kbp, even simple methods work; below 10 kbp, even sophisticated methods struggle. The figure provides a principled recommendation for practitioners: filter to ≥50 kbp minimum for clusterable embeddings, ≥100 kbp for high-quality results.
+
+**Caveat:** These results are specific to this dataset (SFE + SE marine metagenomes), this VAE (SFE_SE_5), and this embedding space. The specific threshold values will vary with sequencing depth, community complexity, assembler performance, and encoder architecture. The qualitative pattern (longer = better, with a knee in the tens-of-kbp range) is likely general, but the exact numbers are not.
+
+## 2026-02-19: 50 kbp clustering analysis
+
+### Setup
+- Created `clustering_050.ipynb` (copy of clustering_100) to test 50 kbp as an alternative length threshold
+- The nn1 sweep showed 50 kbp sits at the knee: median nn1 ≈ 5.01, 53.4% with nn1 < 5
+- Generated `neighbors_SFE_SE_050.tsv` via ChromaDB (461,674 sequences, k=50)
+- Used d=7 threshold (based on the relative argument: d=7 at 50 kbp ≈ d/median_nn1 ratio similar to d=5 at 100 kbp)
+- TWO-NN intrinsic dimension: d̂=4.42 (between 100 kbp's 3.74 and full dataset's 7-9)
+
+### Leiden results at 50 kbp d=7 — poor
+
+GC spans (pp) for top 3 communities:
+| Method | C1 | C2 | C3 |
+|--------|----|----|-----|
+| Symmetric | 46 | 29 | 24 |
+| Mutual | 19 | 10 | 14 |
+| Capped | 26 | 29 | 21 |
+
+For comparison, 100 kbp d=5 Leiden: symmetric 11/15/7, mutual 15/9/14, capped 11/15/7.
+Leiden cannot break the transitivity chains at 50 kbp — the giant components contain genuinely diverse sequences.
+
+### MCL results at 50 kbp d=7
+
+MCL sweep summary (369,230 nodes, 11.5M edges):
+
+| I | Clusters | Singletons | Largest | Top-20 range |
+|---|----------|------------|---------|-------------|
+| 1.4 | 17,685 | 0 | 1,702 | 772–1,702 |
+| 2.0 | 27,835 | 360 | 364 | 285–364 |
+| 3.0 | 43,266 | 3,818 | 199 | 149–199 |
+| 4.0 | 56,498 | 9,250 | 150 | 133–150 |
+| 5.0 | 67,227 | 14,923 | 142 | 124–142 |
+| 6.0 | 75,753 | 20,004 | 139 | 116–139 |
+
+MCL GC validation — GC spans (pp) for top 3 communities:
+
+| I | C1 | C2 | C3 |
+|---|----|----|-----|
+| 1.4 | 13 | 13 | 13 |
+| 2.0 | 9 | 10 | 7 |
+| 3.0 | 6 | 8 | 5 |
+| 4.0 | 7 | 9 | 8 |
+| 5.0 | 4 | 9 | 10 |
+| 6.0 | 4 | 9 | 4 |
+
+For comparison, 100 kbp MCL d=5: I=3.0 gave 4/5/5 pp; I=5.0 gave 4/4/4 pp.
+
+### Key findings
+
+1. **MCL massively outperforms Leiden at 50 kbp** — Leiden had 19-46 pp GC spans; MCL gets 4-13 pp. MCL successfully breaks the transitivity chains that Leiden cannot handle.
+
+2. **But worse and less consistent than 100 kbp MCL** — At 100 kbp I≥3.0, all top communities converge to 4-5 pp. At 50 kbp, there's persistent variability: some communities at 4 pp, others at 8-10 pp even at high inflation. The noisier graph means MCL can't reliably separate all communities.
+
+3. **The relative threshold argument (d/median_nn1) did NOT hold** — d=7 at 50 kbp has a similar ratio to d=5 at 100 kbp, but the absolute quality of edges matters. Edges at d=6-7 carry less biological signal than edges at d=3-5, regardless of local context.
+
+4. **Mean pairwise distances within MCL clusters are 6-8** — many within-cluster pairs are near the d=7 threshold, confirming these are weak edges.
+
+5. **50 kbp is marginal** — workable with MCL at high inflation (best communities at 4 pp), but the inconsistency across communities and the high fraction of near-threshold edges make it less reliable than 100 kbp. This confirms the nn1 sweep finding that 50 kbp sits at the knee, not in the safe zone.
+
+### Conclusion
+
+100 kbp remains the best tested length threshold for this dataset and embedding model. 50 kbp provides 3× more sequences (461K vs 154K) but at the cost of cluster quality and consistency. The tradeoff is not worth it: 154K sequences at 100 kbp provides ample data for robust community analysis with clean GC spans.
 
 ### Remaining action items
 
