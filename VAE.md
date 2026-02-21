@@ -1609,4 +1609,22 @@ The 100 kbp filter on NCBI made almost no difference. NCBI already has median 37
 
 **NCBI_100 observation**: Confirms that the NCBI model family is robust. Whether trained on 656K (>= 5 kbp) or 175K (>= 100 kbp) sequences, performance is essentially identical. This further supports the finding that taxonomic breadth matters more than sample count — both models see the same ~20K reference genomes, just with different length filtering.
 
-**Next step**: Generate embeddings from NCBI_5 encoder on SFE_SE 100 kbp data, build kNN graph, run MCL, and compare GC spans to the existing SFE_SE_5 clustering results.
+### NCBI_100 as test set
+
+Tested models against kmers_NCBI_100.npy (175K NCBI sequences >= 100 kbp) to see if filtering NCBI by length changes the picture:
+
+| Model | NCBI_5 test | NCBI_100 test |
+|---|---|---|
+| **SFE_SE_5** | **0.946** | **0.947** |
+| NCBI_5 | 0.934 | 0.925 |
+| NCBI_100 | 0.919 | 0.910 |
+
+Same pattern — SFE_SE_5 dominates on NCBI regardless, all scores 0.91-0.95. NCBI genomes remain trivially easy to organize no matter how you slice them.
+
+### Model selection summary
+
+SFE_SE_5 wins across the board *except* on 100 kbp marine data, where NCBI_5 has a large edge (0.836 vs 0.766). Since the clustering pipeline operates on long marine contigs (>= 100 kbp), that's the most relevant test set — and there NCBI_5 leads.
+
+However, Spearman might not predict clustering GC span quality, just as reconstruction loss didn't predict Spearman. The real test is to run NCBI_5 through the actual clustering pipeline on 100 kbp marine data and compare GC spans against the existing SFE_SE_5 results (clustering_100.ipynb).
+
+**Next step**: Clustering comparison — NCBI_5 vs SFE_SE_5 on 100 kbp marine data, evaluated by GC span.
