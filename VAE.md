@@ -1218,18 +1218,19 @@ Measured Spearman on SFE_SE_5 test data (50K sample) at multiple points during t
 | 18:38 | ~180 | 0.737 | -0.047 |
 | 18:50 | ~250 | 0.710 | -0.027 |
 | 19:03 | ~330 | 0.689 | -0.021 |
+| 19:38 | ~540 | 0.671 | -0.018 |
 
-(Epoch estimates approximate — ~10 sec/epoch, timestamps are wall clock.)
+(Epoch estimates approximate — ~10 sec/epoch, timestamps are wall clock. Note: Top-1 MSE also started degrading by epoch ~540: 0.142 vs 0.124 at epoch ~115.)
 
 **Key observations**:
 
 1. **Spearman declines monotonically while val loss improves.** The `vae_encoder_best.keras` checkpoint keeps being overwritten as val loss decreases, but each new checkpoint has worse Spearman on marine data. This is the "reconstruction loss doesn't predict embedding quality" finding observed in real time.
 
-2. **Top-1 neighbor MSE stays flat (~0.127-0.129) while deeper neighbors (Top 50) degrade.** The model maintains nearest-neighbor quality but loses broader latent structure — the local geometry is okay but the global organization is deteriorating.
+2. **Top-1 neighbor MSE initially stayed flat (~0.124-0.129) but eventually degraded too (0.142 by epoch ~540).** Deep neighbors (Top 50) degraded earlier and faster (0.175 → 0.219). The NCBI accommodation first disrupts global structure, then eventually erodes local neighborhoods as well.
 
 3. **The decline is the NCBI accommodation effect.** At epoch ~115, the model hadn't yet learned to represent NCBI sequences well — it was essentially still a marine-focused model. As training progresses, the encoder increasingly allocates latent space capacity to the NCBI manifold, diluting marine neighborhood structure. This is the same mechanism that made augmented models (0.644-0.702) worse than SFE_SE models (0.847), observed gradually rather than comparing endpoints.
 
-4. **The trajectory suggests convergence toward augmented-model territory (0.65-0.70)** rather than near SFE_SE_5 (0.847). Even at 14% NCBI (vs 61-65% FD+NCBI in augmented), the dilution effect is substantial.
+4. **The trajectory is converging toward augmented-model territory (0.65-0.70)** as predicted. Deltas are shrinking (-0.047, -0.027, -0.021, -0.018), suggesting a floor around 0.65-0.67. Even at 14% NCBI (vs 61-65% FD+NCBI in augmented), the dilution effect is substantial.
 
 5. **Implication: a Spearman-aware early stopping criterion would have frozen at epoch ~115.** But this is impractical — it requires an expensive evaluation on held-out data at every checkpoint.
 
@@ -1286,3 +1287,20 @@ FD (Microflora Danica) is aquatic + soil metagenome data — more heterogeneous 
 **FD (Microflora Danica)** is a metagenomic survey of Danish aquatic and soil environments. While some aquatic organisms overlap with marine taxa, soil microbiomes have fundamentally different community compositions — different GC distributions, different dominant phyla (Actinobacteria, Acidobacteria in soil vs Proteobacteria, Bacteroidetes in marine). The k-mer frequency profiles of soil organisms occupy a different region of k-mer space than marine organisms.
 
 **The paradox resolves**: NCBI is taxonomically diverse but *includes* marine organisms, while FD is environmentally diverse in ways that *diverge* from marine. A curated reference collection that spans the tree of life is a better neighbor to any specific environment than a grab-bag from a different environment. This also explains why adding FD+NCBI together (augmented models) was so much more damaging than NCBI alone — FD contributed the bulk of the foreign data (~8M of ~8.7M non-marine sequences) and its soil/freshwater manifold is the primary source of latent space dilution.
+
+### Exploratory: Spearman on 100 kbp-filtered marine data
+
+Extracted the 154,040 sequences >= 100 kbp from `kmers_SFE_SE_5.npy` and ran verify_local_distances with the SFE_SE_5 encoder.
+
+| Test data | Sequences | Spearman | Pearson | Top-1 MSE | Random MSE |
+|---|---|---|---|---|---|
+| SFE_SE_5 (all >= 5 kbp) | 50,000 sample | 0.847 | — | 0.124 | 0.495 |
+| SFE_SE_100 (>= 100 kbp) | 15,404 sample | 0.766 | 0.421 | 0.020 | 0.334 |
+
+Spearman is *lower* on 100 kbp data (0.766 vs 0.847) despite 100 kbp producing the best clustering results. This is not contradictory — it reflects the difficulty of the ranking task, not the quality of the embedding:
+
+- **Top-1 MSE is 6x lower** (0.020 vs 0.124): 100 kbp sequences are much more similar to each other in k-mer space, making the relative ranking of neighbors harder (smaller differences, more noise).
+- **Smaller sample**: only 15,404 sequences encoded (10% of 154K), producing a sparser neighbor pool.
+- **Lower random baseline** (0.334 vs 0.495): confirms the 100 kbp sequences occupy a tighter region of k-mer space.
+
+The Spearman metric measures how well the model *rank-orders* neighbors. When all neighbors are already very similar, small perturbations in ranking are penalized but don't affect clustering quality. This is exploratory only — the clustering GC span validation remains the more relevant quality measure for length-filtered subsets.
