@@ -1446,4 +1446,61 @@ Same declining pattern as SFE_SE_NCBI_5 — starts strong, declines as the model
 
 ### Generated kmers_100.npy (augmented, >= 100 kbp)
 
-Extracted 844,705 sequences >= 100 kbp from `kmers_5.npy` (all four sources: FD + NCBI + SFE + SE) with matching `ids_100.txt`. 8.8 GB. This is 5.5x more sequences than SFE_SE_100 (154K) and includes NCBI's taxonomic breadth plus FD's soil/aquatic diversity. Will train Run_100 to test whether the "mixing hurts" pattern holds when all sequences are long.
+Extracted 844,705 sequences >= 100 kbp from `kmers_5.npy` (all four sources: FD + NCBI + SFE + SE) with matching `ids_100.txt`. 8.8 GB. This is 5.5x more sequences than SFE_SE_100 (154K) and includes NCBI's taxonomic breadth plus FD's soil/aquatic diversity.
+
+### Run_100 — first results challenge the mixing hypothesis
+
+Early Spearman on SFE_SE_5 marine data: **0.845** — matching SFE_SE_5 (0.847) despite containing all four sources including FD.
+
+| Time | SFE_SE_5 Spearman |
+|---|---|
+| 21:49 | 0.845 |
+
+**This challenges the "mixing distributions hurts" narrative.** Run_100 mixes FD+NCBI+SFE+SE — the same combination that produced the worst augmented models (0.644-0.702) — yet it's performing on par with the best model. The only difference is the 100 kbp length filter.
+
+### Revised hypothesis: sequence length, not source mixing
+
+Re-examining the evidence:
+
+| Model | Sources | Length filter | Marine Spearman |
+|---|---|---|---|
+| SFE_SE_5 | SFE+SE | >= 5 kbp | **0.847** |
+| **Run_100** | **FD+NCBI+SFE+SE** | **>= 100 kbp** | **0.845** |
+| NCBI_5 | NCBI only | >= 5 kbp (median 37 kbp) | 0.831 |
+| SFE_SE_100 | SFE+SE | >= 100 kbp | 0.797 |
+| Run_3 (augmented) | FD+NCBI+SFE+SE | >= 3 kbp | 0.702 |
+| SFE_SE_NCBI_5 | SFE+SE+NCBI | >= 5 kbp | 0.662 |
+| Run_5 (augmented) | FD+NCBI+SFE+SE | >= 5 kbp | 0.644 |
+
+The common factor in the failures is not source mixing — it's having short sequences in the training set. Run_100 has all four sources including FD, yet matches SFE_SE_5. The augmented runs (Run_3, Run_5) used the same sources but with short sequences dominating (median ~13 kbp).
+
+Short metagenomic contigs have noisier k-mer profiles because there are fewer k-mers to count. Training on millions of noisy short sequences may teach the model to accommodate noise, degrading the latent space structure. The length filter removes this noise, and then source diversity doesn't matter — or may even help by providing broader taxonomic coverage.
+
+**The original "training data composition > quantity" finding may actually be "training data quality (length) > quantity".** Source mixing was a confound because different sources have different length distributions. FD adds millions of short contigs that degrade the model.
+
+**Key test**: If Run_100 holds at ~0.845 as training continues (doesn't decline like SFE_SE_NCBI_5 did), that confirms source mixing is not the problem — sequence length is. Still early; need to keep tracking.
+
+Run_100 tracking update:
+
+| Time | SFE_SE_5 Spearman | Delta |
+|---|---|---|
+| 21:49 | 0.845 | — |
+| 21:53 | 0.826 | -0.019 |
+
+Declining — same pattern as other models. Still too early to determine the floor. Run_100 does contain FD, so this could be FD's soil/freshwater data or the model specializing for 100 kbp and losing generalization to shorter sequences.
+
+### Puzzle resolved: SFE_SE_NCBI_5 is a length mismatch, not a source mixing effect
+
+The earlier "remaining puzzle" — why SFE_SE_NCBI_5 (0.662) performed worse than SFE_SE_5 (0.847) despite only adding 14% NCBI — is explained by length distribution mismatch. NCBI has median 37 kbp vs SFE_SE's median 13 kbp. Combining them creates a bimodal length distribution. The model has to simultaneously serve short noisy sequences and long clean ones, and the conflicting gradients degrade the latent space for both.
+
+The same logic explains why the original augmented models (Run_1-5, Spearman 0.644-0.702) were bad — FD adds millions of short contigs alongside NCBI's longer genomes, creating even more length heterogeneity.
+
+### Revised core finding: homogeneous length distribution is what matters
+
+The picture simplifies:
+
+- **All-short works**: SFE_SE_5 (median 13 kbp) → 0.847
+- **All-long works**: NCBI_5 (median 37 kbp) → 0.831, Run_100 (all >= 100 kbp) → 0.845 early
+- **Mixed lengths hurts**: SFE_SE_NCBI_5 (13 kbp + 37 kbp bimodal) → 0.662, augmented runs (mixed) → 0.644-0.702
+
+Source identity doesn't matter — source mixing was a confound for length mixing. The earlier "training data composition > quantity" finding should be reframed as **"training data length homogeneity > quantity"**.
