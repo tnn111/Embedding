@@ -1219,6 +1219,9 @@ Measured Spearman on SFE_SE_5 test data (50K sample) at multiple points during t
 | 18:50 | ~250 | 0.710 | -0.027 |
 | 19:03 | ~330 | 0.689 | -0.021 |
 | 19:38 | ~540 | 0.671 | -0.018 |
+| 19:47 | ~590 | 0.662 | -0.009 |
+| 19:55 | ~640 | 0.668 | +0.006 |
+| 20:06 | ~710 | 0.658 | -0.010 |
 
 (Epoch estimates approximate — ~10 sec/epoch, timestamps are wall clock. Note: Top-1 MSE also started degrading by epoch ~540: 0.142 vs 0.124 at epoch ~115.)
 
@@ -1230,7 +1233,7 @@ Measured Spearman on SFE_SE_5 test data (50K sample) at multiple points during t
 
 3. **The decline is the NCBI accommodation effect.** At epoch ~115, the model hadn't yet learned to represent NCBI sequences well — it was essentially still a marine-focused model. As training progresses, the encoder increasingly allocates latent space capacity to the NCBI manifold, diluting marine neighborhood structure. This is the same mechanism that made augmented models (0.644-0.702) worse than SFE_SE models (0.847), observed gradually rather than comparing endpoints.
 
-4. **The trajectory is converging toward augmented-model territory (0.65-0.70)** as predicted. Deltas are shrinking (-0.047, -0.027, -0.021, -0.018), suggesting a floor around 0.65-0.67. Even at 14% NCBI (vs 61-65% FD+NCBI in augmented), the dilution effect is substantial.
+4. **Converged to augmented-model territory** as predicted. After epoch ~540, Spearman bounces in the 0.658-0.671 range (mean ~0.665). This is between augmented Run_3 (0.702) and Run_5 (0.644), remarkable given NCBI is only 14% of training data vs 61-65% foreign data in augmented models. The dilution effect is highly non-linear — even a small fraction of out-of-domain data causes disproportionate damage.
 
 5. **Implication: a Spearman-aware early stopping criterion would have frozen at epoch ~115.** But this is impractical — it requires an expensive evaluation on held-out data at every checkpoint.
 
