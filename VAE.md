@@ -1402,3 +1402,44 @@ Note: NCBI has a min of 1,006 bp despite the 5 kbp threshold — likely small co
 ### Generated kmers_SFE_SE_100.npy
 
 Extracted 154,040 sequences >= 100 kbp from `kmers_SFE_SE_5.npy` with matching `ids_SFE_SE_100.txt`. Row order matches the source files. Previous `ids_SFE_SE_100.txt` (from notebooks) had same count but different ordering — backed up as `.bak`.
+
+### Run_SFE_SE_100 — marine-only, long sequences only
+
+Training on `kmers_SFE_SE_100.npy` (154,040 sequences >= 100 kbp).
+
+Live Spearman tracking on SFE_SE_5 full marine data (50K sample):
+
+| Time | SFE_SE_5 Spearman | Delta |
+|---|---|---|
+| 21:30 | 0.846 | — |
+| 21:32 | 0.816 | -0.030 |
+| 21:34 | 0.805 | -0.011 |
+| **21:36 (final)** | **0.797** | **-0.008** |
+
+SFE_SE_100 Spearman (final): **0.804**
+
+Same declining pattern as SFE_SE_NCBI_5 — starts strong, declines as the model specializes. Trains very fast with only 154K sequences.
+
+### Complete cross-model comparison (final results)
+
+| Model | Training data | N seqs | SFE_SE_5 Spearman | SFE_SE_100 Spearman | NCBI Spearman |
+|---|---|---|---|---|---|
+| **SFE_SE_5** | Marine >= 5 kbp | 4.8M | **0.847** | 0.766 | 0.946 |
+| NCBI_5 | NCBI RefSeq (~20K genomes) | 656K | 0.831 | **0.836** | 0.934 |
+| SFE_SE_100 | Marine >= 100 kbp | 154K | 0.797 | 0.804 | (not tested) |
+| SFE_SE_NCBI_5 | Marine + NCBI | 5.4M | 0.662 | (not tested) | 0.946 |
+| Augmented (Run_3) | FD+NCBI+SFE+SE | 13.4M | 0.702 | (not tested) | (not tested) |
+
+**Key observations:**
+
+1. **SFE_SE_5 remains the best model for full marine data** (0.847) and the overall best choice.
+
+2. **NCBI_5 is the best model for 100 kbp marine data** (0.836), beating even SFE_SE_100 which was trained on that exact data (0.804). This is because NCBI has 4x more sequences from much broader taxonomy — the taxonomic diversity matters more than domain matching for long sequences.
+
+3. **SFE_SE_100 underperforms despite training on the "right" data.** With only 154K sequences, it lacks taxonomic diversity — 100 kbp contigs are a narrow slice (3.3% of SFE_SE_5), likely over-representing a few abundant, long-genome organisms.
+
+4. **The mixed model (SFE_SE_NCBI_5) is the worst of the lot** (0.662), despite having the most total data (5.4M) and including both marine and NCBI sequences. Mixing distributions during training is actively harmful.
+
+5. **Sample count matters less than expected for VAEs.** The reparameterization trick means each forward pass samples a different z from the latent distribution, so the model effectively sees different inputs each time — the same sequence never produces the exact same training signal twice. The 154K → 0.797 result is about insufficient *taxonomic diversity*, not insufficient samples for the ~7M parameter count.
+
+6. **Taxonomic breadth is the key variable.** NCBI_5 succeeds with only 656K sequences because ~20K reference genomes span the tree of life, giving the encoder a broad view of how k-mer space is structured. SFE_SE_5 succeeds with 4.8M sequences because the marine metagenome is naturally diverse. SFE_SE_100 fails with 154K sequences because it's a taxonomically narrow subset.
