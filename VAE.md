@@ -1307,3 +1307,19 @@ Spearman is *lower* on 100 kbp data (0.766 vs 0.847) despite 100 kbp producing t
 - **Lower random baseline** (0.334 vs 0.495): confirms the 100 kbp sequences occupy a tighter region of k-mer space.
 
 The Spearman metric measures how well the model *rank-orders* neighbors. When all neighbors are already very similar, small perturbations in ranking are penalized but don't affect clustering quality. This is exploratory only — the clustering GC span validation remains the more relevant quality measure for length-filtered subsets.
+
+### Why not train on NCBI alone?
+
+1. **NCBI is easy to organize no matter what.** Spearman 0.946 on NCBI whether the model was trained on it or not. The problem we're solving isn't "how to organize NCBI" — it's "how to organize marine metagenomic fragments." NCBI-only training would optimize for the easy problem while ignoring the hard one.
+
+2. **The dilution effect would be maximized.** Adding 14% NCBI to marine training data dropped marine Spearman from 0.847 to 0.665. A 100% NCBI model would be maximally foreign to the marine data. Metagenomic contigs are fundamentally different from complete reference genomes — shorter, noisier k-mer profiles, many from novel organisms with no close RefSeq representative.
+
+3. **NCBI is small.** Only 656K sequences at the 5K threshold vs 4.8M for SFE_SE. Fewer training examples means less exposure to the diversity of k-mer neighborhoods that exist in the real data we care about.
+
+4. **The asymmetry is the key insight.** NCBI → marine transfer is hard (reference genomes don't teach you about metagenomic fragment structure). Marine → NCBI transfer is free (the encoder already handles it perfectly). Train on the hard domain and get the easy one for free.
+
+**Bottom line**: The frozen SFE_SE_5 encoder gives us 0.847 on marine data AND 0.946 on NCBI. No model we could train would beat both numbers simultaneously.
+
+### Planned: Run_NCBI_5 — NCBI-only model for completeness
+
+Will train a model on `kmers_NCBI_5.npy` (655,640 sequences) after Run_SFE_SE_NCBI_5 finishes. Prediction: it will score ~0.946 on NCBI (same as every other model) and poorly on marine data (worse than augmented models, since those at least included SFE+SE in training). This closes the loop empirically rather than relying on inference from the dilution pattern.
