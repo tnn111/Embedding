@@ -1222,8 +1222,11 @@ Measured Spearman on SFE_SE_5 test data (50K sample) at multiple points during t
 | 19:47 | ~590 | 0.662 | -0.009 |
 | 19:55 | ~640 | 0.668 | +0.006 |
 | 20:06 | ~710 | 0.658 | -0.010 |
+| 20:19 | ~790 | 0.662 | +0.004 |
+| 20:27 | ~840 | 0.662 | 0.000 |
+| **20:49** | **final (1000)** | **0.662** | **0.000** |
 
-(Epoch estimates approximate — ~10 sec/epoch, timestamps are wall clock. Note: Top-1 MSE also started degrading by epoch ~540: 0.142 vs 0.124 at epoch ~115.)
+(Epoch estimates approximate — ~10 sec/epoch, timestamps are wall clock. Training completed at 1000 epochs. Final Spearman 0.662 on marine data. Note: Top-1 MSE also started degrading by epoch ~540: 0.142 vs 0.124 at epoch ~115.)
 
 **Key observations**:
 
@@ -1260,7 +1263,7 @@ Tested Spearman on NCBI-only data (`kmers_NCBI_5.npy`, 655,640 sequences, 50K sa
 
 | Test data | SFE_SE_5 Spearman | SFE_SE_NCBI_5 Spearman | Delta |
 |---|---|---|---|
-| SFE_SE (marine) | 0.847 | 0.689 (and declining) | -0.158 |
+| SFE_SE (marine) | 0.847 | 0.662 (final) | -0.185 |
 | NCBI (reference genomes) | 0.946 | 0.946 | 0.000 |
 
 **Conclusion: Training on NCBI costs ~0.16 Spearman on marine data while providing zero benefit for NCBI organization.** The k-mer frequency representation transfers perfectly — the encoder learns a general mapping from k-mer space to latent space, and NCBI genomes are easy to separate regardless of training data.
