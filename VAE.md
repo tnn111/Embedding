@@ -1551,6 +1551,62 @@ Final Spearman across all test sets:
 1. **SFE_SE_5 remains the best model** for full marine data (0.847). No other model beat it.
 2. **Mixing length distributions is the primary damage mechanism**, not mixing sources. Run_100 (all 4 sources, all long) scores 0.784 — far above augmented models with the same sources but mixed lengths (0.644-0.702).
 3. **NCBI_5 is surprisingly good** (0.831 marine, 0.836 on 100 kbp marine) from only ~20K reference genomes. Taxonomic breadth compensates for small sample size.
-4. **Training on NCBI adds zero value for NCBI organization** — all models score 0.93-0.95 on NCBI regardless.
+4. **Training on NCBI adds zero value for NCBI organization** — all models score 0.93-0.95 on NCBI regardless. This is likely because NCBI RefSeq *representative* genomes were curated to be taxonomically distinct — they occupy well-separated regions of k-mer space by design. Any reasonable encoder preserves their ordering because there's huge distance between them. Marine metagenomic contigs are the opposite: dense, overlapping, from closely related organisms in the same environment. That's the hard discrimination problem, and that's why model choice matters for marine data but not for NCBI.
 5. **Frozen SFE_SE_5 encoder + NCBI projection** is the optimal strategy for taxonomic signposts: best marine embedding AND best NCBI organization, zero retraining cost.
 6. **VAE sample count is less important than taxonomic diversity**, because the reparameterization trick effectively augments training data. The 154K-sequence SFE_SE_100 model (0.797) failed not from too few samples but from too narrow a taxonomic slice.
+
+### Which model to use? — Open question
+
+On 100 kbp marine data (what our clustering pipeline uses): NCBI_5 (0.836) >> SFE_SE_5 (0.766). On full marine data: SFE_SE_5 (0.847) > NCBI_5 (0.831).
+
+However, we've learned that one metric doesn't predict another — reconstruction loss didn't predict Spearman, and Spearman might not predict clustering GC span quality. The real test is to run NCBI_5 through the actual clustering pipeline on 100 kbp marine data and compare GC spans against the SFE_SE_5 results we already have (clustering_100.ipynb). That's the metric we actually care about.
+
+### Run_NCBI_100
+
+Trained on 175,213 NCBI RefSeq sequences >= 100 kbp (vs NCBI_5's 656K with >= 5 kbp threshold).
+
+Spearman tracking on SFE_SE_5 marine data:
+
+| Time | SFE_SE_5 Spearman | Delta |
+|---|---|---|
+| 22:36 | 0.839 | — |
+| 22:38 | 0.837 | -0.002 |
+| 22:40 | 0.836 | -0.001 |
+| **22:42 (final)** | **0.836** | **0.000** |
+
+Very stable — almost no decline at all.
+
+Final Spearman across all test sets:
+
+| Test data | NCBI_100 Spearman |
+|---|---|
+| SFE_SE_5 (full marine) | 0.836 |
+| SFE_SE_100 (marine >= 100 kbp) | 0.832 |
+| NCBI_5 (reference genomes) | 0.919 |
+
+**Comparison with NCBI_5:**
+
+| Test data | NCBI_5 | NCBI_100 | Delta |
+|---|---|---|---|
+| SFE_SE_5 (full marine) | 0.831 | 0.836 | +0.005 |
+| SFE_SE_100 (marine >= 100 kbp) | 0.836 | 0.832 | -0.004 |
+| NCBI_5 (reference genomes) | 0.934 | 0.919 | -0.015 |
+
+The 100 kbp filter on NCBI made almost no difference. NCBI already has median 37 kbp, so filtering to >= 100 kbp just removes the shorter tail (175K of 656K sequences retained = 26.7%) without changing the character of the training set. The slight NCBI score drop (0.934 → 0.919) makes sense: training on fewer NCBI sequences means slightly less exposure to the NCBI distribution, but this barely matters since NCBI genomes are well-separated by design.
+
+### Updated cross-model comparison (all final results, 2026-02-20)
+
+| Model | Training data | N seqs | SFE_SE_5 | SFE_SE_100 | NCBI | Own data |
+|---|---|---|---|---|---|---|
+| **SFE_SE_5** | Marine >= 5 kbp | 4.8M | **0.847** | 0.766 | **0.946** | — |
+| NCBI_5 | NCBI RefSeq >= 5 kbp | 656K | 0.831 | **0.836** | 0.934 | — |
+| NCBI_100 | NCBI RefSeq >= 100 kbp | 175K | 0.836 | 0.832 | 0.919 | — |
+| SFE_SE_100 | Marine >= 100 kbp | 154K | 0.797 | 0.804 | — | — |
+| Run_100 | All sources >= 100 kbp | 845K | 0.784 | 0.798 | 0.894 | 0.788 |
+| SFE_SE_NCBI_5 | Marine + NCBI (mixed lengths) | 5.4M | 0.662 | — | 0.946 | — |
+| Run_3 (augmented) | All sources >= 3 kbp (mixed lengths) | 13.4M | 0.702 | — | — | — |
+| Run_5 (augmented) | All sources >= 5 kbp (mixed lengths) | 13.4M | 0.644 | — | — | — |
+
+**NCBI_100 observation**: Confirms that the NCBI model family is robust. Whether trained on 656K (>= 5 kbp) or 175K (>= 100 kbp) sequences, performance is essentially identical. This further supports the finding that taxonomic breadth matters more than sample count — both models see the same ~20K reference genomes, just with different length filtering.
+
+**Next step**: Generate embeddings from NCBI_5 encoder on SFE_SE 100 kbp data, build kNN graph, run MCL, and compare GC spans to the existing SFE_SE_5 clustering results.
