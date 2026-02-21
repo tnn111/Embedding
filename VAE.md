@@ -1188,3 +1188,9 @@ The additional FD and NCBI data forces the model to spread its 384-dimensional l
 - Replaced all "base" terminology with "augmented" across VAE.md, Claude_Notes.md, and CLAUDE.md.
 - Updated CLAUDE.md with current paths and ChromaDB L2 recommendation.
 - Updated Claude_Notes.md: replaced stale "In Progress" section with current training parameters.
+
+---
+
+## 2026-02-20: concatenate_matrices NumPy 2.x fix
+
+`np.lib.format._read_array_header` (private API) was removed in NumPy 2.x. Replaced with the public `read_array_header_1_0` / `read_array_header_2_0` selected by format version.
