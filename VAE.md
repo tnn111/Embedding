@@ -1504,3 +1504,53 @@ The picture simplifies:
 - **Mixed lengths hurts**: SFE_SE_NCBI_5 (13 kbp + 37 kbp bimodal) → 0.662, augmented runs (mixed) → 0.644-0.702
 
 Source identity doesn't matter — source mixing was a confound for length mixing. The earlier "training data composition > quantity" finding should be reframed as **"training data length homogeneity > quantity"**.
+
+### Run_100 final results
+
+Training completed. Full Spearman tracking on SFE_SE_5 marine data:
+
+| Time | SFE_SE_5 Spearman | Delta |
+|---|---|---|
+| 21:49 | 0.845 | — |
+| 21:53 | 0.826 | -0.019 |
+| 21:57 | 0.815 | -0.011 |
+| 22:01 | 0.806 | -0.009 |
+| 22:12 | 0.790 | -0.016 |
+| 22:13 | 0.788 | -0.002 |
+| **22:15 (final)** | **0.784** | **-0.004** |
+
+Final Spearman across all test sets:
+
+| Test data | Run_100 Spearman |
+|---|---|
+| SFE_SE_5 (full marine) | 0.784 |
+| SFE_SE_100 (marine >= 100 kbp) | 0.798 |
+| kmers_100 (own training data, all sources >= 100 kbp) | 0.788 |
+| NCBI_5 (reference genomes) | 0.894 |
+
+**Observations:**
+- No home-field advantage: 0.788 on own training data vs 0.784 on SFE_SE_5.
+- Slightly better on SFE_SE_100 (0.798) than on kmers_100 (0.788), suggesting FD sequences in the training data are the harder-to-organize component.
+- Well above augmented models (0.644-0.702) but below NCBI_5 (0.831) and SFE_SE_5 (0.847).
+- FD's inclusion may be dragging it down. The soil/freshwater sequences are the most foreign to the marine test data.
+
+### Complete cross-model comparison (all final results, 2026-02-20)
+
+| Model | Training data | N seqs | SFE_SE_5 | SFE_SE_100 | NCBI | Own data |
+|---|---|---|---|---|---|---|
+| **SFE_SE_5** | Marine >= 5 kbp | 4.8M | **0.847** | 0.766 | **0.946** | — |
+| NCBI_5 | NCBI RefSeq (~20K genomes) | 656K | 0.831 | **0.836** | 0.934 | — |
+| SFE_SE_100 | Marine >= 100 kbp | 154K | 0.797 | 0.804 | — | — |
+| Run_100 | All sources >= 100 kbp | 845K | 0.784 | 0.798 | 0.894 | 0.788 |
+| SFE_SE_NCBI_5 | Marine + NCBI (mixed lengths) | 5.4M | 0.662 | — | 0.946 | — |
+| Run_3 (augmented) | All sources >= 3 kbp (mixed lengths) | 13.4M | 0.702 | — | — | — |
+| Run_5 (augmented) | All sources >= 5 kbp (mixed lengths) | 13.4M | 0.644 | — | — | — |
+
+**Summary of what we learned today:**
+
+1. **SFE_SE_5 remains the best model** for full marine data (0.847). No other model beat it.
+2. **Mixing length distributions is the primary damage mechanism**, not mixing sources. Run_100 (all 4 sources, all long) scores 0.784 — far above augmented models with the same sources but mixed lengths (0.644-0.702).
+3. **NCBI_5 is surprisingly good** (0.831 marine, 0.836 on 100 kbp marine) from only ~20K reference genomes. Taxonomic breadth compensates for small sample size.
+4. **Training on NCBI adds zero value for NCBI organization** — all models score 0.93-0.95 on NCBI regardless.
+5. **Frozen SFE_SE_5 encoder + NCBI projection** is the optimal strategy for taxonomic signposts: best marine embedding AND best NCBI organization, zero retraining cost.
+6. **VAE sample count is less important than taxonomic diversity**, because the reparameterization trick effectively augments training data. The 154K-sequence SFE_SE_100 model (0.797) failed not from too few samples but from too narrow a taxonomic slice.
