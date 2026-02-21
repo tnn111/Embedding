@@ -1323,6 +1323,82 @@ The Spearman metric measures how well the model *rank-orders* neighbors. When al
 
 **Bottom line**: The frozen SFE_SE_5 encoder gives us 0.847 on marine data AND 0.946 on NCBI. No model we could train would beat both numbers simultaneously.
 
-### Planned: Run_NCBI_5 — NCBI-only model for completeness
+### Run_NCBI_5 — NCBI-only model for completeness
 
-Will train a model on `kmers_NCBI_5.npy` (655,640 sequences) after Run_SFE_SE_NCBI_5 finishes. Prediction: it will score ~0.946 on NCBI (same as every other model) and poorly on marine data (worse than augmented models, since those at least included SFE+SE in training). This closes the loop empirically rather than relying on inference from the dilution pattern.
+Training started after Run_SFE_SE_NCBI_5 completed. Dataset: `kmers_NCBI_5.npy` (655,640 contigs from ~20K RefSeq representative genomes).
+
+**Original prediction**: ~0.946 on NCBI (same as every other model) and poorly on marine data (worse than augmented models, since those at least included SFE+SE in training).
+
+**Actual result — prediction was wrong:**
+
+Live Spearman tracking on SFE_SE_5 marine data (50K sample) during training:
+
+| Time | Spearman |
+|---|---|
+| 20:57 | 0.838 |
+| 20:59 | 0.832 |
+| 21:01 | 0.831 |
+| 21:04 | 0.830 |
+| 21:08 | 0.832 |
+| **21:13 (final)** | **0.831** |
+
+NCBI Spearman (final): **0.934** (vs 0.946 for SFE_SE_5 which never saw NCBI).
+
+**The NCBI-only model scores 0.831 on marine data it has never seen.** This is:
+- Nearly as good as SFE_SE_5 (0.847) — only 0.015 lower
+- Far better than SFE_SE_NCBI_5 (0.662) — despite NCBI_5 having *less* relevant training data
+- Far better than all augmented models (0.644-0.702) — which included SFE+SE in training
+- Stable — no declining trajectory like SFE_SE_NCBI_5 showed
+
+**This is a surprising and important result.** A model trained on only ~20K reference genomes (655K contigs) organizes marine metagenomic data nearly as well as a model trained on 4.8M marine sequences. Yet *mixing* the same NCBI data with marine data (SFE_SE_NCBI_5) destroyed marine embedding quality (0.847 → 0.662).
+
+### The distribution mixing problem
+
+The results across all models now tell a consistent story:
+
+| Model | Training data | Marine Spearman | NCBI Spearman |
+|---|---|---|---|
+| SFE_SE_5 | 4.8M marine | **0.847** | 0.946 |
+| NCBI_5 | 656K NCBI (~20K genomes) | 0.831 | 0.934 |
+| SFE_SE_NCBI_5 | 4.8M marine + 656K NCBI | 0.662 | 0.946 |
+| Augmented (Run_3) | 13.4M mixed | 0.702 | (not tested) |
+| Augmented (Run_5) | 13.4M mixed | 0.644 | (not tested) |
+
+Note: NCBI_5 scores *slightly lower* on NCBI data (0.934) than SFE_SE_5 (0.946) which never saw NCBI. Training on NCBI doesn't even help organize NCBI — the smaller, less diverse training set (656K vs 4.8M) likely means the model has a less well-conditioned latent space overall.
+
+**The problem is not out-of-domain training data. The problem is mixing distributions.** Training on NCBI alone works. Training on SFE_SE alone works. Combining them destroys the marine embedding quality while providing no benefit for NCBI.
+
+However, "distribution mixing" may be the wrong framing — NCBI RefSeq is not a coherent distribution. It's a curated sample across the entire tree of life: independent isolate genomes from many different studies, with no shared environmental context or sequencing protocol. It's a distribution only in the sense that it's the best representative sample NCBI could assemble. The mechanism by which mixing hurts is not yet fully understood.
+
+### NCBI_5 on 100 kbp marine data
+
+| Model | SFE_SE_5 Spearman | SFE_SE_100 Spearman |
+|---|---|---|
+| SFE_SE_5 | 0.847 | 0.766 |
+| NCBI_5 | 0.831 | **0.836** |
+
+The NCBI model is *better* on long marine sequences (>= 100 kbp) than the marine-trained model, and doesn't show the drop from full → 100kbp that SFE_SE_5 does (stays flat: 0.831 → 0.836 vs SFE_SE_5's 0.847 → 0.766).
+
+This likely reflects a length distribution difference: NCBI RefSeq genomes are long, complete sequences — more similar to 100 kbp marine contigs than to the 5 kbp fragments that numerically dominate SFE_SE_5. The SFE_SE_5 model was optimized across its full length range, with short fragments dominating the gradient.
+
+### Length distributions: NCBI_5 vs SFE_SE_5
+
+| | NCBI_5 | SFE_SE_5 |
+|---|---|---|
+| Count | 655,640 | 4,776,770 |
+| Median | **37 kbp** | **13 kbp** |
+| Mean | 150 kbp | 26 kbp |
+| 5-10 kbp | 16.5% | 36.4% |
+| 10-50 kbp | 40.7% | 54.0% |
+| 50-100 kbp | 16.0% | 6.4% |
+| >= 100 kbp | **26.7%** | **3.3%** |
+
+NCBI sequences are dramatically longer — over a quarter are >= 100 kbp (complete or near-complete genomes), while SFE_SE is dominated by short metagenomic contigs (90% under 50 kbp, 36% in the 5-10 kbp bin).
+
+This confirms why NCBI_5 beats SFE_SE_5 on 100 kbp marine data (0.836 vs 0.766): the NCBI model was trained predominantly on long sequences, so it learned to organize that region of k-mer space well. The SFE_SE_5 model's gradient is dominated by the 90% of sequences under 50 kbp.
+
+Note: NCBI has a min of 1,006 bp despite the 5 kbp threshold — likely small contigs/chromosomes from multi-chromosome genomes where the genome-level filter passed but individual contigs are short.
+
+### Generated kmers_SFE_SE_100.npy
+
+Extracted 154,040 sequences >= 100 kbp from `kmers_SFE_SE_5.npy` with matching `ids_SFE_SE_100.txt`. Row order matches the source files. Previous `ids_SFE_SE_100.txt` (from notebooks) had same count but different ordering — backed up as `.bak`.
