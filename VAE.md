@@ -1194,3 +1194,95 @@ The additional FD and NCBI data forces the model to spread its 384-dimensional l
 ## 2026-02-20: concatenate_matrices NumPy 2.x fix
 
 `np.lib.format._read_array_header` (private API) was removed in NumPy 2.x. Replaced with the public `read_array_header_1_0` / `read_array_header_2_0` selected by format version.
+
+## 2026-02-20: Run_SFE_SE_NCBI_5 — adding taxonomic signposts
+
+Training a new model on SFE + SE + NCBI data (5K bp threshold). Created via:
+```
+concatenate_matrices --shuffle -i kmers_SFE_SE_5.npy kmers_NCBI_5.npy -id ids_SFE_SE_5.txt ids_NCBI.txt -o new_SFE_SE_NCBI_5
+```
+
+**Dataset**: 5,432,410 sequences (4,776,770 SFE_SE + 655,640 NCBI), ~14% NCBI.
+
+**Rationale**: NCBI RefSeq representative genomes are taxonomically labeled. If they embed near marine metagenomic clusters, they serve as "taxonomic signposts" — enabling biological interpretation of clusters (e.g., "this cluster is near *Pelagibacter*") rather than relying solely on GC span validation.
+
+**Risk**: The augmented models (FD + NCBI + SFE + SE) showed that adding non-marine data dilutes the latent space, dropping Spearman from 0.847 to 0.702. However, NCBI alone is much smaller (~656K vs ~8.7M for FD+NCBI) and taxonomically curated rather than a heterogeneous metagenome mix. The hypothesis is that this modest addition (~14% of training data) will preserve most of the SFE_SE embedding quality while gaining interpretability.
+
+### Live Spearman tracking during training
+
+Measured Spearman on SFE_SE_5 test data (50K sample) at multiple points during training:
+
+| Time | Approx Epoch | Spearman | Delta |
+|---|---|---|---|
+| 18:27 | ~115 | 0.784 | — |
+| 18:38 | ~180 | 0.737 | -0.047 |
+| 18:50 | ~250 | 0.710 | -0.027 |
+| 19:03 | ~330 | 0.689 | -0.021 |
+
+(Epoch estimates approximate — ~10 sec/epoch, timestamps are wall clock.)
+
+**Key observations**:
+
+1. **Spearman declines monotonically while val loss improves.** The `vae_encoder_best.keras` checkpoint keeps being overwritten as val loss decreases, but each new checkpoint has worse Spearman on marine data. This is the "reconstruction loss doesn't predict embedding quality" finding observed in real time.
+
+2. **Top-1 neighbor MSE stays flat (~0.127-0.129) while deeper neighbors (Top 50) degrade.** The model maintains nearest-neighbor quality but loses broader latent structure — the local geometry is okay but the global organization is deteriorating.
+
+3. **The decline is the NCBI accommodation effect.** At epoch ~115, the model hadn't yet learned to represent NCBI sequences well — it was essentially still a marine-focused model. As training progresses, the encoder increasingly allocates latent space capacity to the NCBI manifold, diluting marine neighborhood structure. This is the same mechanism that made augmented models (0.644-0.702) worse than SFE_SE models (0.847), observed gradually rather than comparing endpoints.
+
+4. **The trajectory suggests convergence toward augmented-model territory (0.65-0.70)** rather than near SFE_SE_5 (0.847). Even at 14% NCBI (vs 61-65% FD+NCBI in augmented), the dilution effect is substantial.
+
+5. **Implication: a Spearman-aware early stopping criterion would have frozen at epoch ~115.** But this is impractical — it requires an expensive evaluation on held-out data at every checkpoint.
+
+### Does the evaluation unfairly penalize the NCBI-augmented model?
+
+Considered whether filtering NCBI hits from neighbor lists would improve the Spearman score. Answer: **no, this is already what we do.** The 50K sample is drawn entirely from `kmers_SFE_SE_5.npy` — all neighbors in the Spearman calculation are already marine-to-marine. The problem isn't NCBI sequences appearing as false neighbors; it's that the **encoder itself** has reorganized the latent space to accommodate NCBI, pushing marine sequences around even though we only evaluate marine-to-marine distances.
+
+### NCBI Spearman: does training on NCBI help organize NCBI?
+
+Tested Spearman on NCBI-only data (`kmers_NCBI_5.npy`, 655,640 sequences, 50K sample) with both encoders:
+
+| Encoder | Trained on NCBI? | Spearman on NCBI | Pearson | Top-1 MSE |
+|---|---|---|---|---|
+| SFE_SE_NCBI_5 | Yes | 0.9460 | 0.7150 | 0.0364 |
+| SFE_SE_5 | No | 0.9456 | 0.9073 | 0.0351 |
+
+**Result: virtually identical Spearman (0.946 vs 0.946).** The SFE_SE_5 encoder organizes NCBI data just as well without ever having seen it. Training on NCBI buys nothing for NCBI organization.
+
+**Why NCBI Spearman is so high (0.946 vs 0.847 for marine):** NCBI RefSeq genomes are curated, complete, and taxonomically diverse — they're inherently more separable than metagenomic fragments. The Top-1 MSE (0.035-0.036) is also extremely low compared to marine data (~0.127). NCBI sequences are simply easier to organize in latent space regardless of training data.
+
+**Notable:** The Pearson correlation differs substantially (0.715 vs 0.907) even though Spearman is identical. This means the SFE_SE_NCBI_5 encoder preserves the rank ordering of NCBI neighbors but distorts the linearity of the distance relationship. The SFE_SE_5 encoder, despite never seeing NCBI, produces more linearly faithful distances.
+
+### Summary of SFE_SE_NCBI_5 experiment
+
+| Test data | SFE_SE_5 Spearman | SFE_SE_NCBI_5 Spearman | Delta |
+|---|---|---|---|
+| SFE_SE (marine) | 0.847 | 0.689 (and declining) | -0.158 |
+| NCBI (reference genomes) | 0.946 | 0.946 | 0.000 |
+
+**Conclusion: Training on NCBI costs ~0.16 Spearman on marine data while providing zero benefit for NCBI organization.** The k-mer frequency representation transfers perfectly — the encoder learns a general mapping from k-mer space to latent space, and NCBI genomes are easy to separate regardless of training data.
+
+This is the strongest evidence yet for the "training data composition > quantity" finding. Adding out-of-domain data doesn't just fail to help — it actively hurts, even at modest fractions (14% NCBI). The dilution effect is not proportional to the fraction of foreign data; even a small amount forces the encoder to allocate latent capacity to an unnecessary manifold.
+
+### Alternative approach: project NCBI through frozen SFE_SE_5 encoder
+
+Training on NCBI data is not necessary for taxonomic signposts. Instead, encode NCBI sequences through the existing SFE_SE_5 encoder without retraining. The k-mer frequency representation is shared — a *Pelagibacter* genome has similar k-mer structure whether it came from RefSeq or a metagenome. Wherever NCBI sequences land near marine clusters in latent space, that provides the taxonomic interpretation.
+
+**Advantages**:
+- Preserves the SFE_SE_5 embedding quality (Spearman 0.847)
+- NCBI organization is identical (Spearman 0.946 either way)
+- Zero training cost
+- Can add or remove reference genomes at any time without retraining
+
+**Confirmed**: The "risk" that unseen organisms might project to weird locations is empirically refuted — SFE_SE_5 handles NCBI just as well as a model trained on it.
+
+### Why not test FD data?
+
+FD (Microflora Danica) is aquatic + soil metagenome data — more heterogeneous and further from the marine domain than NCBI. Testing FD against SFE_SE_5 would likely show high Spearman (environmental DNA has similar k-mer structure), confirming what we already know: the encoder generalizes to unseen data. The more interesting test would be FD against augmented models that *were* trained on FD, to check if the same "training doesn't help" pattern holds — but that's a lot of evaluation for a data source not in the clustering pipeline. Low priority unless extending beyond marine metagenomes.
+
+### Why NCBI is closer to marine data than FD
+
+**NCBI RefSeq representative genomes** are complete, curated genomes from across the tree of life. Many marine organisms (or their close relatives) are in RefSeq — *Pelagibacter*, *Prochlorococcus*, *Synechococcus*, various *Roseobacter*, etc. These genomes share genuine evolutionary history with the organisms producing the marine metagenomic fragments. At the k-mer level, a RefSeq *Pelagibacter* genome and a metagenomic *Pelagibacter* contig have very similar frequency profiles because they're the same biology.
+
+**FD (Microflora Danica)** is a metagenomic survey of Danish aquatic and soil environments. While some aquatic organisms overlap with marine taxa, soil microbiomes have fundamentally different community compositions — different GC distributions, different dominant phyla (Actinobacteria, Acidobacteria in soil vs Proteobacteria, Bacteroidetes in marine). The k-mer frequency profiles of soil organisms occupy a different region of k-mer space than marine organisms.
+
+**The paradox resolves**: NCBI is taxonomically diverse but *includes* marine organisms, while FD is environmentally diverse in ways that *diverge* from marine. A curated reference collection that spans the tree of life is a better neighbor to any specific environment than a grab-bag from a different environment. This also explains why adding FD+NCBI together (augmented models) was so much more damaging than NCBI alone — FD contributed the bulk of the foreign data (~8M of ~8.7M non-marine sequences) and its soil/freshwater manifold is the primary source of latent space dilution.
