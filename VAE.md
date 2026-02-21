@@ -1443,3 +1443,7 @@ Same declining pattern as SFE_SE_NCBI_5 — starts strong, declines as the model
 5. **Sample count matters less than expected for VAEs.** The reparameterization trick means each forward pass samples a different z from the latent distribution, so the model effectively sees different inputs each time — the same sequence never produces the exact same training signal twice. The 154K → 0.797 result is about insufficient *taxonomic diversity*, not insufficient samples for the ~7M parameter count.
 
 6. **Taxonomic breadth is the key variable.** NCBI_5 succeeds with only 656K sequences because ~20K reference genomes span the tree of life, giving the encoder a broad view of how k-mer space is structured. SFE_SE_5 succeeds with 4.8M sequences because the marine metagenome is naturally diverse. SFE_SE_100 fails with 154K sequences because it's a taxonomically narrow subset.
+
+### Generated kmers_100.npy (augmented, >= 100 kbp)
+
+Extracted 844,705 sequences >= 100 kbp from `kmers_5.npy` (all four sources: FD + NCBI + SFE + SE) with matching `ids_100.txt`. 8.8 GB. This is 5.5x more sequences than SFE_SE_100 (154K) and includes NCBI's taxonomic breadth plus FD's soil/aquatic diversity. Will train Run_100 to test whether the "mixing hurts" pattern holds when all sequences are long.
