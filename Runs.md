@@ -40,10 +40,18 @@ Raising the minimum contig length from 1 kbp to 5 kbp removes ~23% of augmented 
 
 The FD + NCBI fraction (augmented minus SFE_SE) ranges from 10.7M (1K threshold) to 8.7M (5K threshold), representing 61-65% of each augmented dataset.
 
+### NCBI-Only Training Data
+
+| Dataset | Sequences | Columns | Size (GB) | Sources |
+|---------|-----------|---------|-----------|---------|
+| kmers_NCBI_5 (≥5 kbp) | 655,859 | 2,773 | 6.8 | NCBI RefSeq only |
+
+NCBI data comes from ~20,000 RefSeq representative genomes fragmented into contigs. Median contig length ~37 kbp.
+
 ### Data Sources
 
 - **FD**: Microflora Danica metagenomic contigs (aquatic and soil)
-- **NCBI**: NCBI RefSeq representative genomes (curated, taxonomically diverse)
+- **NCBI**: NCBI RefSeq representative genomes (~20K genomes, curated, taxonomically diverse)
 - **SFE**: San Francisco Estuary metagenomic contigs (marine)
 - **SE**: Baltic Sea metagenomic contigs (marine)
 
@@ -320,17 +328,96 @@ Combining augmented and SFE_SE models evaluated on SFE_SE test data:
 
 ---
 
-## 8. Summary and Recommendations
+## 8. Experimental Models (2026-02-20)
+
+### Motivation
+
+The original 10 models (5 augmented + 5 SFE_SE) established that SFE_SE_5 was the best marine embedder. Five additional models tested specific hypotheses about training data composition, particularly whether reference genomes or length-matched training data could improve performance on the 100 kbp clustering task.
+
+### Training Data
+
+| Model | Training Data | N Sequences | Description |
+|-------|--------------|-------------|-------------|
+| **NCBI_5** | NCBI RefSeq >= 5 kbp | 655,859 | ~20K reference genomes only |
+| NCBI_100 | NCBI RefSeq >= 100 kbp | 175,176 | Length-filtered reference genomes |
+| SFE_SE_100 | SFE + SE >= 100 kbp | 154,040 | Marine, matching evaluation domain |
+| Run_100 | All sources >= 100 kbp | ~845,000 | Broad + long sequences |
+| SFE_SE_NCBI_5 | SFE + SE + NCBI >= 5 kbp | ~5,400,000 | Marine + reference genomes |
+
+### Cross-Model Spearman Comparison (8 models x 4 test sets)
+
+| Model | Training data | N seqs | SFE_SE_5 test | SFE_SE_100 test | NCBI_5 test | Own data |
+|---|---|---|---|---|---|---|
+| **SFE_SE_5** | Marine >= 5 kbp | 4.8M | **0.847** | 0.766 | **0.946** | — |
+| **NCBI_5** | NCBI >= 5 kbp | 656K | 0.831 | **0.836** | 0.934 | — |
+| NCBI_100 | NCBI >= 100 kbp | 175K | 0.836 | 0.832 | 0.919 | — |
+| SFE_SE_100 | Marine >= 100 kbp | 154K | 0.797 | 0.804 | — | — |
+| Run_100 | All >= 100 kbp | 845K | 0.784 | 0.798 | 0.894 | 0.788 |
+| SFE_SE_NCBI_5 | Marine + NCBI >= 5 kbp | 5.4M | 0.662 | — | 0.946 | — |
+| Run_3 | All >= 3 kbp | 13.4M | 0.702 | — | — | — |
+| Run_5 | All >= 5 kbp | 13.4M | 0.644 | — | — | — |
+
+Test sets: SFE_SE_5 = full marine (4.8M seqs), SFE_SE_100 = marine >= 100 kbp (154K seqs), NCBI_5 = reference genomes >= 5 kbp (656K seqs).
+
+### NCBI_100 as Test Set
+
+| Model | NCBI_5 test | NCBI_100 test |
+|---|---|---|
+| **SFE_SE_5** | **0.946** | **0.947** |
+| NCBI_5 | 0.934 | 0.925 |
+| NCBI_100 | 0.919 | 0.910 |
+
+Filtering NCBI test data to >= 100 kbp changes nothing. All models score 0.91-0.95.
+
+### Key Findings
+
+1. **NCBI genomes are trivially easy to organize**: All models 0.89-0.95 on NCBI data, even SFE_SE_5 which never saw reference genomes.
+
+2. **Length homogeneity > source mixing**: NCBI_5 (median training length ~37 kbp) beats SFE_SE_5 (median ~8 kbp) on 100 kbp marine data (0.836 vs 0.766) despite never seeing marine sequences.
+
+3. **Mixing data sources can hurt**: SFE_SE_NCBI_5 (0.662) is worst despite 5.4M sequences from two complementary sources. Mixed length distributions create conflicting optimization targets.
+
+4. **Filtering NCBI by length doesn't help**: NCBI_5 (656K) ≈ NCBI_100 (175K). Both see the same ~20K genomes; length filtering just trims shorter contigs.
+
+5. **Spearman doesn't predict clustering quality**: The 0.070 Spearman gap on 100 kbp data (NCBI_5 0.836 vs SFE_SE_5 0.766) translated to essentially no difference in MCL GC spans.
+
+### Clustering Comparison: NCBI_5 vs SFE_SE_5 on 100 kbp Marine Data
+
+Graph construction: In-degree capped (cap=100), d<5, weights 1/(d+0.1).
+
+| Metric | SFE_SE_5 | NCBI_5 |
+|--------|----------|--------|
+| Nodes in graph | 123,783 | 133,724 |
+| Edges | 3,391,528 | 4,571,866 |
+| Coverage (of 154K) | 80% | 87% |
+
+**MCL GC spans (pp) for top 3 communities:**
+
+| I | SFE_SE_5 | NCBI_5 | SFE_SE_5 clusters | NCBI_5 clusters |
+|---|---|---|---|---|
+| 1.4 | 5, 8, 6 | 8, 6, 9 | 7,693 | 7,142 |
+| 2.0 | 5, 5, 4 | 8, 7, 4 | 9,710 | 8,885 |
+| **3.0** | **4, 6, 4** | **4, 4, 4** | **12,305** | **11,413** |
+| 4.0 | 4, 5, 4 | 4, 7, 3 | 15,202 | 15,592 |
+| 5.0 | 4, 5, 4 | 4, 7, 5 | 17,323 | 18,577 |
+| 6.0 | 4, 5, 4 | 7, 4, 5 | 19,198 | 21,047 |
+
+**Model selection (2026-02-21)**: NCBI_5 chosen over SFE_SE_5. At I=3.0, both produce 4 pp GC spans. NCBI_5 connects 10K more sequences (87% vs 80% coverage). Trained on only ~20K reference genomes, making its per-genome efficiency remarkable. Model symlink updated to `Runs/Run_NCBI_5/vae_encoder_best.keras`.
+
+---
+
+## 9. Summary and Recommendations (updated 2026-02-21)
 
 ### Best Models by Evaluation Context
 
 | Context | Best Model | Mean Spearman | Notes |
 |---------|-----------|---------------|-------|
-| Augmented data (within-family) | Run_3 (3K) | 0.702 | Wins every column in 5×5 augmented matrix |
-| Augmented data (all models) | SFE_SE_1 (1K) | 0.856 | Best of any model on augmented test data |
-| SFE_SE data (within-family) | SFE_SE_5 (5K) | 0.847 | Dominates by +0.081 over 2nd place |
-| SFE_SE data (all models) | SFE_SE_5 (5K) | 0.847 | Also beats all augmented models |
-| Cross-domain generalist | Run_3 (3K) | 0.702 / 0.769 | Best augmented model on both augmented AND SFE_SE data |
+| Augmented data (within-family) | Run_3 (3K) | 0.702 | Wins every column in 5x5 augmented matrix |
+| Augmented data (any model) | SFE_SE_1 (1K) | 0.856 | Best of any model on augmented test data |
+| Full marine data | SFE_SE_5 (5K) | 0.847 | Dominates by +0.081 over 2nd place |
+| 100 kbp marine data | NCBI_5 (5K) | 0.836 | Best on the clustering evaluation domain |
+| NCBI reference genomes | SFE_SE_5 (5K) | 0.946 | All models score 0.89-0.95 (trivially easy) |
+| **Clustering (MCL GC spans)** | **NCBI_5 (5K)** | — | **4/4/4 pp, 87% coverage — selected model** |
 
 ### Key Insights
 
@@ -349,3 +436,9 @@ Combining augmented and SFE_SE models evaluated on SFE_SE test data:
 7. **All models converge well before 1000 epochs** — augmented runs reach LR floor by epochs 316-468, SFE_SE runs by epochs 406-544. The remaining training at minimum LR provides negligible improvement.
 
 8. **Extreme-GC organisms require lower thresholds** — the Run_5 2-mer/1-mer anomaly reveals that organisms with >75% GC content have small genomes assembling into shorter contigs. The 5K threshold loses these, causing 26× higher 1-mer reconstruction error on 0.46% of sequences that contribute ~50% of total 1-mer MSE.
+
+9. **Proxy metrics don't predict downstream performance** — Run_5 has lowest MSE but worst Spearman. NCBI_5's 0.070 Spearman advantage over SFE_SE_5 on 100 kbp data translates to no difference in MCL GC spans (4/4/4 vs 4/6/4 pp). The field needs end-task metrics.
+
+10. **A small reference genome dataset can match domain-specific training for clustering** — NCBI_5 (656K contigs from ~20K genomes) matches SFE_SE_5 (4.8M marine contigs) on MCL clustering quality and achieves better graph coverage (87% vs 80%) despite never seeing marine data.
+
+11. **Length homogeneity in training data improves performance on long-contig tasks** — NCBI_5 (median training length ~37 kbp) dramatically outperforms SFE_SE_5 (median ~8 kbp) on 100 kbp evaluation data. Mixing length-mismatched sources hurts (SFE_SE_NCBI_5 is the worst model).

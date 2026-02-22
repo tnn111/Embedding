@@ -85,6 +85,18 @@ Two model families trained:
 
 Five length thresholds per family: 1K, 2K, 3K, 4K, 5K bp minimum.
 
+### Experimental Training Configurations (2026-02-20)
+
+Five additional models tested specific hypotheses about training data composition:
+
+| Model | Training Data | N Sequences | Hypothesis |
+|-------|--------------|-------------|------------|
+| **NCBI_5** | NCBI RefSeq >= 5 kbp | 656K (~20K genomes) | Reference genomes alone |
+| NCBI_100 | NCBI RefSeq >= 100 kbp | 175K (~20K genomes) | Length-filtered reference genomes |
+| SFE_SE_100 | Marine >= 100 kbp | 154K | Match evaluation domain exactly |
+| Run_100 | All sources >= 100 kbp | 845K | Broad + long sequences |
+| SFE_SE_NCBI_5 | Marine + NCBI >= 5 kbp | 5.4M | Add reference genomes to marine |
+
 ## 3. Model Selection
 
 ### Evaluation Metric
@@ -122,7 +134,7 @@ Five length thresholds per family: 1K, 2K, 3K, 4K, 5K bp minimum.
 | SFE_SE_3 (3K) | 0.728 |
 | SFE_SE_4 (4K) | 0.726 |
 
-### Model Rankings by Use Case
+### Model Rankings by Use Case (Original 10 Models)
 
 | Context | Best Model | Spearman |
 |---------|-----------|----------|
@@ -131,10 +143,38 @@ Five length thresholds per family: 1K, 2K, 3K, 4K, 5K bp minimum.
 | SFE_SE data (within-domain) | SFE_SE_5 (5K) | 0.847 |
 | Cross-domain generalist | Run_3 (3K) | 0.702 / 0.769 |
 
-### Selected Model for Clustering: SFE_SE_5
-- Dominates on SFE_SE test data (+0.081 over second place)
-- Specializes to marine sequences (the target domain)
-- 5K bp threshold captures longer contigs with cleaner k-mer profiles
+### Expanded Cross-Model Comparison (8 models x 4 test sets, 2026-02-20)
+
+| Model | Training data | N seqs | SFE_SE_5 test | SFE_SE_100 test | NCBI test | Own data |
+|---|---|---|---|---|---|---|
+| **SFE_SE_5** | Marine >= 5 kbp | 4.8M | **0.847** | 0.766 | **0.946** | — |
+| **NCBI_5** | NCBI RefSeq >= 5 kbp | 656K | 0.831 | **0.836** | 0.934 | — |
+| NCBI_100 | NCBI RefSeq >= 100 kbp | 175K | 0.836 | 0.832 | 0.919 | — |
+| SFE_SE_100 | Marine >= 100 kbp | 154K | 0.797 | 0.804 | — | — |
+| Run_100 | All sources >= 100 kbp | 845K | 0.784 | 0.798 | 0.894 | 0.788 |
+| SFE_SE_NCBI_5 | Marine + NCBI >= 5 kbp | 5.4M | 0.662 | — | 0.946 | — |
+| Run_3 | All sources >= 3 kbp | 13.4M | 0.702 | — | — | — |
+| Run_5 | All sources >= 5 kbp | 13.4M | 0.644 | — | — | — |
+
+Test sets: SFE_SE_5 = full marine (4.8M), SFE_SE_100 = marine >= 100 kbp (154K), NCBI = reference genomes >= 5 kbp (656K).
+
+### Key Findings from Experimental Models
+
+1. **NCBI genomes are trivially easy to organize**: All models score 0.89-0.95 on NCBI data. Even SFE_SE_5 (never trained on NCBI) scores 0.946. Reference genomes are well-separated by nature.
+
+2. **Length homogeneity matters more than source mixing**: NCBI_5 (0.836 on 100 kbp marine) dramatically outperforms SFE_SE_5 (0.766) on the same test set. NCBI training data (reference genomes >= 5 kbp, median ~37 kbp) is length-wise closer to the 100 kbp evaluation domain than SFE_SE_5's training data (marine contigs >= 5 kbp, median ~8 kbp).
+
+3. **Mixing data sources can hurt**: SFE_SE_NCBI_5 (0.662 on SFE_SE_5 data) is the worst model despite 5.4M sequences. The mixed length distributions from marine contigs and reference genomes create conflicting optimization targets.
+
+4. **Filtering NCBI by length doesn't help**: NCBI_5 (656K) and NCBI_100 (175K) perform nearly identically. Both see the same ~20K reference genomes — length filtering just trims shorter contigs.
+
+### Selected Model for Clustering: NCBI_5
+
+**Decision (2026-02-21)**: Switch from SFE_SE_5 to NCBI_5 based on clustering comparison.
+
+**Rationale**: Despite the 0.070 Spearman gap on 100 kbp marine data (NCBI_5 0.836 vs SFE_SE_5 0.766), MCL GC spans are essentially identical (4/4/4 pp vs 4/6/4 pp at I=3.0). The practical advantage is coverage: NCBI_5 connects 133K sequences into the graph vs SFE_SE_5's 124K — 10K more sequences get clustered. Trained on only ~20K reference genomes (656K contigs), making its per-genome efficiency remarkable.
+
+**Model symlink**: `vae_encoder_best.keras` -> `Runs/Run_NCBI_5/vae_encoder_best.keras`
 
 ## 4. Key Scientific Findings
 
@@ -176,6 +216,14 @@ Count-vs-distance analysis shows linear growth of neighbors with radius (R^2 = 0
 - Full dataset: d-hat ~ 9
 - 100 kbp filtered: d-hat = 3.74
 - 50 kbp filtered: d-hat = 4.42
+
+### 4.8 Proxy Metrics Don't Predict Downstream Performance
+
+Each level of evaluation captures different aspects of embedding quality, and improvements at one level don't reliably predict improvements at the next:
+- **Reconstruction loss -> Spearman**: Run_5 has lowest MSE (0.038) but worst Spearman (0.644). SFE_SE models have 1.3-2.3x higher MSE but 15-22% better Spearman.
+- **Spearman -> clustering quality**: NCBI_5 vs SFE_SE_5 on 100 kbp marine data: 0.070 Spearman gap (0.836 vs 0.766) translates to essentially no difference in MCL GC spans (4/4/4 vs 4/6/4 pp at I=3.0).
+
+The field needs end-task metrics (e.g., GC span, taxonomic coherence), not proxy metrics.
 
 ## 5. Clustering Analysis
 
@@ -266,6 +314,21 @@ At 100 kbp with d=5, MCL produces:
 - All three Leiden variants agree broadly (symmetric/mutual/capped produce similar structure)
 - Even Leiden achieves reasonable GC spans (7-15 pp) - transitivity chains are minimal at this threshold
 
+**NCBI_5 vs SFE_SE_5 comparison (2026-02-21):**
+
+NCBI_5 creates a denser neighborhood: 133,724 nodes with 4,571,866 edges (d<5, cap=100) vs SFE_SE_5's 123,783 nodes with 3,391,528 edges. MCL results:
+
+| I | SFE_SE_5 GC spans | NCBI_5 GC spans |
+|---|---|---|
+| 1.4 | 5, 8, 6 pp | 8, 6, 9 pp |
+| 2.0 | 5, 5, 4 pp | 8, 7, 4 pp |
+| **3.0** | **4, 6, 4 pp** | **4, 4, 4 pp** |
+| 4.0 | 4, 5, 4 pp | 4, 7, 3 pp |
+| 5.0 | 4, 5, 4 pp | 4, 7, 5 pp |
+| 6.0 | 4, 5, 4 pp | 7, 4, 5 pp |
+
+At I=3.0: NCBI_5 matches or slightly beats SFE_SE_5 on GC span quality, with 10K more sequences connected. Notebook: `clust_100_NCBI_5.ipynb`.
+
 ### 5.8 50 kbp: Marginal
 
 At 50 kbp with d=7:
@@ -314,7 +377,8 @@ At 10 kbp with d=10:
 
 | Notebook | Purpose | Status |
 |----------|---------|--------|
-| `clustering_100.ipynb` | 100 kbp analysis (gold standard) | Complete |
+| `clustering_100.ipynb` | 100 kbp analysis, SFE_SE_5 model (gold standard) | Complete |
+| `clust_100_NCBI_5.ipynb` | 100 kbp analysis, NCBI_5 model (comparison) | Complete |
 | `clustering_050.ipynb` | 50 kbp analysis (marginal) | Complete |
 | `clustering_010.ipynb` | 10 kbp analysis (noise floor) | Complete |
 | `clustering.ipynb` | Original exploration (full dataset) | Superseded by above |
@@ -325,8 +389,13 @@ At 10 kbp with d=10:
 | Location | Model | Purpose |
 |----------|-------|---------|
 | `Runs/Run_3/` | Best augmented (3K bp) | General-purpose embedding |
-| `Runs/Run_SFE_SE_5/` | Best marine (5K bp) | Clustering target |
-| `vae_encoder_best.keras` | Symlink -> Run_SFE_SE_5 | Current default |
+| `Runs/Run_SFE_SE_5/` | Best marine (5K bp) | Historical best |
+| `Runs/Run_NCBI_5/` | Best for clustering (5K bp, NCBI) | **Current default** |
+| `vae_encoder_best.keras` | Symlink -> Run_NCBI_5 | Current default |
+| `Runs/Run_NCBI_100/` | NCBI >= 100 kbp | Experimental |
+| `Runs/Run_SFE_SE_100/` | Marine >= 100 kbp | Experimental |
+| `Runs/Run_100/` | All sources >= 100 kbp | Experimental |
+| `Runs/Run_SFE_SE_NCBI_5/` | Marine + NCBI >= 5 kbp | Experimental |
 
 ### Known Remaining Issues
 
@@ -344,31 +413,30 @@ At 10 kbp with d=10:
 - Per-group CLR with Jeffreys prior implemented
 - Data shuffling fixed in `concatenate_matrices`
 
-## 7. Data Inventory (Runs/)
+## 7. Data Inventory (Runs/) — updated 2026-02-21
 
 ### Training Data
 - `kmers_1.npy` through `kmers_5.npy`: Augmented data (139-180 GB each)
 - `kmers_SFE_SE_1.npy` through `kmers_SFE_SE_5.npy`: Marine data (50-70 GB each)
-- Corresponding `ids_*.txt` files
+- `kmers_NCBI_5.npy`: NCBI RefSeq >= 5 kbp (6.8 GB, 656K sequences)
+- Corresponding `ids_*.txt` files (including `ids_SFE_SE_10.txt`, `ids_SFE_SE_50.txt` for length-filtered subsets)
 
-### Analysis Artifacts (100 kbp pipeline)
-- `embeddings_SFE_SE_100.npy`: 154K x 385 (227 MB)
-- `ids_SFE_SE_100.txt`: 154K IDs (2.3 MB)
-- `neighbors_SFE_SE_100.tsv`: k=50 neighbors (172 MB)
-- `graph_capped100_d5_100kbp.tsv`: MCL input graph (100 MB)
-
-### Analysis Artifacts (50 kbp pipeline)
-- `embeddings_SFE_SE_050.npy`: 462K x 385 (679 MB)
-- `ids_SFE_SE_050.txt`: 462K IDs (6.7 MB)
-- `neighbors_SFE_SE_050.tsv`: k=50 neighbors (514 MB)
-- `graph_capped100_d7_50kbp.tsv`: MCL input graph (298 MB)
+### Analysis Artifacts (NCBI_5 clustering pipeline)
+- `embed_SFE_SE_1_NCBI_5.npy`: Full SFE_SE embeddings from NCBI_5 encoder (6.7M x 385, 9.7 GB)
+- `neighbors_100_NCBI_5.tsv`: k=50 neighbors for >= 100 kbp (154K rows, 172 MB)
+- `graph_capped100_d5_100_NCBI_5.tsv`: In-degree capped MCL input graph (133 MB)
 
 ### MCL Results
-- `MCL_100kbp_d5/`: Best configuration (6 inflation values)
-- `MCL_100kbp_d7/`: d=7 experiment (worse than d=5)
-- `MCL_100kbp_d7_exp/`: d=7 with exp(-d) weights (worst)
-- `MCL_50kbp_d7/`: 50 kbp experiment (marginal)
+- `MCL_100_NCBI_5_d5/`: Current best configuration (I=1.4, 2.0, 3.0, 4.0, 5.0, 6.0)
 - `Archive/`: Older MCL runs on 10 kbp data (MCL_d5, MCL_d7, MCL_d10, etc.)
+
+### Naming Convention
+- Embeddings: `embed_<data>_<model>.npy` (e.g., `embed_SFE_SE_1_NCBI_5.npy` = SFE_SE_1 data embedded with NCBI_5 model)
+- Neighbors: `neighbors_<length>_<model>.tsv`
+- Graphs: `graph_capped100_d<threshold>_<length>_<model>.tsv`
+
+### Cleaned Up (2026-02-21)
+Removed ~110 GB of obsolete files: old SFE_SE_5 pipeline artifacts (embeddings, neighbors, graphs, MCL directories), experimental k-mer datasets (kmers_NCBI_100, kmers_SFE_SE_100, kmers_SFE_SE_NCBI_5, kmers_100), and old 50 kbp pipeline files.
 
 ## 8. References
 
@@ -389,9 +457,9 @@ At 10 kbp with d=10:
 
 1. **Multi-scale k-mer VAE produces high-quality embeddings for metagenomics.** 384-dim latent space preserves biological similarity ordering (Spearman 0.70-0.85 between latent distance and k-mer MSE). Local metric structure is geometrically sound (linear count-vs-distance growth, R^2 = 0.954).
 
-2. **Training data composition matters more than quantity.** SFE_SE models (4.8-6.7M seqs) beat augmented models (13.4-17.4M seqs) by +0.110 Spearman even on augmented test data. Focused domain-specific training > broad generalist training.
+2. **Training data composition matters more than quantity.** SFE_SE models (4.8-6.7M seqs) beat augmented models (13.4-17.4M seqs) by +0.110 Spearman even on augmented test data. Training data length homogeneity also matters: NCBI_5 (656K reference genome contigs, median ~37 kbp) outperforms all models on 100 kbp marine data (0.836 Spearman) despite never seeing marine sequences.
 
-3. **Reconstruction loss is insufficient for evaluating embedding quality.** Run_5 has lowest MSE but worst Spearman. SFE_SE models have 1.3-2.3x higher MSE but 15-22% better embedding quality. The field needs latent space metrics.
+3. **Proxy metrics don't predict downstream performance.** Run_5 has lowest MSE but worst Spearman; SFE_SE models have 1.3-2.3x higher MSE but 15-22% better embedding quality. Likewise, NCBI_5's 0.070 Spearman advantage over SFE_SE_5 on 100 kbp data translates to no meaningful difference in MCL GC spans (4/4/4 vs 4/6/4 pp). The field needs end-task metrics, not proxy metrics.
 
 4. **Euclidean distance outperforms cosine in the VAE latent space** (+0.076 Spearman). Expected from MSE loss geometry, but contradicts common practice (most vector DBs default to cosine).
 
@@ -401,17 +469,19 @@ At 10 kbp with d=10:
 
 7. **Hub nodes cause giant component formation.** Top hub has in-degree 58,377 (2% of dataset). In-degree capping (cap=100) is an effective compromise between symmetric (hub-dominated) and mutual (coverage-crippling) graph construction.
 
-8. **The latent space has archipelago structure** reflecting real biological discreteness. Most sequences are isolated; clusterable sequences form distinct islands. This is not an embedding failure - it reflects the rare biosphere and k-mer profile noise on short contigs.
+8. **The latent space has archipelago structure** reflecting real biological discreteness. Most sequences are isolated; clusterable sequences form distinct islands. This is not an embedding failure — it reflects the rare biosphere and k-mer profile noise on short contigs.
 
-### Best Configuration
-- **Model**: SFE_SE_5 (5K bp threshold, marine-focused)
+9. **A small, high-quality reference genome dataset can match domain-specific training.** NCBI_5 (656K contigs from ~20K genomes) matches SFE_SE_5 (4.8M marine contigs) on MCL clustering quality despite never seeing marine data. Reference genomes provide a skeletal map of sequence space that transfers to unseen environments.
+
+### Best Configuration (updated 2026-02-21)
+- **Model**: NCBI_5 (trained on ~20K NCBI reference genomes, >= 5 kbp)
 - **Distance metric**: Euclidean (L2)
 - **Length threshold**: >= 100 kbp
 - **Graph construction**: In-degree capped (cap=100), distance threshold d=5, weights 1/(d+0.1)
-- **Clustering**: MCL with inflation I=3.0 (12,305 clusters, largest 182, GC spans 4-6 pp)
+- **Clustering**: MCL with inflation I=3.0 (11,413 clusters, GC spans 4 pp uniformly)
+- **Coverage**: 133,724 of 154,040 sequences connected (87%)
 
 ### What We Have NOT Established
-- Whether 100 kbp / d=5 is truly optimal (it's the best tested so far; other combinations in the 50-200 kbp range remain unexplored)
 - Whether these findings generalize to non-marine metagenomes
 - Whether the specific GC span numbers hold for different assemblers or sequencing platforms
 - Biological validation beyond GC content (taxonomy, functional annotation)
@@ -506,3 +576,26 @@ The following are historical session notes preserved for reference. The consolid
 - Relative threshold argument (d/median_nn1) did NOT hold
 - Absolute edge quality matters
 - 100 kbp remains best tested threshold
+
+## 2026-02-20: Experimental models and cross-model comparison
+
+- Trained 5 experimental models: NCBI_5, NCBI_100, SFE_SE_100, Run_100, SFE_SE_NCBI_5
+- Full cross-model comparison (8 models x 4 test sets)
+- NCBI genomes trivially easy to organize (all models 0.89-0.95 Spearman)
+- Length homogeneity matters more than source mixing (NCBI_5 beats all on 100 kbp marine)
+- SFE_SE_NCBI_5 surprisingly worst model — mixing sources hurts
+- NCBI_5 and NCBI_100 nearly identical — taxonomic breadth > sample count
+- NCBI_100 as test set confirms SFE_SE_5 dominates on NCBI data (0.947)
+- Run_100 mediocre: broad + long != better
+
+## 2026-02-21: Clustering comparison and model selection
+
+- Generated `embed_SFE_SE_1_NCBI_5.npy` using NCBI_5 encoder on SFE_SE_1 data
+- Full NCBI_5 clustering pipeline: ChromaDB -> kNN -> Leiden -> MCL
+- NCBI_5 connects 133K sequences (vs SFE_SE_5's 124K) at d=5
+- MCL I=3.0: NCBI_5 GC spans 4/4/4 pp vs SFE_SE_5 4/6/4 pp — essentially tied
+- Key finding: 0.070 Spearman gap didn't translate to clustering quality difference
+- Decision: switch to NCBI_5 (better coverage, comparable quality)
+- Updated model symlink to Run_NCBI_5
+- Major cleanup: removed ~110 GB obsolete files
+- Established naming convention: `embed_<data>_<model>.npy`
