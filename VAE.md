@@ -1627,4 +1627,45 @@ SFE_SE_5 wins across the board *except* on 100 kbp marine data, where NCBI_5 has
 
 However, Spearman might not predict clustering GC span quality, just as reconstruction loss didn't predict Spearman. The real test is to run NCBI_5 through the actual clustering pipeline on 100 kbp marine data and compare GC spans against the existing SFE_SE_5 results (clustering_100.ipynb).
 
-**Next step**: Clustering comparison — NCBI_5 vs SFE_SE_5 on 100 kbp marine data, evaluated by GC span.
+### Clustering comparison: NCBI_5 vs SFE_SE_5 on 100 kbp marine data (2026-02-21)
+
+Generated `embed_SFE_SE_1_NCBI_5.npy` (6.7M sequences, 385 cols) by running all SFE_SE_1 data through the NCBI_5 encoder. Filtered to >= 100 kbp (154,040 sequences), loaded into a separate ChromaDB (`.chroma_100_NCBI_5`), and queried 50-NN to produce `Runs/neighbors_100_NCBI_5.tsv`.
+
+Notebook: `clust_100_NCBI_5.ipynb`
+
+**Graph statistics**: NCBI_5 creates a denser neighborhood — 133,724 nodes with 4,571,866 edges (d<5, cap=100) vs SFE_SE_5's 123,783 nodes with 3,391,528 edges. More sequences have neighbors within d=5.
+
+**Leiden GC spans (Capped d<5, top 3 communities)**:
+
+| | SFE_SE_5 | NCBI_5 |
+|---|---|---|
+| Community #1 | size 1,637, GC span 11 pp | size 1,695, GC span 10 pp |
+| Community #2 | size 1,447, GC span 15 pp | size 1,609, GC span 17 pp |
+| Community #3 | size 1,314, GC span 7 pp | size 1,533, GC span 7 pp |
+
+Leiden comparable — neither model produces tight clusters.
+
+**MCL GC spans (top 3 communities per inflation)**:
+
+| I | SFE_SE_5 spans | NCBI_5 spans | SFE_SE_5 clusters | NCBI_5 clusters |
+|---|---|---|---|---|
+| 1.4 | 5, 8, 6 pp | 8, 6, 9 pp | 7,693 | 7,142 |
+| 2.0 | 5, 5, 4 pp | 8, 7, 4 pp | 9,710 | 8,885 |
+| 3.0 | **4, 6, 4 pp** | **4, 4, 4 pp** | 12,305 | 11,413 |
+| 4.0 | 4, 5, 4 pp | 4, 7, 3 pp | 15,202 | 15,592 |
+| 5.0 | 4, 5, 4 pp | 4, 7, 5 pp | 17,323 | 18,577 |
+| 6.0 | 4, 5, 4 pp | 7, 4, 5 pp | 19,198 | 21,047 |
+
+At I=3.0 (our standard): NCBI_5 produces uniformly 4 pp GC spans in the top 3 communities, matching or slightly beating SFE_SE_5 (4, 6, 4 pp). Both models produce excellent clustering at this inflation.
+
+**Key observation**: Despite SFE_SE_5 having better Spearman on full marine data (0.847 vs 0.831), the actual clustering GC spans are comparable. And despite NCBI_5 having much better Spearman on 100 kbp marine data (0.836 vs 0.766), the clustering improvement is modest — 4/4/4 vs 4/6/4 pp at I=3.0. This confirms the earlier finding that **Spearman doesn't reliably predict clustering quality**.
+
+**Files generated**:
+- `Runs/embed_SFE_SE_1_NCBI_5.npy` — Full SFE_SE embeddings from NCBI_5 encoder (6.7M × 385)
+- `Runs/embed_100_NCBI_5.npy` — 100 kbp filtered (154K × 385)
+- `Runs/ids_100_NCBI_5.txt` — Matching IDs
+- `Runs/neighbors_100_NCBI_5.tsv` — 50-NN graph (154K rows)
+- `Runs/graph_capped100_d5_100_NCBI_5.tsv` — In-degree capped MCL input
+- `Runs/MCL_100_NCBI_5_d5/` — MCL results at I=1.4-6.0
+
+**Naming convention**: `embed_<data>_<model>.npy` (e.g., `embed_SFE_SE_1_NCBI_5.npy` = SFE_SE_1 data embedded with NCBI_5 model).
