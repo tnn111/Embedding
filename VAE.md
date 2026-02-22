@@ -1662,6 +1662,8 @@ At I=3.0 (our standard): NCBI_5 produces uniformly 4 pp GC spans in the top 3 co
 
 **Model selection conclusion**: On the metric we actually care about (MCL GC spans), the two models are essentially tied — both produce 4 pp spans at I=3.0. The 0.070 Spearman gap on 100 kbp data (0.836 vs 0.766) translated to almost nothing in clustering quality. The practical difference is coverage: NCBI_5 connects 133K sequences into the graph vs SFE_SE_5's 124K (out of 154K total) — 10K more sequences get clustered instead of being singletons. NCBI_5 achieves this from only ~20K reference genomes (656K contigs), making its per-genome efficiency remarkable.
 
+**Decision (2026-02-21)**: Use NCBI_5 going forward. Model symlink (`vae_encoder_best.keras`) updated to point to `Runs/Run_NCBI_5/vae_encoder_best.keras`.
+
 **Files generated**:
 - `Runs/embed_SFE_SE_1_NCBI_5.npy` — Full SFE_SE embeddings from NCBI_5 encoder (6.7M × 385)
 - `Runs/embed_100_NCBI_5.npy` — 100 kbp filtered (154K × 385)
