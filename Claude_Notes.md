@@ -150,11 +150,11 @@ Five additional models tested specific hypotheses about training data compositio
 | **SFE_SE_5** | Marine >= 5 kbp | 4.8M | **0.847** | 0.766 | **0.946** | — |
 | **NCBI_5** | NCBI RefSeq >= 5 kbp | 656K | 0.831 | **0.836** | 0.934 | — |
 | NCBI_100 | NCBI RefSeq >= 100 kbp | 175K | 0.836 | 0.832 | 0.919 | — |
-| SFE_SE_100 | Marine >= 100 kbp | 154K | 0.797 | 0.804 | — | — |
+| SFE_SE_100 | Marine >= 100 kbp | 154K | 0.797 | 0.804 | 0.946 | — |
 | Run_100 | All sources >= 100 kbp | 845K | 0.784 | 0.798 | 0.894 | 0.788 |
-| SFE_SE_NCBI_5 | Marine + NCBI >= 5 kbp | 5.4M | 0.662 | — | 0.946 | — |
-| Run_3 | All sources >= 3 kbp | 13.4M | 0.702 | — | — | — |
-| Run_5 | All sources >= 5 kbp | 13.4M | 0.644 | — | — | — |
+| SFE_SE_NCBI_5 | Marine + NCBI >= 5 kbp | 5.4M | 0.662 | 0.761 | 0.946 | — |
+| Run_3 | All sources >= 3 kbp | 13.4M | 0.702 | 0.818 | 0.942 | — |
+| Run_5 | All sources >= 5 kbp | 13.4M | 0.644 | 0.799 | 0.935 | — |
 
 Test sets: SFE_SE_5 = full marine (4.8M), SFE_SE_100 = marine >= 100 kbp (154K), NCBI = reference genomes >= 5 kbp (656K).
 
@@ -480,6 +480,15 @@ Removed ~110 GB of obsolete files: old SFE_SE_5 pipeline artifacts (embeddings, 
 - **Graph construction**: In-degree capped (cap=100), distance threshold d=5, weights 1/(d+0.1)
 - **Clustering**: MCL with inflation I=3.0 (11,413 clusters, GC spans 4 pp uniformly)
 - **Coverage**: 133,724 of 154,040 sequences connected (87%)
+
+### Generalization to Novel Organisms
+
+The VAE maps compositional signatures (k-mer frequencies), not organism identity. A novel microbe will land near sequences with similar k-mer profiles regardless of taxonomy. Key arguments:
+- K-mer frequencies are heavily constrained by chemistry/biology (GC 20-75%, known dinucleotide biases). NCBI RefSeq's ~20K genomes span the tree of life and cover this compositional space.
+- NCBI_5 has broader compositional coverage than SFE_SE_5 despite fewer sequences — it sees terrestrial, extremophile, and other lineages that marine-only training misses.
+- Empirical cross-domain generalization confirms this: SFE_SE_5 scores 0.946 on unseen NCBI data; NCBI_5 scores 0.836 on unseen marine data.
+- **Coverage rules out random singleton placement**: If NCBI_5 mapped novel marine sequences randomly, they'd become singletons. But NCBI_5 connects *more* sequences (133K, 87%) than SFE_SE_5 (124K, 80%) with denser edges (4.6M vs 3.4M). The model genuinely places marine sequences into meaningful neighborhoods.
+- Sparse coverage in training space (rather than complete novelty) is the main risk, but this affects any model equally.
 
 ### What We Have NOT Established
 - Whether these findings generalize to non-marine metagenomes

@@ -1601,11 +1601,11 @@ The 100 kbp filter on NCBI made almost no difference. NCBI already has median 37
 | **SFE_SE_5** | Marine >= 5 kbp | 4.8M | **0.847** | 0.766 | **0.946** | — |
 | NCBI_5 | NCBI RefSeq >= 5 kbp | 656K | 0.831 | **0.836** | 0.934 | — |
 | NCBI_100 | NCBI RefSeq >= 100 kbp | 175K | 0.836 | 0.832 | 0.919 | — |
-| SFE_SE_100 | Marine >= 100 kbp | 154K | 0.797 | 0.804 | — | — |
+| SFE_SE_100 | Marine >= 100 kbp | 154K | 0.797 | 0.804 | 0.946 | — |
 | Run_100 | All sources >= 100 kbp | 845K | 0.784 | 0.798 | 0.894 | 0.788 |
-| SFE_SE_NCBI_5 | Marine + NCBI (mixed lengths) | 5.4M | 0.662 | — | 0.946 | — |
-| Run_3 (augmented) | All sources >= 3 kbp (mixed lengths) | 13.4M | 0.702 | — | — | — |
-| Run_5 (augmented) | All sources >= 5 kbp (mixed lengths) | 13.4M | 0.644 | — | — | — |
+| SFE_SE_NCBI_5 | Marine + NCBI (mixed lengths) | 5.4M | 0.662 | 0.761 | 0.946 | — |
+| Run_3 (augmented) | All sources >= 3 kbp (mixed lengths) | 13.4M | 0.702 | 0.818 | 0.942 | — |
+| Run_5 (augmented) | All sources >= 5 kbp (mixed lengths) | 13.4M | 0.644 | 0.799 | 0.935 | — |
 
 **NCBI_100 observation**: Confirms that the NCBI model family is robust. Whether trained on 656K (>= 5 kbp) or 175K (>= 100 kbp) sequences, performance is essentially identical. This further supports the finding that taxonomic breadth matters more than sample count — both models see the same ~20K reference genomes, just with different length filtering.
 
@@ -1673,3 +1673,30 @@ At I=3.0 (our standard): NCBI_5 produces uniformly 4 pp GC spans in the top 3 co
 - `Runs/MCL_100_NCBI_5_d5/` — MCL results at I=1.4-6.0
 
 **Naming convention**: `embed_<data>_<model>.npy` (e.g., `embed_SFE_SE_1_NCBI_5.npy` = SFE_SE_1 data embedded with NCBI_5 model).
+
+### SFE_SE_NCBI_5 on SFE_SE_100 test data (2026-02-22)
+
+Filled in the missing cell: SFE_SE_NCBI_5 on 100 kbp marine data = Spearman **0.761**.
+
+| Model | SFE_SE_5 test | SFE_SE_100 test | NCBI test |
+|---|---|---|---|
+| NCBI_5 | 0.831 | **0.836** | 0.934 |
+| SFE_SE_NCBI_5 | 0.662 | 0.761 | 0.946 |
+
+NCBI_5 still beats SFE_SE_NCBI_5 on 100 kbp marine by +0.075. The gap narrows from +0.169 on full marine to +0.075 on long contigs — longer sequences have cleaner k-mer profiles that partially compensate for the mixed-training penalty.
+
+### Generalization to novel organisms (2026-02-22)
+
+Concern raised: could a novel microbe with unseen k-mer composition get mapped to an unoccupied area of the latent space?
+
+Arguments against this being a significant problem:
+
+1. **The VAE maps compositional signatures, not organism identity.** A novel organism with, say, 65% GC and unusual dinucleotide biases still has a k-mer frequency vector in the same compositional space. It will land near sequences with similar k-mer profiles regardless of taxonomy.
+
+2. **K-mer frequencies are heavily constrained by chemistry and biology.** GC content ranges ~20-75%, dinucleotide/codon biases follow known patterns. NCBI RefSeq's ~20K genomes span the tree of life and cover this compositional space fairly thoroughly.
+
+3. **Sparse coverage is a greater risk than complete novelty.** If a novel organism's composition falls in a sparsely covered region of training space, the local latent geometry may be less precise. But this applies equally to SFE_SE_5 (which has zero representation of many terrestrial/extremophile lineages). NCBI_5 actually has broader compositional coverage despite fewer sequences.
+
+4. **Empirical evidence of cross-domain generalization.** SFE_SE_5 scores 0.946 on NCBI data it never saw; NCBI_5 scores 0.836 on marine data it never saw. The VAE generalizes across domains because it learns compositional geometry, not organism-specific patterns.
+
+5. **Coverage rules out random singleton placement.** One might worry that NCBI_5's good GC spans come from mapping novel marine sequences randomly (making them singletons excluded from clustering). But NCBI_5 connects *more* sequences: 133K nodes (87%) vs SFE_SE_5's 124K (80%), with 4.6M vs 3.4M edges. If novel sequences were placed randomly, we'd see fewer connections, not more. The higher coverage + high Spearman (0.836) confirms that NCBI_5 places marine sequences into meaningful neighborhoods.

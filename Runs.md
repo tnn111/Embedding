@@ -351,11 +351,11 @@ The original 10 models (5 augmented + 5 SFE_SE) established that SFE_SE_5 was th
 | **SFE_SE_5** | Marine >= 5 kbp | 4.8M | **0.847** | 0.766 | **0.946** | — |
 | **NCBI_5** | NCBI >= 5 kbp | 656K | 0.831 | **0.836** | 0.934 | — |
 | NCBI_100 | NCBI >= 100 kbp | 175K | 0.836 | 0.832 | 0.919 | — |
-| SFE_SE_100 | Marine >= 100 kbp | 154K | 0.797 | 0.804 | — | — |
+| SFE_SE_100 | Marine >= 100 kbp | 154K | 0.797 | 0.804 | 0.946 | — |
 | Run_100 | All >= 100 kbp | 845K | 0.784 | 0.798 | 0.894 | 0.788 |
-| SFE_SE_NCBI_5 | Marine + NCBI >= 5 kbp | 5.4M | 0.662 | — | 0.946 | — |
-| Run_3 | All >= 3 kbp | 13.4M | 0.702 | — | — | — |
-| Run_5 | All >= 5 kbp | 13.4M | 0.644 | — | — | — |
+| SFE_SE_NCBI_5 | Marine + NCBI >= 5 kbp | 5.4M | 0.662 | 0.761 | 0.946 | — |
+| Run_3 | All >= 3 kbp | 13.4M | 0.702 | 0.818 | 0.942 | — |
+| Run_5 | All >= 5 kbp | 13.4M | 0.644 | 0.799 | 0.935 | — |
 
 Test sets: SFE_SE_5 = full marine (4.8M seqs), SFE_SE_100 = marine >= 100 kbp (154K seqs), NCBI_5 = reference genomes >= 5 kbp (656K seqs).
 
