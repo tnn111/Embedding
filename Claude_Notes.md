@@ -17,7 +17,7 @@ These notes are shared across both so each instance can understand context from 
 
 ---
 
-# Consolidated Project Review (2026-02-19)
+# Consolidated Project Review (2026-02-19, updated 2026-02-22)
 
 This section is the definitive reference for the sibling Claude instance writing the paper. It supersedes the chronological session notes archived below.
 
@@ -64,7 +64,7 @@ All canonical k-mer frequencies from 6-mer through 1-mer. Each k-mer size group 
 
 ### Training Procedure
 - Optimizer: Adam, initial LR 1e-4
-- LR schedule: ReduceLROnPlateau (floor 1e-6, patience 10, factor 0.5)
+- LR schedule: ReduceLROnPlateau (floor 1e-6, patience 20, factor 0.5)
 - Batch size: 1024
 - Epochs: 1000 (converges by ~500; LR hits floor by epoch 316-468)
 - 90/10 train/val split on pre-shuffled data
@@ -100,7 +100,7 @@ Five additional models tested specific hypotheses about training data compositio
 ## 3. Model Selection
 
 ### Evaluation Metric
-**Spearman correlation** between pairwise latent-space Euclidean distance and pairwise input-space k-mer MSE, measured on 50K validation samples (100 queries x 50 neighbors + random baseline). This validates that latent distance preserves biological similarity ordering. Reconstruction loss alone is insufficient - Run_4 had lowest MSE but worst Spearman.
+**Spearman correlation** between pairwise latent-space Euclidean distance and pairwise input-space k-mer MSE, measured on 50K validation samples (100 queries x 50 neighbors + random baseline). This validates that latent distance preserves biological similarity ordering. Reconstruction loss alone is insufficient — Run_5 had lowest MSE but worst Spearman.
 
 ### Full Cross-Comparison Results
 
@@ -370,6 +370,8 @@ At 10 kbp with d=10:
 | `calculate_kmer_frequencies` | K-mer calculator from FASTA | Production-ready |
 | `concatenate_matrices` | Memory-efficient matrix merge | Fixed: shuffle support |
 | `verify_local_distances.py` | Latent space quality validation | Production-ready |
+| `query_neighbors` | kNN query from ChromaDB (PEP 723) | Production-ready |
+| `leiden_sweep` | Distance-threshold Leiden clustering | Functional |
 | `verify_knn_quality` | Alternate validation | Functional |
 | `VAE_noGC.py` | Ablation variant (no 1-mers) | Experimental |
 
@@ -407,7 +409,7 @@ At 10 kbp with d=10:
 ### Previously Fixed Issues (verified 2026-02-19)
 - Inference now uses z_mean (both `embedding` and `create_and_load_db`)
 - ChromaDB now uses L2 (Euclidean) distance
-- Model symlink now points to Run_SFE_SE_5
+- Model symlink now points to Run_NCBI_5 (changed from Run_SFE_SE_5 on 2026-02-21)
 - `main.py` and `convert_txt_to_npy` removed
 - `verify_local_distances.py` column indices updated
 - Per-group CLR with Jeffreys prior implemented
