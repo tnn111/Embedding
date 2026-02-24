@@ -329,11 +329,19 @@ NCBI_5 creates a denser neighborhood: 133,724 nodes with 4,571,866 edges (d<5, c
 
 At I=3.0: NCBI_5 matches or slightly beats SFE_SE_5 on GC span quality, with 10K more sequences connected. Notebook: `clust_100_NCBI_5.ipynb`.
 
-### 5.7.1 Future: RCL (Restricted Contingency Linkage)
+### 5.7.1 RCL Multi-Resolution Consensus Clustering
 
-We already run MCL at multiple inflation values (I=1.4–6.0), producing non-nested clusterings at different granularities. **RCL** (van Dongen, 2022) is a parameter-free consensus method that reconciles these into a single nested multi-resolution hierarchy, where coarser levels are proper supersets of finer ones. RCL is bundled with the MCL source code (`mcl` package). Paper: [bioRxiv 2022.10.09.511493](https://www.biorxiv.org/content/10.1101/2022.10.09.511493v1).
+**RCL** (Restricted Contingency Linkage, van Dongen 2022) is a parameter-free consensus method that reconciles multiple flat clusterings into a single nested multi-resolution hierarchy. Paper: [bioRxiv 2022.10.09.511493](https://www.biorxiv.org/content/10.1101/2022.10.09.511493v1).
 
-This is a natural next step: instead of reporting results at a single chosen inflation, RCL can produce a hierarchy spanning all resolutions tested.
+**Setup**: 14 input clusterings (6 MCL I=1.4–6.0 + 8 Leiden r=0.2–2.0) on 100 kbp NCBI_5 graph (133,724 nodes). Produces 5 useful resolution levels (res=100–1600; res=3200/6400 saturated), with 5,697–8,029 clusters per level. Nesting is strict by construction.
+
+**Key results from `RCL.ipynb`**:
+- **RCL does NOT improve GC purity over MCL I=3.0**: At matched cluster sizes, both methods follow the same GC span vs size curve. RCL res=100 median GC span = 4.7 pp (1,254 clusters ≥20 nodes) vs MCL I=3.0 median = 3.9 pp (1,650 clusters ≥20 nodes).
+- The difference comes from cluster size distribution, not algorithm quality: MCL I=3.0 produces more small tight clusters, RCL res=100 keeps some larger ones.
+- **RCL's value is the hierarchy**: provides a natural multi-resolution view without choosing a single inflation parameter. Nesting is clean — the largest cluster at res=3200 (11,872 nodes, GC span 42.4 pp) splits into well-separated children at res=100 with median GC span 2.0 pp.
+- Power-law size distribution: ~60% of clusters have 2–5 members (7–9% of nodes); few hundred clusters ≥100 hold bulk of nodes.
+- Consensus is coarser than individual methods (5.7K–8K vs MCL's 7K–21K): only cross-method-agreed splits retained.
+- **Bottom line**: MCL I=3.0 remains the best single-resolution clustering. RCL adds a hierarchy on top but doesn't improve individual cluster quality.
 
 ### 5.8 50 kbp: Marginal
 
@@ -389,6 +397,7 @@ At 10 kbp with d=10:
 | `clust_100_NCBI_5.ipynb` | 100 kbp analysis, NCBI_5 model (comparison) | Complete |
 | `clustering_050.ipynb` | 50 kbp analysis (marginal) | Complete |
 | `clustering_010.ipynb` | 10 kbp analysis (noise floor) | Complete |
+| `RCL.ipynb` | RCL consensus clustering analysis (100 kbp, NCBI_5) | Complete |
 | `clustering.ipynb` | Original exploration (full dataset) | Superseded by above |
 | `shrub_of_life.ipynb` | ChromaDB query exploration | Historical |
 
@@ -631,3 +640,10 @@ The following are historical session notes preserved for reference. The consolid
 - Power-law size distribution: ~60% of clusters have 2–5 members (7–9% of nodes); the few hundred clusters >=100 hold the bulk. At res=100, 339 large clusters (101–500) contain 45% of all nodes.
 - Nesting is clean: giant cluster (11,872 nodes at res=3200) splits into 12 children at res=1600 (3,503 + 3,190 + 1,659 + 1,342 + smaller), every node accounted for. At res=100, max cluster is only 889.
 - Files: `run_leiden_multi` (PEP 723), `consensus/` (`.cls` native clusters, `.labels` sequence names, `.txt` node→cluster, `.info` cluster metadata per resolution)
+- Created `RCL.ipynb` notebook (23 cells) with 5 sections: overview tables, size distributions (log-log rank-size, cumulative coverage), nesting visualization (Plotly Sankey), GC span validation, and per-child GC span trajectories
+- Key notebook findings:
+  - RCL res=100 median GC span 4.7 pp vs MCL I=3.0 median 3.9 pp (both on clusters ≥20 nodes)
+  - Scatter plot of GC span vs cluster size shows RCL and MCL on the same curve — no algorithm advantage, just different size distributions
+  - Per-child trajectory: largest lineage (11,872 nodes at res=3200) → median child GC span 2.0 pp at res=100
+  - **Conclusion: RCL adds hierarchy but doesn't improve GC purity over MCL I=3.0 at matched cluster sizes**
+- Added `nbclient` dependency to `pyproject.toml` for notebook execution via Python API (system `jupyter-nbconvert` doesn't use uv venv kernel)
