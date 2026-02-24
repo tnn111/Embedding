@@ -372,6 +372,27 @@ At 10 kbp with d=10:
 
 **d=5 is the best tested distance threshold** for 100 kbp data. Matches the natural neighborhood structure (mean nn1 = 3.69, 78% connected at d=5).
 
+### 5.11 Clustering: Summary and Next Steps
+
+**What's settled:**
+- **MCL I=3.0 on NCBI_5 graph at d=5** is the production clustering for ≥100 kbp sequences (GC spans ~4 pp, 133K nodes connected).
+- RCL adds a hierarchy but doesn't improve individual cluster quality. Available if multi-resolution view is needed.
+- Leiden is unsuitable for these dense graphs.
+
+**100 kbp is a practical floor, not a severe limitation:**
+- Modern long-read metagenomes (PacBio HiFi, ONT) routinely produce contigs well above 100 kbp. For organisms, this is a low bar.
+- Sequences below 100 kbp are disproportionately mobile elements (plasmids, phages), which have different evolutionary dynamics.
+
+**Mobile elements and host clustering:**
+- Early ChromaDB exploration showed a plasmid embedding nearest to its host — k-mer amelioration means long-resident mobile elements adopt host codon usage and cluster with their hosts.
+- This is a feature: the embedding captures biological relationship (ameliorated = long-resident). Recently acquired or broad-host-range elements would remain separate.
+- The "mobile elements won't cluster with hosts" assumption is too simple; the embedding naturally distinguishes ameliorated from non-ameliorated elements.
+
+**Next directions:**
+1. **Circular sequences in the sub-100 kbp remainder** — circularity is a strong signal for complete mobile elements (plasmids, phages, small replicons). These could be identified and analyzed as a separate population.
+2. **Map shorter sequences to existing clusters** — nearest-neighbor assignment in latent space. The embedding still carries signal below 100 kbp (Spearman just degrades), so soft assignment ("this 30 kbp contig is closest to cluster X at distance d") could work even when standalone clustering fails. Distance serves as confidence measure. No retraining needed.
+3. **NCBI signpost labeling** — project NCBI RefSeq sequences through the encoder to taxonomically label marine clusters. Manual exploration of individual clusters first to build intuition before automating. Spearman is 0.946 on NCBI regardless of which model is used, so the signposts are reliable.
+
 ## 6. Codebase Status
 
 ### Scripts
