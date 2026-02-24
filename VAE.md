@@ -1755,3 +1755,26 @@ All levels cover all 133,724 nodes. Resolutions 3,200 and 6,400 are identical (h
 | XL (500+) | 5 | 3,535 (2.6%) | 36 | 48,586 (36.3%) |
 
 **Files**: `Runs/RCL/` — `run_leiden_multi` (script), `leiden_r*.clusters`, `test_mcl/` (native MCL clusters), `consensus/` (RCL output: `.cls` native clusters, `.labels` sequence names, `.txt` node→cluster mappings, `.info` cluster metadata).
+
+## 2026-02-23: RCL Results Notebook
+
+Created `RCL.ipynb` (21 cells) to visualize and validate RCL consensus clustering results.
+
+**Sections:**
+1. **Load & overview** (cells 1–4): Load `.info` and `.txt` files across 6 resolutions, summary table, bar chart of cluster counts, size distribution buckets (by cluster count and node fraction)
+2. **Size distributions** (cells 5–6): Log-log rank-size plot (power-law check), cumulative coverage plot with 50%/90% markers
+3. **Nesting visualization** (cells 7–9): Parse element sets, trace top 10 clusters from res=3200 through finer resolutions showing splits, Plotly Sankey diagram for top 5 cluster lineages across 4 resolution levels (3200→800→200→100)
+4. **GC span validation** (cells 10–16): Load 100 kbp sequences via memory-mapped k-mers (70 GB), compute GC span for top 20 clusters at res=100 and res=800, compare against MCL I=3.0 baseline, **GC span vs cluster size scatter** (RCL all resolutions + MCL all inflations overlaid), **box plot** of GC span distributions (≥20-node clusters) across all resolutions + MCL I=3.0
+5. **GC span trajectory** (cells 17–18): Per-child GC span statistics (median, weighted mean, max, largest-child span) at each resolution for 5 lineages; triple line plot
+
+**Key results:**
+- RCL GC spans are comparable to MCL at matched sizes: RCL median 4.7 pp vs MCL I=3.0 median 3.9 pp (clusters ≥ 20 nodes)
+- Resolution has minimal effect on per-cluster GC span — the main effect is cluster size
+- Section 5 shows finer resolution drives down median child GC span (e.g., 42.4 pp at res=3200 → 2.0 pp median at res=100 for the largest lineage)
+
+**Key design decisions:**
+- GC from `kmers[:, -1]` (1-mer G+C frequency), same as `clust_100_NCBI_5.ipynb`
+- Memory-mapped k-mer loading (70 GB file) with boolean mask for ≥100 kbp
+- Nesting determined by element set containment (subset check)
+- Sankey bundles >5 children per resolution into "rest" nodes for readability
+- Section 5 tracks per-child spans (not aggregate) to show how fragmentation improves quality
