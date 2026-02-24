@@ -1700,3 +1700,58 @@ Arguments against this being a significant problem:
 4. **Empirical evidence of cross-domain generalization.** SFE_SE_5 scores 0.946 on NCBI data it never saw; NCBI_5 scores 0.836 on marine data it never saw. The VAE generalizes across domains because it learns compositional geometry, not organism-specific patterns.
 
 5. **Coverage rules out random singleton placement.** One might worry that NCBI_5's good GC spans come from mapping novel marine sequences randomly (making them singletons excluded from clustering). But NCBI_5 connects *more* sequences: 133K nodes (87%) vs SFE_SE_5's 124K (80%), with 4.6M vs 3.4M edges. If novel sequences were placed randomly, we'd see fewer connections, not more. The higher coverage + high Spearman (0.836) confirms that NCBI_5 places marine sequences into meaningful neighborhoods.
+
+### RCL: Restricted Contingency Linkage (2026-02-23)
+
+We already run MCL at multiple inflation values (I=1.4–6.0), producing non-nested clusterings at different granularities. **RCL** (van Dongen, 2022, [bioRxiv 2022.10.09.511493](https://www.biorxiv.org/content/10.1101/2022.10.09.511493v1)) is a parameter-free consensus method by the MCL author that reconciles a set of flat clusterings into a single nested multi-resolution hierarchy. It is bundled with the MCL source code.
+
+Natural next step: instead of choosing a single inflation, use RCL to produce a hierarchy spanning all resolutions tested.
+
+#### RCL Implementation (2026-02-23)
+
+**Setup**: Combined 14 flat clusterings as input:
+- 6 MCL: I=1.4 (7,150 cls), I=2.0 (8,893), I=3.0 (12,131), I=4.0 (15,600), I=5.0 (18,585), I=6.0 (21,055)
+- 8 Leiden (RBConfigurationVertexPartition, capped graph, seed=42): r=0.2–2.0 (5,772–5,865 clusters — very stable across resolution range)
+
+Graph: 133,724 nodes, 4.6M directed edges (MCL native graph); Leiden used capped graph (2.3M undirected after simplification).
+
+Used `rcl mcl` to regenerate native-format MCL clusterings (original `.clusters` files were label-format, RCL needs native MCL matrix format). Wrote `run_leiden_multi` PEP 723 script for Leiden output in native MCL format.
+
+**RCL consensus hierarchy** (`Runs/RCL/consensus/`):
+
+| Resolution | Clusters | Min size | Max size | Singletons | Clusters >= 100 |
+|---|---|---|---|---|---|
+| 100 | 8,029 | 1 | 889 | 591 | 347 |
+| 200 | 6,969 | 1 | 1,134 | 386 | 293 |
+| 400 | 6,152 | 1 | 1,533 | 142 | 257 |
+| 800 | 5,836 | 1 | 2,520 | 64 | 236 |
+| 1,600 | 5,714 | 2 | 3,503 | 0 | 220 |
+| 3,200 | 5,697 | 2 | 11,872 | 0 | 209 |
+| 6,400 | 5,697 | 2 | 11,872 | 0 | 209 |
+
+All levels cover all 133,724 nodes. Resolutions 3,200 and 6,400 are identical (hierarchy saturated). Median cluster size = 4 across all resolutions; the bulk of clusters are small with a long right tail.
+
+**Key observations:**
+
+1. **Consensus is much coarser than individual methods.** Input clusterings range from 5,772 (Leiden) to 21,055 (MCL I=6.0). RCL compresses this to 5,697–8,029 clusters. The fine-grained splits that MCL I=4.0+ produces (15K–21K) are discarded as method-specific noise. The consensus effectively says: the data robustly supports about 5,700–8,000 groups.
+
+2. **Leiden contributed almost nothing.** Across a 10× resolution range (0.2–2.0), Leiden produced 5,772–5,865 clusters — a 1.6% variation. The graph's modular structure is so clear-cut at Leiden's scale that resolution barely matters. All 8 runs are essentially the same partition (~1 independent voice in the consensus). MCL's 6 inflation values (7K–21K) provided the real diversity.
+
+3. **Properly nested hierarchy with clean splits.** The coarsest level (res=3200) has one giant cluster of 11,872 nodes. At res=1600 it splits cleanly into 12 children (3,503 + 3,190 + 1,659 + 1,342 + smaller), every node accounted for. At res=100 (finest), max cluster is only 889. Nesting guaranteed by construction.
+
+4. **Power-law size distribution: most clusters are small, most nodes in large clusters.** ~60% of clusters contain just 2–5 nodes (accounting for only 7–9% of nodes). The few hundred clusters with >=100 members hold the bulk of sequences. At res=100, the 339 "large" clusters (101–500) contain 45% of all nodes; the 5,026 tiny clusters (<=5) hold only 9.4%.
+
+5. **Hierarchy saturates at res=3200.** Resolutions 3200 and 6400 are identical (5,697 clusters). The tree has no more merges above that scale. The useful range is res=100 to res=1600 (5 distinct levels).
+
+**Node distribution by cluster size bucket (res=100 vs res=3200):**
+
+| Bucket | res=100 cls | res=100 nodes (%) | res=3200 cls | res=3200 nodes (%) |
+|---|---|---|---|---|
+| Singleton (1) | 591 | 591 (0.4%) | 0 | 0 |
+| Tiny (2–5) | 4,435 | 12,536 (9.4%) | 3,408 | 9,635 (7.2%) |
+| Small (6–20) | 1,790 | 18,775 (14.0%) | 1,462 | 15,430 (11.5%) |
+| Medium (21–100) | 869 | 37,599 (28.1%) | 618 | 25,707 (19.2%) |
+| Large (101–500) | 339 | 60,688 (45.4%) | 173 | 34,366 (25.7%) |
+| XL (500+) | 5 | 3,535 (2.6%) | 36 | 48,586 (36.3%) |
+
+**Files**: `Runs/RCL/` — `run_leiden_multi` (script), `leiden_r*.clusters`, `test_mcl/` (native MCL clusters), `consensus/` (RCL output: `.cls` native clusters, `.labels` sequence names, `.txt` node→cluster mappings, `.info` cluster metadata).

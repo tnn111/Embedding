@@ -329,6 +329,12 @@ NCBI_5 creates a denser neighborhood: 133,724 nodes with 4,571,866 edges (d<5, c
 
 At I=3.0: NCBI_5 matches or slightly beats SFE_SE_5 on GC span quality, with 10K more sequences connected. Notebook: `clust_100_NCBI_5.ipynb`.
 
+### 5.7.1 Future: RCL (Restricted Contingency Linkage)
+
+We already run MCL at multiple inflation values (I=1.4–6.0), producing non-nested clusterings at different granularities. **RCL** (van Dongen, 2022) is a parameter-free consensus method that reconciles these into a single nested multi-resolution hierarchy, where coarser levels are proper supersets of finer ones. RCL is bundled with the MCL source code (`mcl` package). Paper: [bioRxiv 2022.10.09.511493](https://www.biorxiv.org/content/10.1101/2022.10.09.511493v1).
+
+This is a natural next step: instead of reporting results at a single chosen inflation, RCL can produce a hierarchy spanning all resolutions tested.
+
 ### 5.8 50 kbp: Marginal
 
 At 50 kbp with d=7:
@@ -610,3 +616,18 @@ The following are historical session notes preserved for reference. The consolid
 - Updated model symlink to Run_NCBI_5
 - Major cleanup: removed ~110 GB obsolete files
 - Established naming convention: `embed_<data>_<model>.npy`
+
+### 2026-02-23: RCL Multi-Resolution Consensus Clustering
+
+- Implemented RCL pipeline in `Runs/RCL/`
+- Input: 14 flat clusterings (6 MCL I=1.4–6.0 + 8 Leiden r=0.2–2.0) on 100 kbp NCBI_5 graph (133K nodes)
+- Used `rcl mcl` to regenerate native-format MCL clusterings (original `.clusters` files were label-format, RCL needs native MCL matrix format)
+- Wrote `run_leiden_multi` PEP 723 script for Leiden in native MCL format
+- Leiden was very insensitive to resolution (5,772–5,865 clusters across 10× range, 1.6% variation) — effectively ~1 independent voice in the consensus. MCL's 6 inflations (7K–21K) provided the real diversity.
+- RCL consensus: 7 resolution levels from 5,697 (coarse) to 8,029 (fine) clusters
+- Res=3200 and 6400 identical (hierarchy saturated). Useful range: res=100 to res=1600 (5 distinct levels).
+- All levels cover all 133,724 nodes; nesting guaranteed by construction
+- Consensus is much coarser than individual methods (5.7K–8K vs MCL's 7K–21K) — only splits with cross-method agreement retained. Fine-grained MCL I=4+ splits (15K–21K) discarded as method-specific noise.
+- Power-law size distribution: ~60% of clusters have 2–5 members (7–9% of nodes); the few hundred clusters >=100 hold the bulk. At res=100, 339 large clusters (101–500) contain 45% of all nodes.
+- Nesting is clean: giant cluster (11,872 nodes at res=3200) splits into 12 children at res=1600 (3,503 + 3,190 + 1,659 + 1,342 + smaller), every node accounted for. At res=100, max cluster is only 889.
+- Files: `run_leiden_multi` (PEP 723), `consensus/` (`.cls` native clusters, `.labels` sequence names, `.txt` node→cluster, `.info` cluster metadata per resolution)
