@@ -393,6 +393,48 @@ At 10 kbp with d=10:
 2. **Map shorter sequences to existing clusters** — nearest-neighbor assignment in latent space. The embedding still carries signal below 100 kbp (Spearman just degrades), so soft assignment ("this 30 kbp contig is closest to cluster X at distance d") could work even when standalone clustering fails. Distance serves as confidence measure. No retraining needed.
 3. **NCBI signpost labeling** — project NCBI RefSeq sequences through the encoder to taxonomically label marine clusters. Manual exploration of individual clusters first to build intuition before automating. Spearman is 0.946 on NCBI regardless of which model is used, so the signposts are reliable.
 
+## 5b. MCL Cluster Analysis (2026-02-24)
+
+### Notebook: `MCL.ipynb`
+
+**MCL I=3.0 on 100 kbp marine data (NCBI_5 model)**:
+- 12,123 total clusters, 133,724 sequences
+- 710 singletons (5.9%) — not skewed short (median 197 kbp vs 158 kbp overall); these are compositionally unique, not noisy
+- 8 singletons above 750 kbp (up to 4,104 kbp) — likely near-complete novel genomes
+
+**NCBI signpost analysis**:
+- Embedded 175,213 NCBI sequences (>= 100 kbp) through NCBI_5 encoder → `Runs/embed_NCBI_5_NCBI_5.npy`
+- Nearest-neighbor assignment to marine clusters (Euclidean, d <= 5.0 threshold)
+- Only 7,348 / 175,213 (4.2%) NCBI sequences fall within d=5 of any marine graph node
+- **325 / 12,123 clusters (2.7%)** have at least one NCBI representative; 97.3% have no close NCBI match
+- Only 6 of the 325 NCBI-matched clusters are singletons
+
+**Key insight — taxonomic scaffolding**:
+
+The NCBI_5 model produces the best marine clustering (GC spans 4/4/4 pp, Spearman 0.836 on 100 kbp marine) despite the training data having almost no compositional overlap with the target domain. The evidence is now quantified:
+
+- **Training data**: 656K sequences from ~20K NCBI RefSeq representative genomes
+- **Target data**: 133,724 marine metagenomic contigs >= 100 kbp (SFE + SE)
+- **Overlap**: only 7,348 / 175,213 NCBI sequences (4.2%) fall within d=5.0 of any marine graph node; only 325 / 12,123 marine clusters (2.7%) have a close NCBI match
+- **Yet**: NCBI_5 outperforms SFE_SE_5 (trained on 4.8M marine sequences) on Spearman for 100 kbp marine data (0.836 vs 0.766) and produces comparable or better GC spans
+
+This is a **domain transfer** effect. The NCBI data provides "taxonomic scaffolding": clean, complete genomes spanning the full tree of life teach the VAE a latent geometry where evolutionary relationships map to Euclidean distances. That geometry generalizes to organisms never seen during training. The VAE doesn't need to have seen marine organisms — it needs to have learned what makes organisms *different from each other*.
+
+**Mechanism — what the VAE actually learns**: Training on NCBI doesn't teach the VAE *where specific organisms go* in latent space — it teaches the VAE *what k-mer patterns are taxonomically informative*. The ~20K NCBI genomes span the tree of life across many phyla with diverse GC content, codon usage, and oligonucleotide signatures. By learning to reconstruct and distinguish these, the VAE discovers the universal axes of variation in genomic composition space. Those axes — the features that separate organisms — apply to all life, not just the training set.
+
+When marine sequences are projected through this encoder, organisms with similar biology get similar embeddings because the VAE has learned the right features to attend to. The 97.3% of clusters with no NCBI match still form tight clusters (GC spans 4/4/4 pp) because the latent geometry separates biological variation correctly — it just happens that nothing in RefSeq is compositionally close to those particular organisms. The NCBI training shaped the *geometry* of the space, not the *contents*.
+
+**Why marine-trained models are worse**: By contrast, SFE_SE_5 (trained on 4.8M marine sequences) learns from redundant, fragmented assemblies dominated by a few abundant phyla. The training signal is dominated by assembly artifacts — fragmentation patterns, coverage-dependent composition biases, and the redundancy of highly abundant organisms appearing thousands of times. The model overfits to these biases rather than learning a broadly discriminative latent space. More data, worse representation.
+
+**Why mixing is even worse**: SFE_SE_NCBI_5 (marine + NCBI combined, Spearman 0.662) performs worse than either alone. The two data sources have different statistical properties — clean complete genomes vs noisy fragmented assemblies — and the model tries to accommodate both data geometries simultaneously, compromising the latent space for both. The NCBI signal is diluted by 86% marine data (5.4M total, only 14% NCBI).
+
+This explains the earlier findings:
+1. **Taxonomic breadth > sample count**: 656K NCBI beats 4.8M marine because breadth of taxonomy matters more than volume
+2. **Mixing distributions is harmful**: SFE_SE_NCBI_5 (marine + NCBI, Spearman 0.662) is worse than either alone — the model tries to accommodate two different data geometries and compromises both
+3. **NCBI as signposts works regardless of model**: Spearman 0.946 on NCBI data for all models, because NCBI genomes are internally consistent (complete, curated) regardless of what latent space they're projected into
+
+The analogy: learning a language's grammar from well-edited books (diverse topics, clean text) generalizes better than learning from noisy transcripts of a single topic, even if the books are about different subjects than what you'll encounter.
+
 ## 6. Codebase Status
 
 ### Scripts
