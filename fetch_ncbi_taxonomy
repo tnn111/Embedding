@@ -1,0 +1,184 @@
+#!/usr/bin/env -S uv run --quiet --script
+"""
+Fetch NCBI taxonomy lineages for all sequences in ids_NCBI_5.txt.
+
+Uses NCBI Entrez API to map accessions -> taxids, then the local
+taxonomy dump (nodes.dmp + names.dmp) to build full lineages.
+
+Output: TSV with columns:
+    ncbi_id  accession  taxid  domain  phylum  class  order  family  genus  species
+"""
+# /// script
+# dependencies = [
+#   "requests",
+# ]
+# ///
+
+import sys
+import time
+import requests
+import os
+
+RANKS_OF_INTEREST = [
+    'domain', 'phylum', 'class', 'order', 'family', 'genus', 'species'
+]
+BATCH_SIZE = 200  # accessions per Entrez request (POST)
+RATE_LIMIT = 3  # requests per second (no API key)
+
+IDS_FILE = 'Runs/ids_NCBI_5.txt'
+TAXONOMY_DIR = 'Runs/taxonomy'
+OUTPUT_FILE = 'Runs/taxonomy/ncbi_taxonomy.tsv'
+
+
+def load_taxonomy_tree(taxonomy_dir):
+    """Load NCBI taxonomy nodes and names from dump files."""
+    print('Loading taxonomy tree...', file = sys.stderr)
+
+    # Load nodes: taxid -> (parent_taxid, rank)
+    nodes = {}
+    with open(os.path.join(taxonomy_dir, 'nodes.dmp')) as f:
+        for line in f:
+            parts = line.split('\t|\t')
+            taxid = int(parts[0].strip())
+            parent = int(parts[1].strip())
+            rank = parts[2].strip()
+            nodes[taxid] = (parent, rank)
+
+    # Load names: taxid -> scientific name
+    names = {}
+    with open(os.path.join(taxonomy_dir, 'names.dmp')) as f:
+        for line in f:
+            parts = line.split('\t|\t')
+            taxid = int(parts[0].strip())
+            name = parts[1].strip()
+            name_class = parts[3].strip().rstrip('\t|')
+            if name_class == 'scientific name':
+                names[taxid] = name
+
+    print(f'  Loaded {len(nodes):,} nodes, {len(names):,} names', file = sys.stderr)
+    return nodes, names
+
+
+def get_lineage(taxid, nodes, names):
+    """Walk up the taxonomy tree to build a full lineage."""
+    lineage = {}
+    current = taxid
+    visited = set()
+    while current in nodes and current not in visited:
+        visited.add(current)
+        parent, rank = nodes[current]
+        if rank in RANKS_OF_INTEREST:
+            lineage[rank] = names.get(current, f'taxid:{current}')
+        if current == 1:  # root
+            break
+        current = parent
+    return lineage
+
+
+def fetch_taxids_batch(accessions, retry = 3):
+    """Fetch taxids for a batch of accessions via Entrez esummary."""
+    url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi'
+    params = {
+        'db': 'nucleotide',
+        'id': ','.join(accessions),
+        'retmode': 'json',
+    }
+    for attempt in range(retry):
+        try:
+            r = requests.post(url, data = params, timeout = 60)
+            r.raise_for_status()
+            data = r.json()
+            results = {}
+            for uid, rec in data.get('result', {}).items():
+                if uid == 'uids':
+                    continue
+                caption = rec.get('caption', '')
+                taxid = rec.get('taxid', 0)
+                if caption and taxid:
+                    results[caption] = int(taxid)
+            return results
+        except Exception as e:
+            if attempt < retry - 1:
+                print(f'  Retry {attempt + 1} after error: {e}', file = sys.stderr)
+                time.sleep(2)
+            else:
+                print(f'  FAILED batch after {retry} attempts: {e}', file = sys.stderr)
+                return {}
+
+
+def main():
+    # Load accessions
+    print(f'Reading accessions from {IDS_FILE}...', file = sys.stderr)
+    ncbi_ids = []
+    accessions = []
+    with open(IDS_FILE) as f:
+        for line in f:
+            ncbi_id = line.strip()
+            accession = ncbi_id.removeprefix('NCBI_')
+            ncbi_ids.append(ncbi_id)
+            accessions.append(accession)
+    print(f'  {len(accessions):,} accessions', file = sys.stderr)
+
+    # Load taxonomy tree
+    nodes, names = load_taxonomy_tree(TAXONOMY_DIR)
+
+    # Fetch taxids in batches
+    print(f'Fetching taxids from NCBI Entrez ({BATCH_SIZE}/batch)...',
+          file = sys.stderr)
+    acc_to_taxid = {}
+    t0 = time.time()
+    n_batches = (len(accessions) + BATCH_SIZE - 1) // BATCH_SIZE
+
+    for i in range(0, len(accessions), BATCH_SIZE):
+        batch = accessions[i:i + BATCH_SIZE]
+        results = fetch_taxids_batch(batch)
+        acc_to_taxid.update(results)
+
+        # Rate limiting
+        time.sleep(1.0 / RATE_LIMIT)
+
+        batch_num = i // BATCH_SIZE + 1
+        if batch_num % 50 == 0 or batch_num == n_batches:
+            elapsed = time.time() - t0
+            done = min(i + BATCH_SIZE, len(accessions))
+            rate = done / elapsed if elapsed > 0 else 0
+            eta = (len(accessions) - done) / rate if rate > 0 else 0
+            print(f'  {done:,} / {len(accessions):,} '
+                  f'({len(acc_to_taxid):,} mapped, '
+                  f'{elapsed:.0f}s elapsed, ~{eta:.0f}s remaining)',
+                  file = sys.stderr)
+
+    print(f'\nMapped {len(acc_to_taxid):,} / {len(accessions):,} accessions '
+          f'to taxids', file = sys.stderr)
+
+    # Get unique taxids and build lineages
+    unique_taxids = set(acc_to_taxid.values())
+    print(f'Building lineages for {len(unique_taxids):,} unique taxids...',
+          file = sys.stderr)
+
+    taxid_to_lineage = {}
+    for taxid in unique_taxids:
+        taxid_to_lineage[taxid] = get_lineage(taxid, nodes, names)
+
+    # Write output
+    print(f'Writing {OUTPUT_FILE}...', file = sys.stderr)
+    with open(OUTPUT_FILE, 'w') as out:
+        header = '\t'.join(['ncbi_id', 'accession', 'taxid'] + RANKS_OF_INTEREST)
+        out.write(header + '\n')
+        mapped = 0
+        for ncbi_id, accession in zip(ncbi_ids, accessions):
+            taxid = acc_to_taxid.get(accession, 0)
+            lineage = taxid_to_lineage.get(taxid, {})
+            fields = [ncbi_id, accession, str(taxid)]
+            for rank in RANKS_OF_INTEREST:
+                fields.append(lineage.get(rank, ''))
+            out.write('\t'.join(fields) + '\n')
+            if taxid:
+                mapped += 1
+
+    print(f'Done. {mapped:,} / {len(ncbi_ids):,} sequences with taxonomy.',
+          file = sys.stderr)
+
+
+if __name__ == '__main__':
+    main()

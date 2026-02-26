@@ -435,6 +435,163 @@ This explains the earlier findings:
 
 The analogy: learning a language's grammar from well-edited books (diverse topics, clean text) generalizes better than learning from noisy transcripts of a single topic, even if the books are about different subjects than what you'll encounter.
 
+## 5c. Taxonomic Assignment (2026-02-25)
+
+### Phase 1: NCBI Taxonomy Retrieval
+
+**Script**: `fetch_ncbi_taxonomy` (PEP 723 standalone)
+- Queries NCBI Entrez API (`esummary` via POST in batches of 200) to map accessions → taxids
+- Uses local taxonomy dump (`Runs/taxonomy/nodes.dmp`, `names.dmp`) for taxid → full lineage
+- **Note**: NCBI changed rank name from `superkingdom` to `domain` — script updated accordingly
+
+**Results** → `Runs/taxonomy/ncbi_taxonomy.tsv`:
+- 655,540 / 655,640 accessions mapped (99.98% success rate)
+- 22,280 unique taxids from ~20K representative genomes
+- Domain breakdown: 644,452 Bacteria, 11,059 Archaea, 129 unmapped
+- Top phyla: Pseudomonadota (222K), Actinomycetota (199K), Bacillota (102K), Bacteroidota (59K), Cyanobacteriota (20K)
+- Full lineage: domain → phylum → class → order → family → genus → species
+- Runtime: ~2 hours (NCBI rate limit 3 req/sec without API key)
+
+### Phase 2: Consensus Cluster Taxonomy
+
+**Notebook**: `MCL.ipynb` (cells 11-14)
+
+**Method**:
+1. For each of the 7,348 NCBI sequences within d=5.0 of a marine graph node, look up its taxonomy
+2. Group NCBI hits by their assigned marine cluster (325 clusters total)
+3. At each taxonomic rank, compute the most common taxon and the fraction of NCBI hits that agree (consensus)
+4. Assign taxonomy at the deepest rank where agreement >= 80%
+5. Propagate to all contigs in that cluster
+
+**Consensus taxonomy quality** (325 clusters):
+- All 325 have domain and phylum assignments
+- 324 have class, 321 have order, 320 have family/genus/species (gaps are missing ranks in NCBI taxonomy tree, not disagreement)
+- **Phylum-level agreement: mean 99.9%, median 100%, perfect agreement in 323/325 clusters**
+- Only 2 clusters have any phylum-level disagreement — likely edge cases from single outlier NCBI sequences at the d=5.0 boundary
+- This strongly validates that MCL clusters are taxonomically coherent
+
+**Propagation results** (80% agreement threshold):
+- **11,479 / 133,724 marine contigs (8.6%)** assigned taxonomy
+- Depth of assignment (how specific):
+  - Species: 5,157 contigs (45%)
+  - Genus: 4,039 contigs (35%)
+  - Family: 1,415 contigs (12%)
+  - Order: 640 contigs (6%)
+  - Class: 110 contigs (1%)
+  - Phylum: 112 contigs (1%)
+  - Domain only: 6 contigs (<0.1%)
+- Most contigs (80%) assigned to genus or species level
+
+**Phylum breakdown of assigned contigs**:
+
+| Phylum | Contigs | % of assigned |
+|--------|---------|---------------|
+| Pseudomonadota | 4,807 | 41.9% |
+| Bacteroidota | 3,230 | 28.1% |
+| Actinomycetota | 834 | 7.3% |
+| Verrucomicrobiota | 653 | 5.7% |
+| Cyanobacteriota | 629 | 5.5% |
+| Thermodesulfobacteriota | 474 | 4.1% |
+| Planctomycetota | 338 | 2.9% |
+| Nitrososphaerota | 164 | 1.4% |
+| Other (7 phyla) | 350 | 3.1% |
+
+- Pseudomonadota + Bacteroidota = 70% of assigned contigs — expected for marine metagenomes (Alphaproteobacteria, Gammaproteobacteria, Flavobacteriia dominate ocean microbiomes)
+- Nitrososphaerota is the sole archaeal phylum represented — ammonia-oxidizing archaea common in marine environments
+- 15 phyla represented total
+
+**Output file**: `Runs/taxonomy/cluster_taxonomy.tsv` (11,479 rows)
+- Columns: contig_id, cluster, cluster_size, n_ncbi_hits, confidence, depth, domain, phylum, class, order, family, genus, species
+
+**Key numbers for the paper**:
+- 8.6% of marine contigs get direct taxonomy from NCBI signposts
+- 80% of those reach genus or species level
+- 91.4% remain taxonomically uncharacterized — the dark matter of marine metagenomics
+- Near-perfect phylum agreement (99.9%) validates that MCL clusters = taxonomic units
+
+**Confidence tiers** (for future phases):
+- **Tier A**: Direct NCBI signpost match (this phase) — 11,479 contigs
+- **Tier B**: GTDB-Tk or sequence-based classification (Phase 3, future)
+- **Tier C**: Cluster propagation from Tier B assignments (Phase 4, future)
+- **Tier D**: Unassigned / novel lineages
+
+### Assessment: How Good Is Phase 1+2?
+
+**What we actually did**: Taxonomy transfer by embedding proximity. Phase 1 looked up
+authoritative NCBI taxonomy for 655K reference genomes (straightforward). Phase 2
+embedded those references through the same NCBI_5 encoder, found each reference's
+nearest marine contig in the 384-dim latent space, and if within d=5.0 (graph construction
+threshold), transferred its taxonomy to the marine contig's MCL cluster. For each matched
+cluster, consensus was computed across all NCBI hits: if >=80% agree at a rank, that taxon
+is assigned to every contig in the cluster.
+
+**Strengths**:
+- **Cluster taxonomic coherence is remarkable**: 99.9% phylum agreement, 323/325 clusters
+  perfectly unanimous. This validates that MCL clusters capture real biological signal — the
+  strongest finding of this analysis.
+- **Depth is impressive**: 80% of assigned contigs reach genus or species level — these are
+  specific, actionable labels, not vague "it's bacteria" assignments.
+- **Conservative approach**: 80% threshold + "stop at first disagreement" logic avoids
+  overclaiming. When we do assign, we're confident.
+
+**Weaknesses and caveats**:
+1. **Coverage is only 8.6%** — 122,245 contigs (91.4%) got nothing. Marine microbes are
+   massively underrepresented in NCBI RefSeq. This is the "dark matter" of marine
+   metagenomics.
+2. **This is taxonomy by k-mer composition, not by homology**. Two organisms can have
+   similar k-mer profiles (GC content, codon usage) without being phylogenetically close.
+   We use embedding distance as a proxy for taxonomic relatedness — reasonable but
+   unvalidated.
+3. **Guilt by association**: Every contig in a matched cluster inherits the same taxonomy.
+   If a cluster is impure (merges distinct taxa), they all get the wrong label. The GC span
+   analysis (4 pp at MCL I=3.0) suggests clusters are tight, but GC alone doesn't guarantee
+   taxonomic homogeneity.
+4. **No independent validation yet**. The 99.9% phylum agreement tells us the NCBI hits
+   within a cluster agree with *each other*, not that the *marine contigs* actually belong
+   to that taxon. We haven't checked a single assignment against sequence-based methods
+   (BLAST, GTDB-Tk, 16S markers).
+5. **The d=5.0 threshold is borrowed from graph construction**, not calibrated for taxonomy
+   transfer. An NCBI genome within d=5.0 of a marine contig could be a close relative or
+   just a compositionally similar but phylogenetically distant organism.
+
+**Bottom line**: This is a fast, scalable first pass that provides plausible labels for ~11K
+contigs and strong evidence that the clusters are biologically meaningful. But it is
+essentially "nearest reference genome in k-mer space" — a compositional signal, not a
+phylogenetic one. The assignments should be treated as hypotheses until validated by
+sequence-based methods (Phases 3–5).
+
+**The real finding is the 99.9% phylum coherence** — it means the VAE + MCL pipeline is
+producing clusters that correspond to real taxonomic groups. The specific taxonomic labels
+are a bonus but need corroboration. This coherence result alone is paper-worthy regardless
+of whether the individual assignments hold up.
+
+### Phase 3: GTDB-Tk Classification (in progress)
+
+**Goal**: Independent sequence-based taxonomy via marker gene phylogenetic placement.
+Validates Phase 2 k-mer-based assignments and extends coverage to unmatched clusters.
+
+**Setup**:
+- GTDB-Tk v2.6.1 with GTDB r220 reference database
+- Running on all 154,040 SFE_SE contigs >= 100 kbp (not just the 133K in the graph —
+  includes singletons and unmatched contigs for completeness)
+- Split into individual FASTA files per contig (one file = one "genome")
+- Running on two external servers (1.5 TB RAM, dual-socket, 32 cores allocated each):
+  - Server 1: SFE contigs (~85K)
+  - Server 2: SE contigs (~69K)
+- Using `--skip_ani_screen` — ANI screening was doing all-vs-reference skani comparison
+  which is unnecessary for novel marine contigs (most won't hit >95% ANI to any reference)
+- Estimated runtime: 1-2 days per server, running in parallel
+
+**Pipeline**: Prodigal (gene calling) → HMMER (120 bacterial + 53 archaeal marker genes) →
+pplacer (phylogenetic placement in GTDB reference tree)
+
+**Key difference from Phase 2**: This is phylogenetic placement based on conserved marker
+gene sequences — fundamentally different from k-mer composition similarity. Agreement
+between the two methods would strongly validate both approaches.
+
+**Results will be combined**: `gtdbtk.bac120.summary.tsv` and `gtdbtk.ar53.summary.tsv`
+from both servers concatenated (classifications are per-genome and independent).
+
 ## 6. Codebase Status
 
 ### Scripts
@@ -451,6 +608,7 @@ The analogy: learning a language's grammar from well-edited books (diverse topic
 | `leiden_sweep` | Distance-threshold Leiden clustering | Functional |
 | `verify_knn_quality` | Alternate validation | Functional |
 | `VAE_noGC.py` | Ablation variant (no 1-mers) | Experimental |
+| `fetch_ncbi_taxonomy` | Entrez API taxonomy fetch (PEP 723) | Production-ready |
 
 ### Notebooks
 
@@ -461,6 +619,7 @@ The analogy: learning a language's grammar from well-edited books (diverse topic
 | `clustering_050.ipynb` | 50 kbp analysis (marginal) | Complete |
 | `clustering_010.ipynb` | 10 kbp analysis (noise floor) | Complete |
 | `RCL.ipynb` | RCL consensus clustering analysis (100 kbp, NCBI_5) | Complete |
+| `MCL.ipynb` | MCL cluster analysis, NCBI signposts, taxonomy (100 kbp, NCBI_5) | Active |
 | `clustering.ipynb` | Original exploration (full dataset) | Superseded by above |
 | `shrub_of_life.ipynb` | ChromaDB query exploration | Historical |
 
