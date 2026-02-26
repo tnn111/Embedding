@@ -798,6 +798,78 @@ applying 73 explicit mappings + Candidatus prefix stripping + GTDB suffix handli
 This is the strongest possible cross-validation: two methods with zero shared methodology
 (k-mer composition vs marker gene phylogenetics) producing nearly identical results.
 
+### Phase 4: geNomad Viral/Plasmid Classification (2026-02-26)
+
+**Notebook**: `MCL.ipynb` (cells 21-24)
+
+geNomad was run on the full dataset (all contigs, all lengths) on 2025-12-12.
+Results in `Runs/taxonomy/genomad_summary/`. For the >= 100 kbp subset:
+
+**geNomad hits (>= 100 kbp)**:
+- Virus: 25,552
+- Plasmid: 661
+- Zero overlap between virus and plasmid calls
+- Very high confidence: mean virus_score = 0.9982, mean FDR = 0.0006
+- 92.8% of virus hits have >= 1 hallmark gene
+- Rich viral taxonomy: 74% classified to 5+ ranks (mostly Caudoviricetes and Bamfordvirae)
+
+**geNomad vs GTDB-Tk — completely complementary**:
+- **Zero overlap**: no geNomad virus/plasmid contig was classified by GTDB-Tk (0/25,552 virus, 0/661 plasmid)
+- Of the 46,307 GTDB-Tk no-marker contigs: 17,880 (38.6%) are virus, 567 (1.2%) plasmid = 18,447 (39.8%) explained
+- 27,860 no-marker contigs (60.2%) remain unexplained by either tool — truly novel/divergent
+
+**geNomad vs MCL graph (133,724 nodes)**:
+- 18,140 virus + 488 plasmid = 18,628 total (13.9% of graph)
+- Only 17 virus singletons (0.1%) — viral contigs almost always cluster together
+
+**Cluster-level composition** — the most important finding:
+- 7,802 clusters (105,798 contigs): purely **cellular** (0% mobile elements)
+- 184 clusters (8,544 contigs): **cellular-dominated** (<20% mobile)
+- 444 clusters (1,761 contigs): **mixed** (20-80% mobile) — potential prophages/integrated elements
+- 3,693 clusters (17,621 contigs): **mobile-dominated** (>80% mobile)
+
+**Viral clusters are taxonomically coherent**: the largest mobile-dominated clusters show
+consistent viral taxonomy within each cluster (e.g., cluster 423: 66/68 members are
+Varidnaviria;Bamfordvirae; cluster 477: 62/62 are Duplodnaviria;Heunggongvirae). The VAE
+learned to separate viral from cellular k-mer signatures and further distinguish viral
+families — without any labels.
+
+**Mixed clusters (444)** are interesting: largest has 31 members (12 plasmid + 19 cellular).
+These likely represent either:
+1. Prophage-carrying bacteria where viral and host k-mer signatures are blended
+2. Plasmid-carrying bacteria sharing similar composition with their mobile elements
+3. Edge cases where the distance threshold includes both
+
+**Updated coverage summary (all three phases)**:
+
+| Method | MCL graph contigs | % of 133,724 |
+|--------|------------------|--------------|
+| Phase 2 (NCBI signposts) | 11,479 | 8.6% |
+| Phase 3 (GTDB-Tk) | 26,162 | 19.6% |
+| Phase 4 (geNomad) | 18,628 | 13.9% |
+| **Any annotation** | **53,281** | **39.8%** |
+| No annotation | 80,443 | 60.2% |
+
+**Overlap breakdown** — the methods are almost entirely additive:
+- All three: 0
+- Phase 2 & 3 only: 2,868
+- Phase 2 & 4 only: 120
+- Phase 3 & 4 only: 0
+- Phase 2 only: 8,491
+- Phase 3 only: 23,294
+- Phase 4 only: 18,508
+
+For all 154,040 contigs >= 100 kbp: 60,181 (39.1%) have some annotation, 93,859 (60.9%) have none.
+
+Of the 80,443 unannotated graph contigs:
+- 61,172 have GTDB-Tk domain-only (bacterial/archaeal markers found but couldn't be placed phylogenetically)
+- 19,271 have no markers at all and are not viral/plasmid either — the deepest "dark matter"
+
+**Key insight**: geNomad adds 13.9% coverage with zero redundancy to GTDB-Tk. The three
+methods each capture a different slice of microbial diversity — embedding-based taxonomy for
+organisms near known references, marker gene phylogenetics for organisms with conserved
+markers, and neural network-based viral/plasmid detection for mobile genetic elements.
+
 ## 6. Codebase Status
 
 ### Scripts
