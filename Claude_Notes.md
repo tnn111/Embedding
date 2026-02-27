@@ -840,15 +840,17 @@ These likely represent either:
 2. Plasmid-carrying bacteria sharing similar composition with their mobile elements
 3. Edge cases where the distance threshold includes both
 
-**Updated coverage summary (all three phases)**:
+**Updated coverage summary (all phases)**:
 
 | Method | MCL graph contigs | % of 133,724 |
 |--------|------------------|--------------|
 | Phase 2 (NCBI signposts) | 11,479 | 8.6% |
-| Phase 3 (GTDB-Tk) | 26,162 | 19.6% |
+| Phase 3 (GTDB-Tk direct) | 26,162 | 19.6% |
+| Phase 3b (GTDB-Tk propagated) | 56,794 | 42.5% |
 | Phase 4 (geNomad) | 18,628 | 13.9% |
-| **Any annotation** | **53,281** | **39.8%** |
-| No annotation | 80,443 | 60.2% |
+| Phase 5 (Tiara euk+org) | 18,832 | 14.1% |
+| **Any annotation** | **116,184** | **86.9%** |
+| No annotation | 17,540 | 13.1% |
 
 **Overlap breakdown** — the methods are almost entirely additive:
 - All three: 0
@@ -1067,6 +1069,45 @@ Second-stage organelle classification: 478 plastid, 13 mitochondrion, 8 unknown.
 | EukCC | Eukaryotic completeness | Not planned |
 | GVClass | NCLDV family classification | Not planned |
 
+### Phase 3b: GTDB-Tk taxonomy propagation (2026-02-27)
+
+Propagated GTDB-Tk classifications from classified cluster members to unclassified cluster-mates. Justified by 99.2% phylum purity (cell 17). Majority vote with 80% agreement threshold, min 2 classified members.
+
+- 56,794 contigs propagated (42.5% of graph); 90% reach genus or species depth
+- **Coverage: 50.5% → 86.9%** (+36.4 pp) — single biggest gain of any phase
+- Top phyla: Pseudomonadota (19,578), Bacteroidota (10,732), Verrucomicrobiota (5,819)
+- Zero contamination: no giant viruses or eukaryotic contigs received prokaryotic taxonomy
+- 17,540 contigs (13.1%) remain unannotated — genuinely novel prokaryotes
+
+**Remaining 17,540 unannotated contigs:**
+- 94.4% bacteria by Tiara, high coding density (median 0.872) — solidly prokaryotic
+- 13,034 (74%) have GTDB-Tk markers but too divergent for placement; 4,506 (26%) no markers at all
+- Shorter than annotated (median 139 vs 173 kbp)
+- 2,190 fully dark clusters (11,388 contigs), 1,092 partially dark (6,152 contigs)
+- 5,113 contigs are in clusters with exactly 1 classified member (just below min-2 threshold)
+
+### Giant virus cross-tabulation (2026-02-27)
+
+Tiara and geNomad are largely orthogonal classifiers. "Giant virus candidate" = their intersection.
+
+**geNomad viruses in MCL graph (18,140) by Tiara class:**
+
+| Tiara class | Count | % | Interpretation |
+|---|---|---|---|
+| bacteria | 4,339 | 23.9% | bacteriophages |
+| eukarya | 4,142 | 22.8% | giant virus candidates (NCLDV) |
+| unknown | 4,104 | 22.6% | too divergent for Tiara |
+| prokarya | 3,622 | 20.0% | prokaryotic viruses (unresolved bac/arc) |
+| archaea | 1,926 | 10.6% | archaeal viruses |
+
+**Tiara eukarya in MCL graph (18,365) by geNomad status:**
+- geNomad virus: 4,142 (22.6%) → giant virus candidates
+- Neither: 14,202 (77.3%) → true eukaryotes
+
+**Giant virus cluster segregation (1,118 clusters):**
+- Pure GV (100%): 592, GV majority (≥50%): 322, GV minority (<50%): 204
+- Phase 3b propagated zero bacterial taxonomy onto giant viruses (clean separation)
+
 ### Circular genomes survey (2026-02-26)
 
 **Overall**: 6,001 circular contigs >= 100 kbp in the dataset.
@@ -1165,8 +1206,8 @@ Eukaryotes are **2.4× enriched** outside the graph vs inside.
 
 | Category | Contigs | % |
 |---|---|---|
-| MCL graph, annotated (P2+P3+P4+P5) | ~53,281 + ~18,329 euk | ~53% |
-| MCL graph, unannotated | ~62,114 | ~47% of graph |
+| MCL graph, annotated (P2+P3+P3b+P4+P5) | 116,184 | 86.9% of graph |
+| MCL graph, unannotated | 17,540 | 13.1% of graph |
 | Non-graph, viral (geNomad) | 8,296 | 5.4% of total |
 | Non-graph, eukaryotic (Tiara, not viral) | 5,198 | 3.4% of total |
 | Non-graph, other/uncharacterized | 6,823 | 4.4% of total |

@@ -1778,3 +1778,16 @@ Created `RCL.ipynb` (21 cells) to visualize and validate RCL consensus clusterin
 - Nesting determined by element set containment (subset check)
 - Sankey bundles >5 children per resolution into "rest" nodes for readability
 - Section 5 tracks per-child spans (not aggregate) to show how fragmentation improves quality
+
+## 2026-02-27: Phase 3b — Propagate GTDB-Tk taxonomy to cluster-mates (MCL.ipynb cell 29)
+
+Added cell 29 to propagate GTDB-Tk classifications from classified cluster members to unclassified cluster-mates, following the same pattern as Phase 2 (NCBI signpost propagation, cell 13).
+
+**Logic:**
+- For each MCL cluster with >= 2 GTDB-Tk classified members, build majority-vote consensus at each rank (domain → species), stop at first rank below 80% agreement
+- Propagate consensus taxonomy to all non-directly-classified cluster members
+- Store in `p3b_taxonomy` dict with same structure as Phase 2's `contig_taxonomy`
+
+**Bug fix:** Fixed SyntaxError from escaped double quotes (`\"`) inside single-quoted f-strings. Replaced with intermediate variable extraction for readability.
+
+**Includes:** before/after coverage summary (P2+P3+P3b+P4+P5), depth of assignment breakdown, phylum breakdown, spot-check of 10 previously-unannotated contigs.
