@@ -1025,30 +1025,47 @@ Second-stage organelle classification: 478 plastid, 13 mitochondrion, 8 unknown.
 3. **Giant virus hypothesis partially confirmed**: Some clusters may still be NCLDV (Schulz et al. 2020 showed giant viruses also classified as "Archaea"), but the bulk of the dark matter is eukaryotic
 4. **16.4% eukaryotic at >= 100 kbp** is consistent with Tara Oceans findings (EukHeist recovered >900 eukaryotic MAGs)
 
-### Coding density analysis (Phase 6, in progress)
+### Coding density analysis (Phase 6, 2026-02-27) — COMPLETE
 
-**Goal**: Use gene prediction (pyrodigal/prodigal) to compute coding density per contig as an independent axis for distinguishing prokaryotes, eukaryotes, and giant viruses.
+**Goal**: Use gene prediction (pyrodigal) to compute coding density per contig as an independent axis for distinguishing prokaryotes, eukaryotes, and giant viruses.
 
-**Expected distribution — three distinct peaks:**
-1. **Prokaryotes**: high coding density (~85-95%)
-2. **Giant viruses**: intermediate coding density (variable — Mimiviridae ~90%, Pandoraviridae ~60-70%)
-3. **Eukaryotes**: low coding density (~20-50%, introns + large intergenic regions)
+**Method**: Pyrodigal v3.6.3 in metagenomic mode (`-p meta`) on all 154,041 contigs >= 100 kbp.
+- Input: `Runs/SFE_SE_contigs_100.fna.gz`
+- Output: `Runs/taxonomy/SFE_SE_contigs.gff` (8.5 GB)
+- First attempt OOM'd with `-j 8 --pool process`; solved by splitting input into chunks
+- Notebook: `MCL.ipynb` cells 27-28
 
-**Status**: Pyrodigal run on `Runs/SFE_SE_contigs_100.fna.gz` (all 154K contigs >= 100 kbp) in `-p meta` mode. First attempt OOM'd with `-j 8 --pool process`. GFF output files expected 2026-02-27.
+**Results — three populations confirmed:**
 
-**Plan**: Cross-reference coding density with Tiara classifications and MCL cluster membership. If three peaks are visible, this provides independent confirmation of the eukaryotic/viral/prokaryotic partitioning.
+| Category | N contigs | Median coding density | Q25 | Q75 |
+|----------|-----------|----------------------|-----|-----|
+| Bacteria | 109,403 | 0.888 | 0.851 | 0.916 |
+| Archaea | 5,352 | 0.890 | 0.853 | 0.917 |
+| Prokarya (Tiara) | 6,577 | 0.890 | 0.841 | 0.921 |
+| **Giant virus candidates** (Tiara euk + geNomad virus) | **5,542** | **0.870** | — | — |
+| Unknown (Tiara) | 6,963 | 0.853 | 0.795 | 0.896 |
+| **Eukaryotes** (Tiara euk, not viral) | **19,705** | **0.748** | 0.695 | 0.836 |
+| Organelles | 499 | 0.737 | 0.715 | 0.766 |
 
-**Additional tools discussed for further characterization:**
+**Key findings:**
+1. **Prokaryotes vs eukaryotes cleanly separated**: median 0.888 vs 0.748 — no overlap in the core distributions
+2. **Giant virus candidates are intermediate**: median 0.870, pulled toward prokaryotic range (compact viral genomes, few introns)
+3. **Phage/viral contigs (prokaryotic hosts)** are indistinguishable from prokaryotes (median 0.879) — expected for compact phage genomes
+4. **Organelles match eukaryotes** (median 0.737) — consistent with their intron-rich, gene-sparse structure
+5. **Coding density independently validates Tiara**: the Tiara "eukarya" class has genuinely low coding density, confirming these are eukaryotic sequences, not misclassified prokaryotes
+6. **Giant virus candidates are a real intermediate population**: they code more densely than true eukaryotes but less than prokaryotes, consistent with NCLDV biology
+
+**Note on prodigal and eukaryotes**: Prodigal is a prokaryotic gene finder — it doesn't predict intron-containing genes. On eukaryotic contigs, it finds only intronless genes and spurious exon-sized ORFs. This means the actual coding capacity of eukaryotic contigs is higher than the 0.748 we measure, but the systematic undercount is what makes coding density diagnostic for distinguishing eukaryotes from prokaryotes.
+
+**Additional tools discussed but not pursued:**
 
 | Tool | Targets | Status |
 |------|---------|--------|
-| **Tiara** | Euk vs prok (deep learning) | Done (Phase 5) |
-| **Pyrodigal** | Coding density | In progress |
-| **BEREN** | Giant viruses (NCLDV); 77% recovery vs geNomad's 63% | Not yet run |
-| **ViralRecall** | Giant viruses via 28,696 GVOGs | Not yet run |
-| **EukRep** | Euk vs prok (SVM-based); independent validation of Tiara | Not yet run |
-| **EukCC** | Eukaryotic genome completeness | Not yet run |
-| **GVClass** | NCLDV family classification | Not yet run |
+| BEREN | Giant viruses (NCLDV) | Skipped — too many chained tools, uncertain accuracy |
+| ViralRecall | Giant viruses via GVOGs | Not planned |
+| EukRep | Euk vs prok (SVM) | Not needed — Tiara + coding density sufficient |
+| EukCC | Eukaryotic completeness | Not planned |
+| GVClass | NCLDV family classification | Not planned |
 
 ### Circular genomes survey (2026-02-26)
 
