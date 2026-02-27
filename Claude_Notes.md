@@ -870,6 +870,290 @@ methods each capture a different slice of microbial diversity — embedding-base
 organisms near known references, marker gene phylogenetics for organisms with conserved
 markers, and neural network-based viral/plasmid detection for mobile genetic elements.
 
+**Cluster composition by element type** (exclusive categories):
+
+| Type | Clusters | Notes |
+|------|----------|-------|
+| Cellular only | 7,802 | No mobile elements detected |
+| Virus only | 3,427 | Pure viral clusters |
+| Plasmid only | 27 | Pure plasmid clusters |
+| Virus + cellular | 648 | Prophage/host co-clustering — temperate phages with ameliorated k-mer composition |
+| Plasmid + cellular | 217 | Plasmid/host co-clustering — plasmids sharing host GC content |
+| Virus + plasmid | 0 | Never occurs without cellular context |
+| All three | 2 | Minimal: cluster 600 (52 members: 1v/1p/50c), cluster 4876 (5 members: 1v/1p/3c) |
+
+865 clusters (648 + 217) have mobile + cellular mixing, consistent with k-mer amelioration
+of mobile elements toward their host's composition. The all-three case is rare (2 clusters)
+because viral and plasmid k-mer signatures are different enough that they don't usually both
+land near the same host cluster. The 0 virus+plasmid-only clusters makes biological sense —
+mobile elements share k-mer composition with their hosts, not with each other.
+
+## 5d. Unannotated Dark Matter Analysis (2026-02-26)
+
+### Length distributions: annotated vs unannotated
+- **Annotated** (Phases 2+3+4 combined): 53,281 contigs, median 207 kbp
+- **Unannotated**: 80,443 contigs, median 151 kbp
+- Unannotated contigs are shorter on average — longer contigs have more markers for GTDB-Tk, more k-mer signal for embedding matching, more genes for geNomad
+- SFE vs SE split roughly even at >= 100 kbp (81,295 SFE vs 72,745 SE), despite SE having 1.7x more total contigs (4.2M vs 2.5M) — SE assemblies are more fragmented (median 7.7 kbp vs 11.1 kbp)
+
+### Top 20 longest unannotated contigs (1.8-3.2 Mbp)
+- ALL have same failure mode: GTDB-Tk detects domain-level markers but "Insufficient number of amino acids in MSA" (3.9-9.6%)
+- ALL linear (zero circular), not geNomad-flagged, no NCBI signpost within d=5.0
+- Coverage 11-141x — well within normal range (not assembly artifacts from low coverage)
+- 16 bacterial, 4 archaeal domain detection
+
+### Cluster membership reveals coherent signal
+- 20 contigs map to only **10 distinct MCL clusters** (strong co-clustering)
+- **Cluster 23** (142 members): contains 5 of top-20
+- Cluster 966 (34 members): 3 of top-20
+- Clusters 512, 284, 324, 5273: 2 each
+
+### Deep dive: Cluster 23
+- **142 members, ZERO classified beyond domain** — not a single member placed by GTDB-Tk
+- **Mixed domain**: 64 Bacteria + 44 Archaea + 34 not even domain-level
+- **76% insufficient MSA**, median only 2.3% alignment
+- Zero circular, 118 SFE / 24 SE
+- Length range 104 kbp - 2,033 kbp, median 251 kbp, mean 508 kbp
+- Coverage range 4-36x, median 14x
+
+**The bacterial/archaeal mix in one MCL cluster at I=3.0 is highly unusual** — MCL normally produces domain-pure clusters. For these to co-cluster, their k-mer profiles must be genuinely similar. Hypotheses:
+1. Chimeric assemblies mixing bacterial + archaeal sequence → hybrid k-mer profiles
+2. Giant viruses with genes acquired from both domains → intermediate k-mer signatures (but geNomad should catch these)
+3. Genuinely novel deep-branching lineages where universal markers have diverged beyond recognition
+
+The coherent clustering (20 contigs in 10 clusters, not scattered randomly) argues against random assembly artifacts and toward real biological signal.
+
+### Systematic scan: this is a massive phenomenon
+Searched all MCL clusters (size >= 10) for fully unclassified clusters (zero GTDB-Tk placement, no Phase 2 signposts):
+
+| Category | Clusters | Contigs | Key features |
+|---|---|---|---|
+| Mixed domain (Bac+Arc), unclassified | 195 | 7,085 | Domain mixing in k-mer space |
+| Single domain, unclassified, >= 70% insufficient MSA | 245 | 4,438 | All bacterial, same MSA failure |
+| **Total** | **440** | **~11,500** | **8.6% of MCL graph** |
+
+- Many clusters have some geNomad hits (flagged "[has geNomad]") but not enough for Phase 4 annotation — consistent with giant virus hypothesis (some members viral-enough to detect, most not)
+- Clusters 761, 1073, 1909, 1917: 100% insufficient MSA, every single member fails
+- MSA percentages typically 0.3-5% even for megabase-scale contigs — marker genes present but too divergent for alignment
+- The mixed Bacteria+Archaea domain signal is the most diagnostic feature — normal prokaryotes don't cross this boundary in k-mer space
+
+### Literature search: what are these? (2026-02-26)
+
+**Giant viruses (Nucleocytoviricota) — leading hypothesis:**
+- Schulz et al. 2020 (mSystems): 70% of 230 known giant virus genomes classified as "Archaea" by standard MAG pipelines
+- Giant viruses carry HGT-acquired bacterial translation genes AND eukaryotic genes that match archaeal homologs → mixed Bac/Arc marker detection, low MSA
+- Genomes up to 2.5 Mbp, linear — matches our contigs
+- BEREN benchmark (Minchin et al. 2025): geNomad misses **37%** of NCLDV contigs — explains why our contigs escape Phase 4
+- Mirusviricota (Gaitan & Schulz 2023, Nature): herpesvirus-like giant virus relatives, most abundant eukaryotic viruses in sunlit ocean, poorly represented in geNomad
+
+**Marine eukaryotic sequences — second hypothesis:**
+- GTDB-Tk known to misclassify eukaryotes: nuclear genes → archaeal markers (Asgard ancestry), organellar genes → bacterial markers (endosymbiotic origin)
+- GTDB forum confirms: eukaryotes classified as "new phyla" or "divergent prokaryotes" — no eukaryotic filter
+- Would explain mixed domain signal + k-mer coherence (each species has consistent composition)
+- Tara Oceans EukHeist: >900 eukaryotic MAGs alongside >4,000 prokaryotic MAGs
+
+**Chimeric assembly — largely ruled out:**
+- metaFlye chimerism ~8.6% contamination, but chimeras → heterogeneous k-mer signatures, not coherent clusters
+- K-mer coherence across 440 clusters argues strongly against random assembly artifacts
+
+**Actionable tools:**
+- BEREN (gitlab.com/benminch1/BEREN): 77% NCLDV recovery vs geNomad's 63%
+- ViralRecall (github.com/faylward/viralrecall): 28,696 NCLDV-specific GVOGs
+- EukRep: eukaryotic vs prokaryotic classification
+- Prodigal + hmmsearch against GVOG HMMs
+
+### Assembly info file
+- `Runs/SFE_SE_info.tsv`: first 5 columns from Flye assembly_info.txt for all contigs
+- Columns: contig_id, length, coverage, circular(Y/N), repeat(Y/N)
+
+### Tiara eukaryotic classification (Phase 5, 2026-02-26)
+
+Ran Tiara v1.0.3 (deep learning euk/prok/organellar classifier, Karlicki et al. 2022, Bioinformatics 38:344) on all 154,041 contigs >= 100 kbp.
+
+- Input: `Runs/SFE_SE_contigs_100.fna.gz` (all contigs >= 100 kbp, pre-filtered)
+- Output: `Runs/taxonomy/tiara_output.tsv` (TSV with per-contig classification + class probabilities)
+- Command: `tiara -i ../SFE_SE_contigs_100.fna.gz -o tiara_output.tsv --probabilities -t 32`
+- Installed in dedicated venv (incompatible deps with main env)
+- Note: v1.0.3 handles gzipped input natively; process substitution (`<(zcat ...)`) does NOT work (needs seekable file)
+
+**Overall classification (154,041 contigs):**
+
+| Class | Count | % |
+|---|---|---|
+| bacteria | 109,403 | 71.0% |
+| **eukarya** | **25,247** | **16.4%** |
+| unknown | 6,963 | 4.5% |
+| prokarya | 6,577 | 4.3% |
+| archaea | 5,352 | 3.5% |
+| organelle | 499 | 0.3% |
+
+Second-stage organelle classification: 478 plastid, 13 mitochondrion, 8 unknown.
+
+**Cross-reference with MCL annotation status — the smoking gun:**
+
+| | Annotated (P2+P3+P4) | Unannotated |
+|---|---|---|
+| bacteria | 32,338 (93.0%) | 68,253 (69.0%) |
+| **eukarya** | **36 (0.1%)** | **18,329 (18.5%)** |
+| prokarya | 446 (1.3%) | 4,567 (4.6%) |
+| unknown | 55 (0.2%) | 4,491 (4.5%) |
+| archaea | 1,484 (4.3%) | 3,258 (3.3%) |
+| organelle | 414 (1.2%) | 53 (0.1%) |
+
+- Eukaryotic contigs are **essentially absent from annotated** (0.1%) but **18.5% of unannotated**
+- 18,329 of 80,443 unannotated contigs (22.8%) are eukaryotic — the single largest component of "dark matter"
+- Only 36 eukaryotic contigs were annotated (all via GTDB-Tk Phase 3 — likely misclassified by either tool)
+
+**Cluster-level analysis:**
+
+| Category | Clusters | Contigs |
+|---|---|---|
+| Euk-dominated (>50%) | 2,746 | 17,829 |
+| Euk-mixed (10-50%) | 207 | 1,110 |
+| Euk-minor (1-10%) | 17 | — |
+| No eukarya (<1%) | 8,443 | — |
+
+- Eukaryotic clusters are remarkably pure — top 15 largest are all 99-100% eukarya
+- Top euk-dominated clusters (all 100% eukarya except cluster 8 at 99.4%): clusters 8(157), 20(144), 21(143), 23(142), 25(141), 27(139), 39(133), 70(119), 82(117), 90(115), 96(113), 108(111), 115(109), 124(107), 135(105)
+- **Cluster 23** (the "dark matter" deep-dive cluster): **100% eukaryotic** per Tiara, all 142 members
+- Euk-minor clusters (1-10% eukarya): only 17 — very little mixing between eukaryotic and prokaryotic contigs in k-mer space
+- The mixed Bacteria+Archaea domain signal from GTDB-Tk now makes perfect sense: nuclear genes = Asgard archaeal ancestry, organellar genes = bacterial endosymbiotic origin
+
+**Resolution of the dark matter mystery:**
+1. **Eukaryotes invisible to all three annotation methods**: GTDB-Tk (prokaryotic markers → "insufficient MSA"), NCBI signposts (prokaryotic reference set), geNomad (virus/plasmid-specific)
+2. **K-mer coherence within eukaryotic clusters**: Each eukaryotic species has a consistent composition profile → tight MCL clusters despite being taxonomically unplaceable
+3. **Giant virus hypothesis partially confirmed**: Some clusters may still be NCLDV (Schulz et al. 2020 showed giant viruses also classified as "Archaea"), but the bulk of the dark matter is eukaryotic
+4. **16.4% eukaryotic at >= 100 kbp** is consistent with Tara Oceans findings (EukHeist recovered >900 eukaryotic MAGs)
+
+### Coding density analysis (Phase 6, in progress)
+
+**Goal**: Use gene prediction (pyrodigal/prodigal) to compute coding density per contig as an independent axis for distinguishing prokaryotes, eukaryotes, and giant viruses.
+
+**Expected distribution — three distinct peaks:**
+1. **Prokaryotes**: high coding density (~85-95%)
+2. **Giant viruses**: intermediate coding density (variable — Mimiviridae ~90%, Pandoraviridae ~60-70%)
+3. **Eukaryotes**: low coding density (~20-50%, introns + large intergenic regions)
+
+**Status**: Pyrodigal run on `Runs/SFE_SE_contigs_100.fna.gz` (all 154K contigs >= 100 kbp) in `-p meta` mode. First attempt OOM'd with `-j 8 --pool process`. GFF output files expected 2026-02-27.
+
+**Plan**: Cross-reference coding density with Tiara classifications and MCL cluster membership. If three peaks are visible, this provides independent confirmation of the eukaryotic/viral/prokaryotic partitioning.
+
+**Additional tools discussed for further characterization:**
+
+| Tool | Targets | Status |
+|------|---------|--------|
+| **Tiara** | Euk vs prok (deep learning) | Done (Phase 5) |
+| **Pyrodigal** | Coding density | In progress |
+| **BEREN** | Giant viruses (NCLDV); 77% recovery vs geNomad's 63% | Not yet run |
+| **ViralRecall** | Giant viruses via 28,696 GVOGs | Not yet run |
+| **EukRep** | Euk vs prok (SVM-based); independent validation of Tiara | Not yet run |
+| **EukCC** | Eukaryotic genome completeness | Not yet run |
+| **GVClass** | NCLDV family classification | Not yet run |
+
+### Circular genomes survey (2026-02-26)
+
+**Overall**: 6,001 circular contigs >= 100 kbp in the dataset.
+
+**Circular by Tiara class**: bacteria 2,612; prokarya 1,333; archaea 688; unknown 666; eukarya 444; organelle 258.
+
+**Circular archaeal genomes (GTDB-Tk classified)**: 59 total.
+- Overwhelmingly **DPANN superphylum**: ~47 Nanobdellota (Pacearchaeales, Woesearchaeales, SCGC-AAA011-G17), 5 Iainarchaeota, 1 Aenigmatarchaeota
+- Only 1 "mainstream" archaeon: **SFE_5_S_c_35071** — 1.6 Mbp Thermoplasmatota (MGIIb-O2 sp030828405, Marine Group II), ANI 99.5% to reference GCA_030828405.1, 96% AF — a known species
+- 58 of 59 are from Baltic Sea (SE); only the MGII is from SFE
+- Genome sizes 296 kbp – 1.9 Mbp, consistent with DPANN small genomes
+
+**5 most novel classified circular genomes** (excluding organelles and unclassified):
+
+1. **SE_7_c_202790** — 733 kbp, 21x, **Babelota** (Babeliae, no order). RED 0.48, MSA 69%. Obligate intracellular parasite of protists.
+2. **SE_7_c_369653** — 701 kbp, 40x, **Babelota** (Babeliae, no order). Likely related to #1.
+3. **SFE_1_S_c_39645** — 1.7 Mbp, 30x, **Verrucomicrobiota** (Opitutales, no family). Novel family.
+4. **SFE_6_S_c_26492** — 4.0 Mbp, 16x, **Bdellovibrionota_B** (Oligoflexales, no family). Predatory bacterium, complete genome.
+5. **SE_10_c_324404** — 102 kbp, 14x, **Cyanobacteriota** (PCC-6307, no family). Low MSA 10.7%, Tiara "unknown" — possibly cyanobacterial plasmid.
+
+Note: top "novel" circular contigs before filtering were all **organelles** (~118-123 kbp, domain-only Bacteria, Tiara "organelle", very low RED 0.33-0.51) — plastid/mitochondrial genomes with divergent bacterial markers.
+
+### Babelota in the dataset (2026-02-26)
+
+**86 Babelota contigs** total (all class Babeliae), >= 100 kbp.
+- **76 from Baltic Sea (SE), 10 from SFE** — Baltic is a hotspot
+- Size range: 103 kbp – 1.6 Mbp
+- 10 circular (potential complete genomes), 76 linear
+- All Tiara "bacteria" (correct)
+
+**Family diversity within Babelales** (81 contigs; 5 not placed to order):
+- RVW-14: ~30 contigs (mostly no genus)
+- JAHIUU01: ~12 contigs
+- Chromulinivoraceae: ~12 contigs (6 placed to genus *Chromulinivorax*)
+- GCA-2401785: 4 contigs
+- Babelaceae: 4 contigs (type family)
+- CAIQNR01, JABGSX01, GWF2-32-72, UASB340, JAUPTZ01, UBA12409: 1-2 each
+
+**MCL clustering**: 79/86 Babelota contigs in the MCL graph, spread across **25 clusters**.
+- 5 clusters are **100% Babelota** (clusters 6833, 7088, 7656, 10550, 10783)
+- Most clusters 50-82% Babelota
+- **Family-level segregation by k-mer composition**: each cluster tends to contain a single GTDB family
+  - RVW-14: 7 clusters
+  - JAHIUU01: 5 clusters
+  - Chromulinivoraceae: 4 clusters
+  - GCA-2401785: 2 clusters
+- Non-Babelota members in mixed clusters may be unclassified Babelota or other intracellular bacteria with convergent k-mer signatures
+- 7 Babelota contigs are singletons (not in graph)
+
+**Biological context**: Babelota are obligate intracellular parasites of protists (eukaryotes). Their abundance in the Baltic Sea is consistent with the high eukaryotic content found by Tiara (16.4%). The VAE distinguishes Babelota families by k-mer composition alone — another validation that the embedding captures genuine biological signal at fine taxonomic resolution.
+
+### Non-graph contigs breakdown (2026-02-26)
+
+20,317 contigs (13.2% of 154,041 >= 100 kbp) are outside the MCL graph — singletons with no neighbor within d=5.
+
+**By Tiara class:**
+
+| Class | Count | % of non-graph | (cf. graph %) |
+|---|---|---|---|
+| bacteria | 8,812 | 43.4% | (71%) |
+| **eukarya** | **6,882** | **33.9%** | (14%) |
+| unknown | 2,417 | 11.9% | (4.5%) |
+| prokarya | 1,564 | 7.7% | (4.6%) |
+| archaea | 610 | 3.0% | (3.3%) |
+| organelle | 32 | 0.2% | (0.3%) |
+
+Eukaryotes are **2.4× enriched** outside the graph vs inside.
+
+**By geNomad:**
+- Virus: 8,296 (40.8%) — **3× enriched** vs graph (14%)
+- Plasmid: 173 (0.9%)
+- Neither: 11,848 (58.3%)
+
+**GTDB-Tk classified (beyond domain):** only 679 (3.3%)
+
+**Cross-tabulation (Tiara × geNomad):**
+
+| Tiara class | Total | Virus | Plasmid | Neither |
+|---|---|---|---|---|
+| bacteria | 8,812 | 3,192 | 136 | 5,484 |
+| eukarya | 6,882 | 1,659 | 25 | 5,198 |
+| archaea | 610 | 353 | 0 | 257 |
+| prokarya | 1,564 | 1,369 | 0 | 195 |
+| unknown | 2,417 | 1,720 | 12 | 685 |
+| organelle | 32 | 3 | 0 | 29 |
+
+**Key observations:**
+- **1,659 contigs are Tiara "eukarya" AND geNomad "virus"** — likely giant viruses (eukaryotic-like k-mers + viral genes)
+- **5,198 are Tiara eukarya, not viral** — genuine eukaryotic singletons, too compositionally unique to cluster
+- 1,369 of 1,564 "prokarya" are viral — Tiara couldn't decide domain, geNomad could
+- 1,720 of 2,417 "unknown" are viral — geNomad resolves most Tiara unknowns as viral
+
+**Why they're singletons:** Shorter (median 125 kbp vs 167 kbp in graph) and enriched for viruses and eukaryotes. Both have more variable k-mer composition than prokaryotes — eukaryotic genomes are especially heterogeneous along their length (introns, repeats, varying GC), so individual contigs from the same organism can have quite different k-mer profiles, making them less likely to find a neighbor within d=5.
+
+**Full accounting of all 154,041 contigs >= 100 kbp:**
+
+| Category | Contigs | % |
+|---|---|---|
+| MCL graph, annotated (P2+P3+P4+P5) | ~53,281 + ~18,329 euk | ~53% |
+| MCL graph, unannotated | ~62,114 | ~47% of graph |
+| Non-graph, viral (geNomad) | 8,296 | 5.4% of total |
+| Non-graph, eukaryotic (Tiara, not viral) | 5,198 | 3.4% of total |
+| Non-graph, other/uncharacterized | 6,823 | 4.4% of total |
+
 ## 6. Codebase Status
 
 ### Scripts
@@ -957,7 +1241,7 @@ Removed ~110 GB of obsolete files: old SFE_SE_5 pipeline artifacts (embeddings, 
 
 ## 8. References
 
-49 references organized by 35 claims in `Claude_References.md`. Key categories:
+~60 references organized by ~45 claims in `Claude_References.md`. Key categories:
 - **Foundational**: VAE (Kingma & Welling 2014), beta-VAE (Higgins et al. 2017)
 - **Compositional data**: CLR (Aitchison 1982, 1986), Jeffreys prior (Jeffreys 1946), microbiome (Gloor et al. 2017)
 - **K-mer signatures**: Karlin & Burge 1995, Pride et al. 2003
@@ -967,6 +1251,11 @@ Removed ~110 GB of obsolete files: old SFE_SE_5 pipeline artifacts (embeddings, 
 - **Rare biosphere**: Sogin et al. 2006, Lynch & Neufeld 2015
 - **Dimensionality**: TWO-NN (Facco et al. 2017), distance concentration (Beyer et al. 1999)
 - **Long-read metagenomics**: metaMDBG (Benoit et al. 2024), HiFi (Kim et al. 2022)
+- **Taxonomy tools**: GTDB-Tk (Chaumeil et al. 2019, 2022), GTDB (Parks et al. 2018, 2022), Prodigal (Hyatt et al. 2010), HMMER3 (Eddy 2011), pplacer (Matsen et al. 2010)
+- **Viral/plasmid classification**: geNomad (Camargo et al. 2023)
+- **Ocean microbiome**: Tara Oceans (Sunagawa et al. 2015)
+- **Novel archaea**: Lokiarchaeota (Spang et al. 2015), Asgardarchaeota (Zaremba-Niedzwiedzka et al. 2017)
+- **Microbial dark matter**: Rinke et al. 2013
 
 ## 9. Conclusions for the Paper
 
@@ -1147,3 +1436,29 @@ The following are historical session notes preserved for reference. The consolid
   - Per-child trajectory: largest lineage (11,872 nodes at res=3200) → median child GC span 2.0 pp at res=100
   - **Conclusion: RCL adds hierarchy but doesn't improve GC purity over MCL I=3.0 at matched cluster sizes**
 - Added `nbclient` dependency to `pyproject.toml` for notebook execution via Python API (system `jupyter-nbconvert` doesn't use uv venv kernel)
+
+### 2026-02-26: Literature search — Unclassifiable megabase contigs from marine metagenomes
+
+**Context**: ~12K contigs (8-9% of MCL graph) have GTDB-Tk bacterial/archaeal markers but "insufficient amino acids in MSA" (2-10% MSA), are NOT geNomad viral/plasmid, cluster coherently by k-mer composition, and some clusters mix Bacteria/Archaea domain markers.
+
+**Key findings from literature search**:
+
+1. **Giant viruses (Nucleocytoviricota) are the top candidate**:
+   - Schulz et al. 2020 (mSystems): 70% of 230 published giant virus genomes classified as "Archaea" by CheckM; all as "low quality". Fadolivirus (1.6 Mbp) classified as archaeal origin.
+   - geNomad sensitivity for giant viruses: 94.7% (geNomad paper, Nature Biotech 2024), but BEREN benchmark shows only 63% of NCLDV contigs recovered by geNomad vs 77% by BEREN. So 37% of giant virus contigs may be missed.
+   - Giant viruses carry bacterial-origin translation genes (aminoacyl-tRNA synthetases, translation factors) acquired by HGT — this explains bacterial marker detection
+   - Klosneuviruses encode up to 19 aaRS + >40 translation proteins (Schulz et al. 2017, Science)
+   - Mirusviricota (herpesvirus-like giant virus relatives) are abundant in marine plankton and may be missed by NCLDV-specific tools
+
+2. **GTDB-Tk classifies eukaryotes as Asgard archaea** (GTDB Forum):
+   - Protist/diatom/fungal contigs forced into archaeal classifications due to lack of eukaryotic references
+   - Could explain mixed Bacteria/Archaea signals if eukaryotic contigs with organellar markers are present
+
+3. **Borgs** (Al-Shayeb et al. 2022, Nature):
+   - Megabase-scale (up to 1.1 Mbp) linear extrachromosomal elements in Methanoperedens archaea
+   - Not classifiable as virus or plasmid; carry archaeal metabolism genes
+   - But: associated with terrestrial wetlands/sediments, NOT marine environments; host Methanoperedens not reported in marine systems
+
+4. **Assembly artifacts**: metaFlye chimeric rate ~8.6% contamination in >90% complete contigs; 16S rRNA chimerism test shows 211/223 contigs have >97% similar 16S copies (low chimerism). But inter-species chimeras via shared repeats are a known mechanism.
+
+5. **Recommended next steps**: Run BEREN and/or ViralRecall on these contigs; run GVClass to check for NCLDV signatures; check for eukaryotic markers with EukCC/EukRep

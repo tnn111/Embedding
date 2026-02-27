@@ -103,6 +103,10 @@ Whenever making changes to a Python file (X.py), you MUST update the correspondi
 
 Never skip this step. If you forget, add the notes as soon as you realize.
 
+## Plotting
+
+- Use seaborn with `darkgrid` style for all plots: `sns.set_theme(style = 'darkgrid')`
+
 ## Development Notes
 
 - Uses JAX backend for Keras (`KERAS_BACKEND = 'jax'`)

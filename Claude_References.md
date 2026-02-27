@@ -640,3 +640,125 @@ This step-function structure is related to the concept of "density modes" in non
 ### Bengio et al. (2009) -- Curriculum Learning
 - **Citation:** Bengio, Y., Louradour, J., Collobert, R. & Weston, J. (2009). Curriculum learning. In *Proceedings of the 26th International Conference on Machine Learning (ICML)*, pp. 41-48. ACM. https://doi.org/10.1145/1553374.1553380
 - **Summary:** Established that training order and data organization matter for representation learning: presenting examples in a structured order (easier to harder) improves both convergence speed and quality of learned representations compared to random mixing. Warns that curriculum strategies can degrade data diversity if subsets become too homogeneous. While our problem is not curriculum learning per se, the underlying principle applies: randomly mixing two structurally different data distributions (clean genomes and noisy assemblies) forces the optimizer to reconcile conflicting gradients, producing a compromised representation. The NCBI_5 model's success suggests that training on a single coherent distribution (clean reference genomes) is preferable to mixing incompatible distributions even when the mixture contains the target domain.
+
+---
+
+## GTDB-Tk: Marker Gene Phylogenetic Classification (Phase 3)
+
+**Claim:** GTDB-Tk v2.6.1 with GTDB r226 was used for independent sequence-based taxonomy via marker gene phylogenetic placement of all 154K contigs >= 100 kbp. The pipeline uses Prodigal for gene calling, HMMER for marker gene detection (120 bacterial + 53 archaeal markers), and pplacer for phylogenetic placement in the GTDB reference tree. This provides an entirely independent validation of the k-mer-based Phase 2 taxonomy assignments.
+
+### Chaumeil et al. (2019) -- GTDB-Tk: a toolkit to classify genomes with the Genome Taxonomy Database
+- **Citation:** Chaumeil, P.-A., Mussig, A.J., Hugenholtz, P. & Parks, D.H. (2019). GTDB-Tk: a toolkit to classify genomes with the Genome Taxonomy Database. *Bioinformatics*, 36(6), 1925-1927. https://doi.org/10.1093/bioinformatics/btz848
+- **Summary:** Introduces GTDB-Tk, a toolkit that provides objective taxonomic assignments for bacterial and archaeal genomes based on the Genome Taxonomy Database. The toolkit identifies marker genes using HMMER, places genomes into a reference tree using pplacer, and assigns taxonomy based on relative evolutionary divergence. Demonstrated accuracy on 10,156 phylogenetically diverse metagenome-assembled genomes. Used in our Phase 3 as the independent validation method for k-mer composition-based taxonomy.
+
+### Chaumeil et al. (2022) -- GTDB-Tk v2: memory friendly classification with the Genome Taxonomy Database
+- **Citation:** Chaumeil, P.-A., Mussig, A.J., Hugenholtz, P. & Parks, D.H. (2022). GTDB-Tk v2: memory friendly classification with the genome taxonomy database. *Bioinformatics*, 38(23), 5315-5316. https://doi.org/10.1093/bioinformatics/btac672
+- **Summary:** Presents an update to GTDB-Tk that uses a divide-and-conquer approach for phylogenetic placement, substantially reducing memory requirements (from ~320 GB to manageable levels) while having minimal impact on classification accuracy. This is the version (v2.6.1) used in our Phase 3 analysis.
+
+---
+
+## Genome Taxonomy Database (GTDB)
+
+**Claim:** GTDB provides a phylogenetically consistent, rank-normalized taxonomy based on genome phylogeny. The NCBI and GTDB taxonomic frameworks differ substantially below phylum level, with GTDB merging several NCBI classes (e.g., Betaproteobacteria into Gammaproteobacteria, all Bacteroidota classes into Bacteroidia) and reclassifying phyla (e.g., Kiritimatiellota into Verrucomicrobiota, Nitrososphaerota into Thermoproteota). Our NCBI-to-GTDB name mapping analysis (73 explicit mappings) revealed that the apparent 50% class-level disagreement between Phase 2 and Phase 3 was entirely a naming artifact, with true agreement at 99.9%.
+
+### Parks et al. (2018) -- A standardized bacterial taxonomy based on genome phylogeny substantially revises the tree of life
+- **Citation:** Parks, D.H., Chuvochina, M., Waite, D.W., Rinke, C., Skarshewski, A., Chaumeil, P.-A. & Hugenholtz, P. (2018). A standardized bacterial taxonomy based on genome phylogeny substantially revises the tree of life. *Nature Biotechnology*, 36(10), 996-1004. https://doi.org/10.1038/nbt.4229
+- **Summary:** Foundational paper establishing the Genome Taxonomy Database (GTDB). Uses a concatenated protein phylogeny to create a bacterial taxonomy that removes polyphyletic groups and normalizes ranks based on relative evolutionary divergence. Under this approach, 58% of 94,759 genomes had changes to their existing taxonomy, including description of 99 phyla and subdivision of Proteobacteria into six monophyletic units. The major reclassifications introduced here (e.g., Betaproteobacteria merged into Gammaproteobacteria, Proteobacteria split into Pseudomonadota etc.) are directly responsible for the naming differences we observe between Phase 2 (NCBI-based) and Phase 3 (GTDB-based) taxonomy assignments.
+
+### Parks et al. (2022) -- GTDB: an ongoing census of bacterial and archaeal diversity
+- **Citation:** Parks, D.H., Chuvochina, M., Rinke, C., Mussig, A.J., Chaumeil, P.-A. & Hugenholtz, P. (2022). GTDB: an ongoing census of bacterial and archaeal diversity through a phylogenetically consistent, rank normalized and complete genome-based taxonomy. *Nucleic Acids Research*, 50(D1), D785-D794. https://doi.org/10.1093/nar/gkab776
+- **Summary:** Describes the ongoing development of GTDB, which by R06-RS202 spans 254,090 bacterial and 4,316 archaeal genomes organized into 45,555 bacterial and 2,339 archaeal species clusters. Discusses the use of average nucleotide identity (ANI) for species delineation (95% threshold), which explains why NCBI and GTDB species names differ so extensively (87.5% disagreement in our data) -- GTDB uses strict genomic criteria while NCBI retains polyphasic/historical species names.
+
+### Rinke et al. (2021) -- A standardized archaeal taxonomy for the Genome Taxonomy Database
+- **Citation:** Rinke, C., Chuvochina, M., Mussig, A.J., Chaumeil, P.-A., Davin, A.A., Waite, D.W., Whitman, W.B., Parks, D.H. & Hugenholtz, P. (2021). A standardized archaeal taxonomy for the Genome Taxonomy Database. *Nature Microbiology*, 6(7), 946-959. https://doi.org/10.1038/s41564-021-00918-8
+- **Summary:** Proposes a standardized archaeal taxonomy derived from a 122-concatenated-protein phylogeny, forming part of GTDB. Identifies 16 archaeal phyla and reclassifies 3 major monophyletic units from the former Euryarchaeota and one phylum uniting the TACK superphylum. Relevant to our Phase 3 results because GTDB's archaeal taxonomy merges Nitrososphaerota into Thermoproteota (one of the 73 name mappings in our NCBI-to-GTDB reconciliation) and provides the framework for classifying the novel archaeal lineages we detected (Asgardarchaeota, SpSt-1190, DAOVMN01).
+
+---
+
+## geNomad: Viral and Plasmid Classification (Phase 4)
+
+**Claim:** geNomad classifies metagenomic sequences as viral or plasmid using gene content and deep neural networks. Applied to our >= 100 kbp contigs, it identified 25,552 viruses and 661 plasmids with very high confidence (mean virus_score 0.9982, 92.8% with hallmark genes). geNomad hits have zero overlap with GTDB-Tk classified contigs, making the two methods completely complementary. geNomad explains 39.8% of the GTDB-Tk no-marker contigs as viral (38.6%) or plasmid (1.2%).
+
+### Camargo et al. (2023) -- Identification of mobile genetic elements with geNomad
+- **Citation:** Camargo, A.P., Roux, S., Schulz, F., Babinski, M., Xu, Y., Hu, B., Chain, P.S.G., Nayfach, S. & Kyrpides, N.C. (2023). Identification of mobile genetic elements with geNomad. *Nature Biotechnology*, 42(8), 1303-1312. https://doi.org/10.1038/s41587-023-01953-y
+- **Summary:** Introduces geNomad, a classification and annotation framework that combines gene content analysis with a deep neural network to identify plasmids and viruses in sequencing data. Uses >200,000 marker protein profiles for functional annotation and taxonomic assignment, and a conditional random field model for provirus detection. Achieves Matthews correlation coefficients of 77.8% (plasmids) and 95.3% (viruses), substantially outperforming other tools. In our project, geNomad identified 26,213 mobile genetic elements (>= 100 kbp) with zero overlap to GTDB-Tk classifications, demonstrating the two methods capture entirely different biological categories. Viral clusters in our MCL analysis show taxonomic coherence (e.g., Caudoviricetes, Bamfordvirae), validating that the VAE learned to separate viral from cellular k-mer signatures without labels.
+
+---
+
+## Prodigal: Prokaryotic Gene Prediction
+
+**Claim:** GTDB-Tk uses Prodigal for gene calling as the first step of its pipeline. Prodigal predicted genes on all 154K contigs at ~29 genomes/s (32 cores), with only ~8 errors across both servers. Prodigal is well-suited for assembled contigs (higher quality sequences) while FragGeneScan is better for raw reads.
+
+### Hyatt et al. (2010) -- Prodigal: prokaryotic gene recognition and translation initiation site identification
+- **Citation:** Hyatt, D., Chen, G.-L., Locascio, P.F., Land, M.L., Larimer, F.W. & Hauser, L.J. (2010). Prodigal: prokaryotic gene recognition and translation initiation site identification. *BMC Bioinformatics*, 11, 119. https://doi.org/10.1186/1471-2105-11-119
+- **Summary:** Introduces Prodigal (PROkaryotic DYnamic programming Gene-finding ALgorithm), a fast, lightweight gene prediction program focused on improved gene structure prediction, translation initiation site recognition, and reduced false positives. Prodigal is the standard gene caller used by GTDB-Tk to identify open reading frames before HMMER marker gene search. In our Phase 3 pipeline, Prodigal processed 154K contigs with minimal errors, consistent with its design for high-quality assembled sequences rather than raw reads.
+
+---
+
+## HMMER: Profile Hidden Markov Model Search
+
+**Claim:** GTDB-Tk uses HMMER to search for 120 bacterial and 53 archaeal conserved marker genes in predicted protein sequences. Contigs with sufficient markers are placed phylogenetically; those with no markers (46,307 contigs, 30.1%) could not be classified and represent viral/novel candidates.
+
+### Eddy (2011) -- Accelerated Profile HMM Searches
+- **Citation:** Eddy, S.R. (2011). Accelerated Profile HMM Searches. *PLoS Computational Biology*, 7(10), e1002195. https://doi.org/10.1371/journal.pcbi.1002195
+- **Summary:** Describes HMMER3, which implements an acceleration heuristic (MSV algorithm) that makes profile HMM searches as fast as BLAST while maintaining superior sensitivity. HMMER3 is used by GTDB-Tk to detect conserved marker genes (120 bacterial + 53 archaeal) in predicted protein sequences. In our Phase 3 analysis, HMMER identified markers in 107,733 contigs (69.9%), while 46,307 contigs (30.1%) had no markers at all -- the latter group was subsequently shown by geNomad to be predominantly viral (38.6%) or plasmid (1.2%).
+
+---
+
+## pplacer: Phylogenetic Placement
+
+**Claim:** GTDB-Tk uses pplacer for phylogenetic placement of query sequences onto the GTDB reference tree. This is the computationally intensive step that determines taxonomic assignments based on where marker gene sequences fall in the reference phylogeny.
+
+### Matsen, Kodner & Armbrust (2010) -- pplacer: linear time maximum-likelihood and Bayesian phylogenetic placement
+- **Citation:** Matsen, F.A., Kodner, R.B. & Armbrust, E.V. (2010). pplacer: linear time maximum-likelihood and Bayesian phylogenetic placement of sequences onto a fixed reference tree. *BMC Bioinformatics*, 11, 538. https://doi.org/10.1186/1471-2105-11-538
+- **Summary:** Introduces pplacer, a software package for phylogenetic placement with linear time and memory complexity in the number of reference taxa. Calculates posterior probabilities for placements on each edge, providing statistically rigorous uncertainty quantification. Used by GTDB-Tk to place query genomes onto the GTDB reference tree based on concatenated marker gene alignments. In our Phase 3, pplacer was the rate-limiting step (~6 hours per server for ~77-81K contigs each).
+
+---
+
+## Tara Oceans: Global Ocean Microbiome Structure
+
+**Claim:** Pseudomonadota and Bacteroidota together constitute ~70% of our taxonomically assigned marine contigs, consistent with known dominance of Alphaproteobacteria, Gammaproteobacteria, and Flavobacteriia in ocean microbiomes.
+
+### Sunagawa et al. (2015) -- Structure and function of the global ocean microbiome
+- **Citation:** Sunagawa, S., Coelho, L.P., Chaffron, S., Kultima, J.R., Labadie, K., Salazar, G., ... & Bork, P. (2015). Ocean plankton. Structure and function of the global ocean microbiome. *Science*, 348(6237), 1261359. https://doi.org/10.1126/science.1261359
+- **Summary:** Analyzed 7.2 terabases of metagenomic data from 243 Tara Oceans samples across the globe, generating an ocean microbial reference gene catalog with >40 million sequences. Using 139 prokaryote-enriched samples containing >35,000 species, showed vertical stratification with epipelagic community composition mostly driven by temperature. Established the taxonomic baseline for ocean microbiomes, where Proteobacteria (now Pseudomonadota) and Bacteroidetes (now Bacteroidota) dominate -- consistent with our finding that these two phyla account for 70% of taxonomically assigned marine metagenomic contigs.
+
+---
+
+## Asgardarchaeota: Novel Archaeal Lineages in Marine Metagenomes
+
+**Claim:** Our GTDB-Tk analysis discovered Asgardarchaeota (Njordarchaeia, Lokiarchaeia) in the marine metagenomes, along with other novel archaeal lineages (SpSt-1190, DAOVMN01, EX4484-6/JASLWR01) with contigs up to 1.8 Mbp -- potentially near-complete genomes.
+
+### Spang et al. (2015) -- Complex archaea that bridge the gap between prokaryotes and eukaryotes
+- **Citation:** Spang, A., Saw, J.H., Jorgensen, S.L., Zaremba-Niedzwiedzka, K., Martijn, J., Lind, A.E., van Eijk, R., Schleper, C., Guy, L. & Ettema, T.J.G. (2015). Complex archaea that bridge the gap between prokaryotes and eukaryotes. *Nature*, 521(7551), 173-179. https://doi.org/10.1038/nature14447
+- **Summary:** Discovery paper for Lokiarchaeota, the first member of what would become the Asgard superphylum. Found in deep-sea sediments near Loki's Castle hydrothermal vent. Lokiarchaeota form a monophyletic group with eukaryotes in phylogenomic analyses and encode an expanded repertoire of eukaryotic signature proteins, providing strong support for models where the eukaryotic host evolved from an archaeon. Our finding of Lokiarchaeia contigs in marine metagenomes is consistent with the original marine sediment habitat of Lokiarchaeota.
+
+### Zaremba-Niedzwiedzka et al. (2017) -- Asgard archaea illuminate the origin of eukaryotic cellular complexity
+- **Citation:** Zaremba-Niedzwiedzka, K., Caceres, E.F., Saw, J.H., Backstrom, D., Juzokaite, L., Vancaester, E., Seitz, K.W., Anantharaman, K., Starnawski, P., Kjeldsen, K.U., Stott, M.B., Nunoura, T., Banfield, J.F., Schramm, A., Baker, B.J., Spang, A. & Ettema, T.J.G. (2017). Asgard archaea illuminate the origin of eukaryotic cellular complexity. *Nature*, 541(7637), 353-358. https://doi.org/10.1038/nature21031
+- **Summary:** Describes the Asgard superphylum including Thor-, Odin-, Heimdall-, and Lokiarchaeota. Asgard genomes are enriched for proteins formerly considered eukaryote-specific, including membrane-trafficking components. Our Phase 3 analysis detected Asgardarchaeota members (Njordarchaeia, Lokiarchaeia) among the marine metagenome contigs, with ~20 Njordarchaeia contigs classified only to class level (RED ~0.41, indicating deep-branching novel lineages). These represent potentially novel genera or families within the Asgard superphylum.
+
+---
+
+## Microbial Dark Matter
+
+**Claim:** 74% of our MCL graph contigs (80,443/133,724) remain unclassified after combining all three annotation methods (Phase 2 NCBI signposts, Phase 3 GTDB-Tk, Phase 4 geNomad). Of these, 19,271 have no markers at all and are not viral/plasmid -- the deepest "dark matter" representing genuinely novel organisms with no close relatives in reference databases.
+
+### Rinke et al. (2013) -- Insights into the phylogeny and coding potential of microbial dark matter
+- **Citation:** Rinke, C., Schwientek, P., Sczyrba, A., Ivanova, N.N., Anderson, I.J., Cheng, J.-F., Darling, A., Malfatti, S., Swan, B.K., Gies, E.A., Dodsworth, J.A., Hedlund, B.P., Tsiamis, G., Sievert, S.M., Liu, W.-T., Eisen, J.A., Hallam, S.J., Kyrpides, N.C., Stepanauskas, R., Rubin, E.M., Hugenholtz, P. & Woyke, T. (2013). Insights into the phylogeny and coding potential of microbial dark matter. *Nature*, 499(7459), 431-437. https://doi.org/10.1038/nature12352
+- **Summary:** Landmark paper applying single-cell genomics to 201 uncultivated archaeal and bacterial cells from 29 "microbial dark matter" branches of the tree of life. Resolved intra- and inter-phylum relationships, proposed two new superphyla, and uncovered unexpected metabolic features that challenge domain boundaries. Coined the "microbial dark matter" metaphor for the vast majority of microbial diversity that remains uncharacterized. Our finding that 74% of marine metagenomic contigs >= 100 kbp cannot be classified by any available method (k-mer proximity, marker gene phylogenetics, or neural network viral/plasmid detection) is consistent with this: the majority of environmental microbial diversity has no close representative in reference databases.
+
+---
+
+## Cross-Method Taxonomy Validation
+
+**Claim:** Two completely independent methods -- k-mer embedding proximity (Phase 2) and marker gene phylogenetic placement (Phase 3, GTDB-Tk) -- agree at 100% domain level and 99.9% phylum/class level (after NCBI-to-GTDB name mapping) on 2,868 contigs with both classifications. MCL cluster purity is 99.2% at phylum level across 2,761 clusters validated by GTDB-Tk. This cross-validation with zero shared methodology is the strongest possible evidence that the VAE + MCL pipeline produces genuine taxonomic clusters.
+
+### (Project-specific finding with methodological significance)
+
+The 99.9% agreement between two methods with zero shared methodology -- one based on k-mer composition similarity in a 384-dim VAE latent space, the other based on phylogenetic placement of conserved marker protein sequences in a reference tree -- provides exceptionally strong validation. The only 3 genuine phylum/class disagreements out of 2,847 comparisons (0.11%) are likely chimeric contigs or cluster boundary effects. This validates both:
+1. **The VAE embedding**: k-mer composition preserves taxonomic signal with remarkable fidelity, at least through class level.
+2. **MCL clustering quality**: clusters correspond to real biological groups, not algorithmic artifacts.
+
+The 99.2% phylum purity across 2,761 clusters (8x more clusters than the 325 available in Phase 2) represents a comprehensive independent audit of the clustering pipeline. The only impure clusters (7 at phylum level) all have exactly 2 classified members with a 1:1 split -- edge cases, not systematic failures.
+
+This level of cross-validation is unusual in metagenomic binning literature, where tools are typically validated against reference genomes in synthetic communities (e.g., CAMI benchmarks) rather than by independent taxonomic assignment methods applied to the same real-world data.
