@@ -1803,3 +1803,15 @@ Full review of all 32 cells. Cells 1-22 are clean; three minor issues found in c
 3. **Cell 30 (0-indexed 29):** Abbreviation `k[0].upper()` was ambiguous — "no markers" and "not in gtdbtk" both map to "N". Replaced with explicit `abbrev` dict mapping. No practical impact (zero "not in gtdbtk" contigs exist) but eliminates fragile code.
 
 **Cell order after changes:** ... → 25 (P2+P3+P4 coverage) → 26 (Phase 6 coding density) → 27 (coding density distributions) → 28 (Phase 3b) → 29 (length distributions, moved here) → 30 (characterize unannotated) → ...
+
+## 2026-02-27: Giant virus cluster composition analysis
+
+Investigated the non-GV members of GV-containing clusters (1,118 clusters total, 4,142 GV candidates):
+
+- **Pure GV** (592 clusters): 100% giant virus
+- **GV-majority** (322 clusters, 455 non-GV members): 58% non-GV viruses (Tiara-unknown, likely unrecognized GVs), 35% true eukaryotes (host fragments), <1% prokaryotic
+- **GV-minority** (204 clusters, 3,900 non-GV members): 76% true eukaryotes, 22% other viruses (Tiara-unknown), <1% prokaryotic
+
+Clean gradient: GV-majority clusters are viral neighborhoods with some divergent viruses and host fragments; GV-minority clusters are eukaryotic neighborhoods with a few GVs mixed in. Zero prokaryotic contamination across all categories.
+
+**Provirus suffix note**: geNomad reports integrated proviruses as `contig_id|provirus_start_end`. The notebook keeps raw `seq_name` (no stripping), so provirus entries don't match graph contig IDs. Stripping the suffix would add 145 eukaryotic contigs with embedded viral regions (EVEs), giving 4,287 instead of 4,142. The notebook's **4,142 is the canonical number** for the paper.
