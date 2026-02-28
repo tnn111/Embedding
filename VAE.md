@@ -1791,3 +1791,15 @@ Added cell 29 to propagate GTDB-Tk classifications from classified cluster membe
 **Bug fix:** Fixed SyntaxError from escaped double quotes (`\"`) inside single-quoted f-strings. Replaced with intermediate variable extraction for readability.
 
 **Includes:** before/after coverage summary (P2+P3+P3b+P4+P5), depth of assignment breakdown, phylum breakdown, spot-check of 10 previously-unannotated contigs.
+
+## 2026-02-27: MCL.ipynb full review — 3 fixes
+
+Full review of all 32 cells. Cells 1-22 are clean; three minor issues found in cells 23-32:
+
+1. **Cell 23 (0-indexed 22):** Stale comment said `cluster_types` is a list of tuples; actually a list of dicts. Fixed comment.
+
+2. **Cell 26 (length distributions):** Was positioned before Phase 3b and Tiara, using stale `any_annotation` (P2+P3+P4 only = 39.8%). Moved to after Phase 3b (now 0-indexed 28) and updated to use `after_any`/`after_none` from Phase 3b cell, covering all phases (86.9%). Cell 25 (P2+P3+P4 coverage summary) preserved as historical snapshot.
+
+3. **Cell 30 (0-indexed 29):** Abbreviation `k[0].upper()` was ambiguous — "no markers" and "not in gtdbtk" both map to "N". Replaced with explicit `abbrev` dict mapping. No practical impact (zero "not in gtdbtk" contigs exist) but eliminates fragile code.
+
+**Cell order after changes:** ... → 25 (P2+P3+P4 coverage) → 26 (Phase 6 coding density) → 27 (coding density distributions) → 28 (Phase 3b) → 29 (length distributions, moved here) → 30 (characterize unannotated) → ...
