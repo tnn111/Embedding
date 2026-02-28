@@ -1108,6 +1108,12 @@ Tiara and geNomad are largely orthogonal classifiers. "Giant virus candidate" = 
 **Giant virus cluster segregation (1,118 clusters):**
 - Pure GV (100%): 592, GV majority (≥50%): 322, GV minority (<50%): 204
 - Phase 3b propagated zero bacterial taxonomy onto giant viruses (clean separation)
+- **GV-majority non-GV members** (455 contigs): 58% non-GV viruses (Tiara-unknown, likely unrecognized GVs), 35% true eukaryotes (host fragments), <1% prokaryotic
+- **GV-minority non-GV members** (3,900 contigs): 76% true eukaryotes, 22% other viruses (Tiara-unknown), <1% prokaryotic
+- Gradient: pure GV → GV-majority (GVs + divergent viruses + host fragments) → GV-minority (eukaryotic clusters with a few GVs). Zero prokaryotic contamination across all three categories.
+
+**Provirus suffix note (important for consistency):**
+geNomad reports integrated proviruses as `contig_id|provirus_start_end`. The notebook keeps raw `seq_name`, so provirus entries don't match graph contig IDs (no `|` in graph IDs). This means `virus_set` counts only whole-contig viral calls. Stripping the suffix adds 145 eukaryotic contigs with embedded proviral regions → 4,287 instead of 4,142. The notebook's 4,142 is the canonical number for the paper: whole-contig giant viruses, not eukaryotic contigs with viral inserts (EVEs).
 
 ### Circular genomes survey (2026-02-26)
 
