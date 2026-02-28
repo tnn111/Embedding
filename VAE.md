@@ -1815,3 +1815,33 @@ Investigated the non-GV members of GV-containing clusters (1,118 clusters total,
 Clean gradient: GV-majority clusters are viral neighborhoods with some divergent viruses and host fragments; GV-minority clusters are eukaryotic neighborhoods with a few GVs mixed in. Zero prokaryotic contamination across all categories.
 
 **Provirus suffix note**: geNomad reports integrated proviruses as `contig_id|provirus_start_end`. The notebook keeps raw `seq_name` (no stripping), so provirus entries don't match graph contig IDs. Stripping the suffix would add 145 eukaryotic contigs with embedded viral regions (EVEs), giving 4,287 instead of 4,142. The notebook's **4,142 is the canonical number** for the paper.
+
+## 2026-02-27: Paper — Taxonomic validation and eukaryotic dark matter sections
+
+Added two new Results sections and updated Discussion/Draft in `ClusteringPaper/`:
+
+### Results_VAE.md: Two new sections (before "Embedding Scalability via ChromaDB")
+
+**1. "Taxonomic Validation Confirms Cluster Coherence"**
+- NCBI signpost analysis: 175,213 NCBI contigs embedded, 7,348 (4.2%) within d=5, 325/12,123 clusters matched, 11,479 contigs (8.6%) annotated, 99.9% phylum consensus
+- GTDB-Tk v2 independent validation: 26,841 classified (17.4%), 2,868 cross-validated → 100% domain, 99.9% phylum/class agreement (2 genuine phylum, 3 class disagreements)
+- Cluster purity table (Table 12): 99.2% perfect phylum, 95.6% perfect genus across 2,761 clusters
+- Combined annotation coverage table (Table 13): 86.9% of graph (116,184/133,724) via 5 methods (NCBI signposts, GTDB-Tk direct, GTDB-Tk propagated, geNomad, Tiara)
+
+**2. "The Embedding Captures Eukaryotic Biology Invisible to Standard Tools"**
+- 25,247 (16.4%) eukaryotic contigs; 0.1% of annotated but 18.5% of unannotated — single largest dark matter component
+- 2,746 euk-dominated MCL clusters, top 15 all 99–100% eukarya, only 17 with minor mixing
+- 4,142 giant virus candidates (Tiara-eukarya ∩ geNomad-virus); coding density validates three populations (prok 0.888, euk 0.748, GV 0.870)
+
+**6 new references** (11–16): GTDB-Tk, GTDB, geNomad, Tiara, Prodigal, Schulz giant viruses
+
+### Discussion.md changes
+- Para 4 (biology): Added 4 sentences on 99.2% phylum purity, eukaryotic dark matter, giant viruses, cross-domain generality
+- Para 5 (limitations): Replaced "validation has not been performed" → validation done, functional annotation incomplete
+- Para 6 (closing): Added sentence on cross-domain biological structure; strengthened conclusion
+- 3 new references (14–16): GTDB-Tk, Tiara, Schulz
+
+### Draft.md changes
+- Results outline: Replaced `[To be completed]` with Taxonomic Validation and Eukaryotic Dark Matter outlines
+- Discussion outline: Updated Para 5 (validation achieved) and Para 6 (eukaryotic dark matter)
+- Methods outline: Replaced placeholder with 7-point Taxonomic Validation methods
