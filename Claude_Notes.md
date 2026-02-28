@@ -331,17 +331,9 @@ At I=3.0: NCBI_5 matches or slightly beats SFE_SE_5 on GC span quality, with 10K
 
 ### 5.7.1 RCL Multi-Resolution Consensus Clustering
 
-**RCL** (Restricted Contingency Linkage, van Dongen 2022) is a parameter-free consensus method that reconciles multiple flat clusterings into a single nested multi-resolution hierarchy. Paper: [bioRxiv 2022.10.09.511493](https://www.biorxiv.org/content/10.1101/2022.10.09.511493v1).
+**RCL** (van Dongen 2022, bioRxiv 2022.10.09.511493): parameter-free consensus method. 14 input clusterings (6 MCL + 8 Leiden) on 133K nodes → 5 useful resolution levels (5,697–8,029 clusters).
 
-**Setup**: 14 input clusterings (6 MCL I=1.4–6.0 + 8 Leiden r=0.2–2.0) on 100 kbp NCBI_5 graph (133,724 nodes). Produces 5 useful resolution levels (res=100–1600; res=3200/6400 saturated), with 5,697–8,029 clusters per level. Nesting is strict by construction.
-
-**Key results from `RCL.ipynb`**:
-- **RCL does NOT improve GC purity over MCL I=3.0**: At matched cluster sizes, both methods follow the same GC span vs size curve. RCL res=100 median GC span = 4.7 pp (1,254 clusters ≥20 nodes) vs MCL I=3.0 median = 3.9 pp (1,650 clusters ≥20 nodes).
-- The difference comes from cluster size distribution, not algorithm quality: MCL I=3.0 produces more small tight clusters, RCL res=100 keeps some larger ones.
-- **RCL's value is the hierarchy**: provides a natural multi-resolution view without choosing a single inflation parameter. Nesting is clean — the largest cluster at res=3200 (11,872 nodes, GC span 42.4 pp) splits into well-separated children at res=100 with median GC span 2.0 pp.
-- Power-law size distribution: ~60% of clusters have 2–5 members (7–9% of nodes); few hundred clusters ≥100 hold bulk of nodes.
-- Consensus is coarser than individual methods (5.7K–8K vs MCL's 7K–21K): only cross-method-agreed splits retained.
-- **Bottom line**: MCL I=3.0 remains the best single-resolution clustering. RCL adds a hierarchy on top but doesn't improve individual cluster quality.
+**Key result**: RCL does NOT improve GC purity over MCL I=3.0 — at matched cluster sizes, both follow the same GC span vs size curve (RCL res=100 median 4.7 pp vs MCL I=3.0 median 3.9 pp). RCL's value is the hierarchy (clean nesting across resolutions), not cluster quality. MCL I=3.0 remains the best single-resolution clustering. Notebook: `RCL.ipynb`.
 
 ### 5.8 50 kbp: Marginal
 
@@ -420,20 +412,9 @@ The NCBI_5 model produces the best marine clustering (GC spans 4/4/4 pp, Spearma
 
 This is a **domain transfer** effect. The NCBI data provides "taxonomic scaffolding": clean, complete genomes spanning the full tree of life teach the VAE a latent geometry where evolutionary relationships map to Euclidean distances. That geometry generalizes to organisms never seen during training. The VAE doesn't need to have seen marine organisms — it needs to have learned what makes organisms *different from each other*.
 
-**Mechanism — what the VAE actually learns**: Training on NCBI doesn't teach the VAE *where specific organisms go* in latent space — it teaches the VAE *what k-mer patterns are taxonomically informative*. The ~20K NCBI genomes span the tree of life across many phyla with diverse GC content, codon usage, and oligonucleotide signatures. By learning to reconstruct and distinguish these, the VAE discovers the universal axes of variation in genomic composition space. Those axes — the features that separate organisms — apply to all life, not just the training set.
+**Mechanism**: NCBI teaches the VAE *what k-mer patterns are taxonomically informative*, not where specific organisms go. The ~20K genomes span the tree of life, teaching universal axes of genomic composition variation. Those axes apply to all life. Marine sequences get meaningful embeddings because the geometry is right — even though 97.3% of clusters have no NCBI match. NCBI shaped the *geometry* of the space, not the *contents*.
 
-When marine sequences are projected through this encoder, organisms with similar biology get similar embeddings because the VAE has learned the right features to attend to. The 97.3% of clusters with no NCBI match still form tight clusters (GC spans 4/4/4 pp) because the latent geometry separates biological variation correctly — it just happens that nothing in RefSeq is compositionally close to those particular organisms. The NCBI training shaped the *geometry* of the space, not the *contents*.
-
-**Why marine-trained models are worse**: By contrast, SFE_SE_5 (trained on 4.8M marine sequences) learns from redundant, fragmented assemblies dominated by a few abundant phyla. The training signal is dominated by assembly artifacts — fragmentation patterns, coverage-dependent composition biases, and the redundancy of highly abundant organisms appearing thousands of times. The model overfits to these biases rather than learning a broadly discriminative latent space. More data, worse representation.
-
-**Why mixing is even worse**: SFE_SE_NCBI_5 (marine + NCBI combined, Spearman 0.662) performs worse than either alone. The two data sources have different statistical properties — clean complete genomes vs noisy fragmented assemblies — and the model tries to accommodate both data geometries simultaneously, compromising the latent space for both. The NCBI signal is diluted by 86% marine data (5.4M total, only 14% NCBI).
-
-This explains the earlier findings:
-1. **Taxonomic breadth > sample count**: 656K NCBI beats 4.8M marine because breadth of taxonomy matters more than volume
-2. **Mixing distributions is harmful**: SFE_SE_NCBI_5 (marine + NCBI, Spearman 0.662) is worse than either alone — the model tries to accommodate two different data geometries and compromises both
-3. **NCBI as signposts works regardless of model**: Spearman 0.946 on NCBI data for all models, because NCBI genomes are internally consistent (complete, curated) regardless of what latent space they're projected into
-
-The analogy: learning a language's grammar from well-edited books (diverse topics, clean text) generalizes better than learning from noisy transcripts of a single topic, even if the books are about different subjects than what you'll encounter.
+**Why marine-trained models are worse**: SFE_SE_5 learns from redundant, fragmented assemblies dominated by a few abundant phyla — more data, worse representation. Mixing is even worse: SFE_SE_NCBI_5 (0.662) compromises both data geometries.
 
 ## 5c. Taxonomic Assignment (2026-02-25)
 
@@ -506,98 +487,17 @@ The analogy: learning a language's grammar from well-edited books (diverse topic
 **Key numbers for the paper**:
 - 8.6% of marine contigs get direct taxonomy from NCBI signposts
 - 80% of those reach genus or species level
-- 91.4% remain taxonomically uncharacterized — the dark matter of marine metagenomics
-- Near-perfect phylum agreement (99.9%) validates that MCL clusters = taxonomic units
+- 99.9% phylum agreement validates that MCL clusters = taxonomic units
 
-**Confidence tiers** (for future phases):
-- **Tier A**: Direct NCBI signpost match (this phase) — 11,479 contigs
-- **Tier B**: GTDB-Tk or sequence-based classification (Phase 3, future)
-- **Tier C**: Cluster propagation from Tier B assignments (Phase 4, future)
-- **Tier D**: Unassigned / novel lineages
+### Assessment: Phase 2
 
-### Assessment: How Good Is Phase 1+2?
+Taxonomy transfer by embedding proximity — a compositional signal, not phylogenetic. **Strengths**: remarkable coherence (99.9% phylum, 323/325 clusters unanimous), good depth (80% genus+), conservative thresholds. **Weaknesses**: only 8.6% coverage, guilt-by-association risk, d=5.0 not calibrated for taxonomy transfer. **Subsequently validated by Phase 3**: GTDB-Tk (independent marker gene method) confirmed 99.9% agreement through class level. The cluster coherence is the paper-worthy finding.
 
-**What we actually did**: Taxonomy transfer by embedding proximity. Phase 1 looked up
-authoritative NCBI taxonomy for 655K reference genomes (straightforward). Phase 2
-embedded those references through the same NCBI_5 encoder, found each reference's
-nearest marine contig in the 384-dim latent space, and if within d=5.0 (graph construction
-threshold), transferred its taxonomy to the marine contig's MCL cluster. For each matched
-cluster, consensus was computed across all NCBI hits: if >=80% agree at a rank, that taxon
-is assigned to every contig in the cluster.
+### Phase 3: GTDB-Tk Classification
 
-**Strengths**:
-- **Cluster taxonomic coherence is remarkable**: 99.9% phylum agreement, 323/325 clusters
-  perfectly unanimous. This validates that MCL clusters capture real biological signal — the
-  strongest finding of this analysis.
-- **Depth is impressive**: 80% of assigned contigs reach genus or species level — these are
-  specific, actionable labels, not vague "it's bacteria" assignments.
-- **Conservative approach**: 80% threshold + "stop at first disagreement" logic avoids
-  overclaiming. When we do assign, we're confident.
+**Goal**: Independent marker gene phylogenetic placement. Fundamentally different from Phase 2 (k-mer composition) — agreement between the two validates both.
 
-**Weaknesses and caveats**:
-1. **Coverage is only 8.6%** — 122,245 contigs (91.4%) got nothing. Marine microbes are
-   massively underrepresented in NCBI RefSeq. This is the "dark matter" of marine
-   metagenomics.
-2. **This is taxonomy by k-mer composition, not by homology**. Two organisms can have
-   similar k-mer profiles (GC content, codon usage) without being phylogenetically close.
-   We use embedding distance as a proxy for taxonomic relatedness — reasonable but
-   unvalidated.
-3. **Guilt by association**: Every contig in a matched cluster inherits the same taxonomy.
-   If a cluster is impure (merges distinct taxa), they all get the wrong label. The GC span
-   analysis (4 pp at MCL I=3.0) suggests clusters are tight, but GC alone doesn't guarantee
-   taxonomic homogeneity.
-4. **No independent validation yet**. The 99.9% phylum agreement tells us the NCBI hits
-   within a cluster agree with *each other*, not that the *marine contigs* actually belong
-   to that taxon. We haven't checked a single assignment against sequence-based methods
-   (BLAST, GTDB-Tk, 16S markers).
-5. **The d=5.0 threshold is borrowed from graph construction**, not calibrated for taxonomy
-   transfer. An NCBI genome within d=5.0 of a marine contig could be a close relative or
-   just a compositionally similar but phylogenetically distant organism.
-
-**Bottom line**: This is a fast, scalable first pass that provides plausible labels for ~11K
-contigs and strong evidence that the clusters are biologically meaningful. But it is
-essentially "nearest reference genome in k-mer space" — a compositional signal, not a
-phylogenetic one. The assignments should be treated as hypotheses until validated by
-sequence-based methods (Phases 3–5).
-
-**The real finding is the 99.9% phylum coherence** — it means the VAE + MCL pipeline is
-producing clusters that correspond to real taxonomic groups. The specific taxonomic labels
-are a bonus but need corroboration. This coherence result alone is paper-worthy regardless
-of whether the individual assignments hold up.
-
-### Phase 3: GTDB-Tk Classification (in progress)
-
-**Goal**: Independent sequence-based taxonomy via marker gene phylogenetic placement.
-Validates Phase 2 k-mer-based assignments and extends coverage to unmatched clusters.
-
-**Setup**:
-- GTDB-Tk v2.6.1 with GTDB r220 reference database
-- Running on all 154,040 SFE_SE contigs >= 100 kbp (not just the 133K in the graph —
-  includes singletons and unmatched contigs for completeness)
-- Split into individual FASTA files per contig (one file = one "genome")
-- Running on two external servers (1.5 TB RAM, dual-socket, 32 cores allocated each):
-  - Server 1: SFE contigs (~85K)
-  - Server 2: SE contigs (~69K)
-- Using `--skip_ani_screen` — ANI screening was doing all-vs-reference skani comparison
-  which is unnecessary for novel marine contigs (most won't hit >95% ANI to any reference)
-- Estimated runtime: 1-2 days per server, running in parallel
-
-**Pipeline**: Prodigal (gene calling) → HMMER (120 bacterial + 53 archaeal marker genes) →
-pplacer (phylogenetic placement in GTDB reference tree)
-
-**Key difference from Phase 2**: This is phylogenetic placement based on conserved marker
-gene sequences — fundamentally different from k-mer composition similarity. Agreement
-between the two methods would strongly validate both approaches.
-
-**Setup details**:
-- GTDB-Tk v2.6.1 with GTDB **r226** reference database
-- SFE contigs: 81,295 input → SE contigs: 72,746 input → total 154,041
-- Split into individual `.fna.gz` files per contig using `seqkit split --by-id` + rename
-- `--skip_ani_screen` required — without it, skani all-vs-reference was prohibitively slow
-- Prodigal ran at ~29 genomes/s (32 cores), finished in <1 hour per server
-- Only ~8 Prodigal errors total across both runs (not viral as initially expected — viral
-  contigs pass Prodigal fine but fail at the HMMER marker step)
-- Total runtime: ~6 hours per server (finished ~3 AM), running in parallel
+**Setup**: GTDB-Tk v2.6.1 with GTDB **r226** reference database, `--skip_ani_screen`. Pipeline: Prodigal → HMMER (120 bac + 53 arc markers) → pplacer. All 154,041 contigs >= 100 kbp, split across two servers (~6 hours each).
 
 **Results** → `Runs/taxonomy/SFE_gtdbtk_output/`, `Runs/taxonomy/SE_gtdbtk_output/`:
 
@@ -616,14 +516,7 @@ between the two methods would strongly validate both approaches.
   Asgardarchaeota (20+), Huberarchaeota, SpSt-1190, Iainarchaeota
 - GTDB splits some NCBI phyla: Bacteroidota_A (162 contigs) separate from Bacteroidota
 
-**Novel archaeal lineages found**:
-- **Asgardarchaeota Njordarchaeia**: ~20 contigs, classified only to class level, RED ~0.41
-- **Asgardarchaeota Lokiarchaeia**: 1 contig (SFE_8_S_c_18855)
-- **SpSt-1190**: 2 SE contigs (150-162 kbp), barely characterized phylum
-- **DAOVMN01**: novel Thermoplasmatota class in SE samples, all placeholder names
-- **EX4484-6/JASLWR01**: novel Thermoplasmatota class, 6 contigs from SE_7/SE_10,
-  largest at 1,827 kbp and 1,773 kbp — potentially near-complete genomes with up to 44% MSA
-- **Huberarchaeota**: 1 contig (SFE_7_S_c_34782)
+**Notable archaeal diversity**: Asgardarchaeota (~21 contigs: Njordarchaeia, Lokiarchaeia), SpSt-1190 (2 contigs), DAOVMN01 and EX4484-6/JASLWR01 (novel Thermoplasmatota classes, largest 1,827 kbp — potentially near-complete genomes), Huberarchaeota (1 contig).
 
 ### Phase 2 vs Phase 3 Comparison (2026-02-26)
 
@@ -670,59 +563,9 @@ the true agreement:
 | Genus | 1,361/2,363 (57.6%) | **2,038/2,363 (86.2%)** | 325 (13.8%) |
 | Species | 62/702 (8.8%) | 88/702 (12.5%) | 614 (87.5%) |
 
-**Key results**:
-- **Class agreement jumps from 50% to 99.9%** — the most dramatic correction. Nearly all
-  "disagreements" were known GTDB reclassifications:
-  - Betaproteobacteria → Gammaproteobacteria (444 contigs, GTDB merged Beta into Gamma)
-  - Flavobacteriia/Cytophagia/Sphingobacteriia → Bacteroidia (696 contigs, GTDB merged
-    all Bacteroidota classes into Bacteroidia)
-  - Cyanophyceae → Cyanobacteriia (118 contigs, naming convention)
-  - Opitutia → Verrucomicrobiia (91 contigs)
-  - And 10+ other known reclassifications
-- Only **3 contigs** have genuine class-level disagreement, **2 contigs** at phylum level
-- Through family level, >93% true agreement between two completely independent methods
-- At genus, 86% — the 14% genuine disagreements likely reflect cases where the nearest
-  NCBI reference in embedding space was a close relative but not the same genus
+**Key results**: Class agreement jumps from 50% to **99.9%** after mapping — nearly all "disagreements" were known GTDB reclassifications (e.g., Betaproteobacteria→Gammaproteobacteria 444 contigs, Flavobacteriia→Bacteroidia 696). Only 3 genuine class-level and 2 phylum-level disagreements (likely chimeric contigs). Through family, >93% true agreement; at genus, 86% (14% = nearest NCBI reference was close relative but not same genus).
 
-**The 2 genuine phylum disagreements**:
-- SE_19_c_24757: Phase 2 = Bacteroidota, GTDB-Tk = Pseudomonadota
-- SFE_3_W_c_70558: Phase 2 = Verrucomicrobiota, GTDB-Tk = Pseudomonadota
-These are likely chimeric contigs or contigs at the boundary of a mixed cluster.
-
-**Major NCBI→GTDB naming differences cataloged** (for future reference):
-
-*Phylum level* (4 mappings):
-- Nitrososphaerota → Thermoproteota (71 contigs)
-- Thermodesulfobacteriota → Desulfobacterota (67)
-- Kiritimatiellota → Verrucomicrobiota (22)
-- Mycoplasmatota → Bacillota (6)
-
-*Class level* (15 mappings): Betaproteobacteria→Gammaproteobacteria,
-Flavobacteriia/Cytophagia/Sphingobacteriia/Saprospiria→Bacteroidia,
-Epsilonproteobacteria→Campylobacteria, Cyanophyceae→Cyanobacteriia,
-Opitutia→Verrucomicrobiia, Tichowtungiia→Kiritimatiellia, Mollicutes→Bacilli,
-and others
-
-*Order level* (18 mappings): Alteromonadales→Enterobacterales,
-Nitrosomonadales→Burkholderiales, Cellvibrionales→Pseudomonadales,
-Micrococcales→Actinomycetales, plus Candidatus prefix removals
-
-*Family level* (18 mappings): Flectobacillaceae→Spirosomataceae,
-Comamonadaceae→Burkholderiaceae, Roseobacteraceae/Paracoccaceae→Rhodobacteraceae,
-plus Candidatus prefix removals
-
-*Genus level* (7 explicit + generic Candidatus stripping + GTDB _A/_B suffix handling):
-Candidatus Planktophila→Planktophila (215 contigs), Candidatus Methylopumilus→Methylopumilus (71),
-Candidatus Nanopelagicus→Nanopelagicus (68), plus GTDB suffixed names like
-Limnohabitans→Limnohabitans_A, Polaribacter→Polaribacter_A
-
-**Species: 87.5% genuine disagreement is expected and not concerning**. NCBI species are
-polyphasic + usage-based; GTDB species are strictly ANI-based (95% threshold). Most
-"disagreements" are the same organism called by different species names
-(e.g., "Opacimonas immobilis" vs "Opacimonas sp000155775").
-
-**Species-level 8.8% raw / 12.5% mapped agreement is expected**: NCBI and GTDB have
-fundamentally different species concepts.
+73 explicit NCBI→GTDB mappings built across all ranks (MCL.ipynb cells 19-20). Major examples: Betaproteobacteria→Gammaproteobacteria (444 contigs), Flavobacteriia→Bacteroidia (696), Nitrososphaerota→Thermoproteota (71), plus Candidatus prefix stripping and GTDB _A/_B suffix handling. Species-level 87.5% disagreement is expected (NCBI polyphasic vs GTDB ANI-based species concepts).
 
 ### Cluster Purity Validated by GTDB-Tk
 
@@ -770,33 +613,9 @@ produces clusters that correspond to real taxonomic groups at fine resolution.
 - Outside the MCL graph: only 679/20,316 non-graph contigs classified by GTDB-Tk (3.3%)
 - **74% of the MCL graph remains unclassified** — the dark matter of marine metagenomics
 
-### Summary: Phase 2+3 Combined Assessment
+### Summary: Phase 2+3
 
-**The validation is strong**: Two completely independent methods — k-mer embedding proximity
-(Phase 2) and marker gene phylogenetic placement (Phase 3) — agree at 100% domain level
-and 99-100% phylum level. This is about as strong as it gets for metagenomic taxonomy.
-
-**The VAE + MCL pipeline produces genuine taxonomic clusters**: 99.2% phylum purity across
-2,761 clusters, validated by an independent phylogenetic method. This is not an artifact
-of the embedding — the clusters correspond to real biological groups.
-
-**Coverage gap is real but expected**: 74% unclassified reflects the state of reference
-databases for environmental microbiology. These contigs represent genuinely novel organisms
-with no close relatives in GTDB or NCBI. The geNomad viral classifications (to be
-integrated) will explain some of these; the rest are the "dark matter."
-
-**NCBI vs GTDB naming differences fully resolved**: The name-mapping analysis (cells 19-20)
-confirms that the apparent 50% class-level agreement was entirely a naming artifact. After
-applying 73 explicit mappings + Candidatus prefix stripping + GTDB suffix handling:
-- **99.9% agreement through class level** (3 genuine disagreements out of 2,847)
-- **93-94% through order/family** (6-7% genuine disagreements from different order/family
-  circumscriptions between NCBI and GTDB)
-- **86% at genus** (14% genuine — nearest NCBI reference was a relative, not same genus)
-- Only **2 contigs** have genuine phylum-level disagreement out of 2,868 — likely chimeric
-  contigs or cluster boundary effects
-
-This is the strongest possible cross-validation: two methods with zero shared methodology
-(k-mer composition vs marker gene phylogenetics) producing nearly identical results.
+Two independent methods (k-mer embedding vs marker gene phylogenetics) agree at 99.9% through class. 99.2% phylum purity across 2,761 clusters. 74% unclassified reflects reference database gaps, not pipeline failure. Subsequent phases (geNomad, Tiara, Phase 3b) raised coverage to 86.9%.
 
 ### Phase 4: geNomad Viral/Plasmid Classification (2026-02-26)
 
@@ -852,43 +671,9 @@ These likely represent either:
 | **Any annotation** | **116,184** | **86.9%** |
 | No annotation | 17,540 | 13.1% |
 
-**Overlap breakdown** — the methods are almost entirely additive:
-- All three: 0
-- Phase 2 & 3 only: 2,868
-- Phase 2 & 4 only: 120
-- Phase 3 & 4 only: 0
-- Phase 2 only: 8,491
-- Phase 3 only: 23,294
-- Phase 4 only: 18,508
+P2+P3+P4 overlap is almost entirely additive (zero P3∩P4, only 120 P2∩P4). geNomad adds 13.9% coverage with zero redundancy to GTDB-Tk.
 
-For all 154,040 contigs >= 100 kbp: 60,181 (39.1%) have some annotation, 93,859 (60.9%) have none.
-
-Of the 80,443 unannotated graph contigs:
-- 61,172 have GTDB-Tk domain-only (bacterial/archaeal markers found but couldn't be placed phylogenetically)
-- 19,271 have no markers at all and are not viral/plasmid either — the deepest "dark matter"
-
-**Key insight**: geNomad adds 13.9% coverage with zero redundancy to GTDB-Tk. The three
-methods each capture a different slice of microbial diversity — embedding-based taxonomy for
-organisms near known references, marker gene phylogenetics for organisms with conserved
-markers, and neural network-based viral/plasmid detection for mobile genetic elements.
-
-**Cluster composition by element type** (exclusive categories):
-
-| Type | Clusters | Notes |
-|------|----------|-------|
-| Cellular only | 7,802 | No mobile elements detected |
-| Virus only | 3,427 | Pure viral clusters |
-| Plasmid only | 27 | Pure plasmid clusters |
-| Virus + cellular | 648 | Prophage/host co-clustering — temperate phages with ameliorated k-mer composition |
-| Plasmid + cellular | 217 | Plasmid/host co-clustering — plasmids sharing host GC content |
-| Virus + plasmid | 0 | Never occurs without cellular context |
-| All three | 2 | Minimal: cluster 600 (52 members: 1v/1p/50c), cluster 4876 (5 members: 1v/1p/3c) |
-
-865 clusters (648 + 217) have mobile + cellular mixing, consistent with k-mer amelioration
-of mobile elements toward their host's composition. The all-three case is rare (2 clusters)
-because viral and plasmid k-mer signatures are different enough that they don't usually both
-land near the same host cluster. The 0 virus+plasmid-only clusters makes biological sense —
-mobile elements share k-mer composition with their hosts, not with each other.
+**Cluster composition by element type**: 7,802 cellular-only, 3,427 virus-only, 27 plasmid-only, 648 virus+cellular (prophage/host co-clustering via k-mer amelioration), 217 plasmid+cellular, 0 virus+plasmid-only, 2 all-three. Mobile elements share k-mer composition with hosts, not with each other.
 
 ## 5d. Unannotated Dark Matter Analysis (2026-02-26)
 
@@ -900,70 +685,25 @@ mobile elements share k-mer composition with their hosts, not with each other.
 - *(Updated 2026-02-27: originally showed P2+P3+P4 only; now reflects all-phase coverage after cell move)*
 
 ### Top 20 longest unannotated contigs (1.8-3.2 Mbp)
-- ALL have same failure mode: GTDB-Tk detects domain-level markers but "Insufficient number of amino acids in MSA" (3.9-9.6%)
-- ALL linear (zero circular), not geNomad-flagged, no NCBI signpost within d=5.0
-- Coverage 11-141x — well within normal range (not assembly artifacts from low coverage)
-- 16 bacterial, 4 archaeal domain detection
+- All share the same failure mode: GTDB-Tk markers detected but "insufficient MSA" (3.9-9.6%). All linear, normal coverage (11-141x), 16 bacterial + 4 archaeal domain markers.
+- Strong co-clustering: 20 contigs map to only **10 MCL clusters** (Cluster 23 has 5, Cluster 966 has 3).
 
-### Cluster membership reveals coherent signal
-- 20 contigs map to only **10 distinct MCL clusters** (strong co-clustering)
-- **Cluster 23** (142 members): contains 5 of top-20
-- Cluster 966 (34 members): 3 of top-20
-- Clusters 512, 284, 324, 5273: 2 each
+### Deep dive: Cluster 23 — eukaryotic dark matter
+- **142 members, ZERO classified beyond domain** by GTDB-Tk
+- Mixed domain markers: 64 Bacteria + 44 Archaea + 34 undetected — highly unusual for MCL (normally domain-pure)
+- Length range 104 kbp – 2,033 kbp, median 251 kbp
+- **Resolved by Tiara (Phase 5): 100% eukaryotic.** Mixed Bac/Arc markers explained by Asgard archaeal ancestry (nuclear) + endosymbiotic origin (organellar).
 
-### Deep dive: Cluster 23
-- **142 members, ZERO classified beyond domain** — not a single member placed by GTDB-Tk
-- **Mixed domain**: 64 Bacteria + 44 Archaea + 34 not even domain-level
-- **76% insufficient MSA**, median only 2.3% alignment
-- Zero circular, 118 SFE / 24 SE
-- Length range 104 kbp - 2,033 kbp, median 251 kbp, mean 508 kbp
-- Coverage range 4-36x, median 14x
+### Systematic scan: 440 fully unclassified clusters (~11,500 contigs, 8.6% of graph)
+- 195 clusters (7,085 contigs): mixed Bac+Arc domain markers — now identified as eukaryotes/giant viruses
+- 245 clusters (4,438 contigs): single domain, ≥70% insufficient MSA
+- Many have partial geNomad hits — consistent with giant virus biology
+- Coherent clustering argues strongly against assembly artifacts
 
-**The bacterial/archaeal mix in one MCL cluster at I=3.0 is highly unusual** — MCL normally produces domain-pure clusters. For these to co-cluster, their k-mer profiles must be genuinely similar. Hypotheses:
-1. Chimeric assemblies mixing bacterial + archaeal sequence → hybrid k-mer profiles
-2. Giant viruses with genes acquired from both domains → intermediate k-mer signatures (but geNomad should catch these)
-3. Genuinely novel deep-branching lineages where universal markers have diverged beyond recognition
-
-The coherent clustering (20 contigs in 10 clusters, not scattered randomly) argues against random assembly artifacts and toward real biological signal.
-
-### Systematic scan: this is a massive phenomenon
-Searched all MCL clusters (size >= 10) for fully unclassified clusters (zero GTDB-Tk placement, no Phase 2 signposts):
-
-| Category | Clusters | Contigs | Key features |
-|---|---|---|---|
-| Mixed domain (Bac+Arc), unclassified | 195 | 7,085 | Domain mixing in k-mer space |
-| Single domain, unclassified, >= 70% insufficient MSA | 245 | 4,438 | All bacterial, same MSA failure |
-| **Total** | **440** | **~11,500** | **8.6% of MCL graph** |
-
-- Many clusters have some geNomad hits (flagged "[has geNomad]") but not enough for Phase 4 annotation — consistent with giant virus hypothesis (some members viral-enough to detect, most not)
-- Clusters 761, 1073, 1909, 1917: 100% insufficient MSA, every single member fails
-- MSA percentages typically 0.3-5% even for megabase-scale contigs — marker genes present but too divergent for alignment
-- The mixed Bacteria+Archaea domain signal is the most diagnostic feature — normal prokaryotes don't cross this boundary in k-mer space
-
-### Literature search: what are these? (2026-02-26)
-
-**Giant viruses (Nucleocytoviricota) — leading hypothesis:**
-- Schulz et al. 2020 (mSystems): 70% of 230 known giant virus genomes classified as "Archaea" by standard MAG pipelines
-- Giant viruses carry HGT-acquired bacterial translation genes AND eukaryotic genes that match archaeal homologs → mixed Bac/Arc marker detection, low MSA
-- Genomes up to 2.5 Mbp, linear — matches our contigs
-- BEREN benchmark (Minchin et al. 2025): geNomad misses **37%** of NCLDV contigs — explains why our contigs escape Phase 4
-- Mirusviricota (Gaitan & Schulz 2023, Nature): herpesvirus-like giant virus relatives, most abundant eukaryotic viruses in sunlit ocean, poorly represented in geNomad
-
-**Marine eukaryotic sequences — second hypothesis:**
-- GTDB-Tk known to misclassify eukaryotes: nuclear genes → archaeal markers (Asgard ancestry), organellar genes → bacterial markers (endosymbiotic origin)
-- GTDB forum confirms: eukaryotes classified as "new phyla" or "divergent prokaryotes" — no eukaryotic filter
-- Would explain mixed domain signal + k-mer coherence (each species has consistent composition)
-- Tara Oceans EukHeist: >900 eukaryotic MAGs alongside >4,000 prokaryotic MAGs
-
-**Chimeric assembly — largely ruled out:**
-- metaFlye chimerism ~8.6% contamination, but chimeras → heterogeneous k-mer signatures, not coherent clusters
-- K-mer coherence across 440 clusters argues strongly against random assembly artifacts
-
-**Actionable tools:**
-- BEREN (gitlab.com/benminch1/BEREN): 77% NCLDV recovery vs geNomad's 63%
-- ViralRecall (github.com/faylward/viralrecall): 28,696 NCLDV-specific GVOGs
-- EukRep: eukaryotic vs prokaryotic classification
-- Prodigal + hmmsearch against GVOG HMMs
+### Literature context for dark matter hypothesis
+- **Giant viruses**: Schulz et al. 2020: 70% classified as "Archaea" by CheckM; geNomad misses ~37% of NCLDV (BEREN benchmark). Klosneuviruses carry up to 19 aaRS + >40 translation proteins (Schulz et al. 2017). Mirusviricota (Gaitan & Schulz 2023) may be missed by NCLDV-specific tools.
+- **Eukaryotic misclassification**: GTDB-Tk maps eukaryotes to Asgard archaea (no euk references); Tara Oceans EukHeist found >900 eukaryotic MAGs.
+- **Chimeric assembly ruled out**: metaFlye ~8.6% contamination, but k-mer coherence across 440 clusters requires biological signal, not random artifacts.
 
 ### Assembly info file
 - `Runs/SFE_SE_info.tsv`: first 5 columns from Flye assembly_info.txt for all contigs
@@ -993,34 +733,14 @@ Ran Tiara v1.0.3 (deep learning euk/prok/organellar classifier, Karlicki et al. 
 Second-stage organelle classification: 478 plastid, 13 mitochondrion, 8 unknown.
 
 **Cross-reference with MCL annotation status — the smoking gun:**
-
-| | Annotated (P2+P3+P4) | Unannotated |
-|---|---|---|
-| bacteria | 32,338 (93.0%) | 68,253 (69.0%) |
-| **eukarya** | **36 (0.1%)** | **18,329 (18.5%)** |
-| prokarya | 446 (1.3%) | 4,567 (4.6%) |
-| unknown | 55 (0.2%) | 4,491 (4.5%) |
-| archaea | 1,484 (4.3%) | 3,258 (3.3%) |
-| organelle | 414 (1.2%) | 53 (0.1%) |
-
-- Eukaryotic contigs are **essentially absent from annotated** (0.1%) but **18.5% of unannotated**
-- 18,329 of 80,443 unannotated contigs (22.8%) are eukaryotic — the single largest component of "dark matter"
-- Only 36 eukaryotic contigs were annotated (all via GTDB-Tk Phase 3 — likely misclassified by either tool)
+- Eukaryotic contigs are **0.1% of annotated** (P2+P3+P4) but **18.5% of unannotated** (18,329 / 80,443)
+- The single largest component of "dark matter" — invisible to GTDB-Tk (prokaryotic markers), NCBI signposts (prokaryotic refs), geNomad (virus/plasmid only)
 
 **Cluster-level analysis:**
-
-| Category | Clusters | Contigs |
-|---|---|---|
-| Euk-dominated (>50%) | 2,746 | 17,829 |
-| Euk-mixed (10-50%) | 207 | 1,110 |
-| Euk-minor (1-10%) | 17 | — |
-| No eukarya (<1%) | 8,443 | — |
-
-- Eukaryotic clusters are remarkably pure — top 15 largest are all 99-100% eukarya
-- Top euk-dominated clusters (all 100% eukarya except cluster 8 at 99.4%): clusters 8(157), 20(144), 21(143), 23(142), 25(141), 27(139), 39(133), 70(119), 82(117), 90(115), 96(113), 108(111), 115(109), 124(107), 135(105)
-- **Cluster 23** (the "dark matter" deep-dive cluster): **100% eukaryotic** per Tiara, all 142 members
-- Euk-minor clusters (1-10% eukarya): only 17 — very little mixing between eukaryotic and prokaryotic contigs in k-mer space
-- The mixed Bacteria+Archaea domain signal from GTDB-Tk now makes perfect sense: nuclear genes = Asgard archaeal ancestry, organellar genes = bacterial endosymbiotic origin
+- 2,746 euk-dominated clusters (>50%), 17,829 contigs; top 15 all 99-100% eukarya
+- Only 17 euk-minor clusters (1-10%) — very clean separation in k-mer space
+- **Cluster 23** (the dark matter deep-dive): **100% eukaryotic**, all 142 members
+- Mixed Bac/Arc GTDB-Tk signal now explained: nuclear genes = Asgard ancestry, organellar = endosymbiosis
 
 **Resolution of the dark matter mystery:**
 1. **Eukaryotes invisible to all three annotation methods**: GTDB-Tk (prokaryotic markers → "insufficient MSA"), NCBI signposts (prokaryotic reference set), geNomad (virus/plasmid-specific)
@@ -1060,15 +780,7 @@ Second-stage organelle classification: 478 plastid, 13 mitochondrion, 8 unknown.
 
 **Note on prodigal and eukaryotes**: Prodigal is a prokaryotic gene finder — it doesn't predict intron-containing genes. On eukaryotic contigs, it finds only intronless genes and spurious exon-sized ORFs. This means the actual coding capacity of eukaryotic contigs is higher than the 0.748 we measure, but the systematic undercount is what makes coding density diagnostic for distinguishing eukaryotes from prokaryotes.
 
-**Additional tools discussed but not pursued:**
-
-| Tool | Targets | Status |
-|------|---------|--------|
-| BEREN | Giant viruses (NCLDV) | Skipped — too many chained tools, uncertain accuracy |
-| ViralRecall | Giant viruses via GVOGs | Not planned |
-| EukRep | Euk vs prok (SVM) | Not needed — Tiara + coding density sufficient |
-| EukCC | Eukaryotic completeness | Not planned |
-| GVClass | NCLDV family classification | Not planned |
+**Additional tools considered but not pursued**: BEREN (NCLDV, skipped — chained tools), ViralRecall, EukRep (not needed — Tiara + coding density sufficient), EukCC, GVClass.
 
 ### Phase 3b: GTDB-Tk taxonomy propagation (2026-02-27)
 
@@ -1145,24 +857,11 @@ Note: top "novel" circular contigs before filtering were all **organelles** (~11
 - 10 circular (potential complete genomes), 76 linear
 - All Tiara "bacteria" (correct)
 
-**Family diversity within Babelales** (81 contigs; 5 not placed to order):
-- RVW-14: ~30 contigs (mostly no genus)
-- JAHIUU01: ~12 contigs
-- Chromulinivoraceae: ~12 contigs (6 placed to genus *Chromulinivorax*)
-- GCA-2401785: 4 contigs
-- Babelaceae: 4 contigs (type family)
-- CAIQNR01, JABGSX01, GWF2-32-72, UASB340, JAUPTZ01, UBA12409: 1-2 each
+**Family diversity**: 12+ GTDB families within Babelales; 5 contigs not placed even to order (most novel).
 
-**MCL clustering**: 79/86 Babelota contigs in the MCL graph, spread across **25 clusters**.
-- 5 clusters are **100% Babelota** (clusters 6833, 7088, 7656, 10550, 10783)
-- Most clusters 50-82% Babelota
-- **Family-level segregation by k-mer composition**: each cluster tends to contain a single GTDB family
-  - RVW-14: 7 clusters
-  - JAHIUU01: 5 clusters
-  - Chromulinivoraceae: 4 clusters
-  - GCA-2401785: 2 clusters
-- Non-Babelota members in mixed clusters may be unclassified Babelota or other intracellular bacteria with convergent k-mer signatures
-- 7 Babelota contigs are singletons (not in graph)
+**MCL clustering**: 79/86 in graph, spread across **25 clusters** (5 pure Babelota, most 50-82%).
+- **Family-level segregation by k-mer composition**: RVW-14 spans 7 clusters, JAHIUU01 5, Chromulinivoraceae 4, GCA-2401785 2 — each cluster tends to contain a single GTDB family.
+- Non-Babelota members in mixed clusters may be unclassified Babelota or other intracellular bacteria with convergent k-mer signatures.
 
 **Biological context**: Babelota are obligate intracellular parasites of protists (eukaryotes). Their abundance in the Baltic Sea is consistent with the high eukaryotic content found by Tiara (16.4%). The VAE distinguishes Babelota families by k-mer composition alone — another validation that the embedding captures genuine biological signal at fine taxonomic resolution.
 
@@ -1170,44 +869,14 @@ Note: top "novel" circular contigs before filtering were all **organelles** (~11
 
 20,317 contigs (13.2% of 154,041 >= 100 kbp) are outside the MCL graph — singletons with no neighbor within d=5.
 
-**By Tiara class:**
+**Enrichment vs graph:** Eukaryotes 2.4× (33.9% vs 14%), viruses 3× (40.8% vs 14%). Only 679 (3.3%) GTDB-Tk classified.
 
-| Class | Count | % of non-graph | (cf. graph %) |
-|---|---|---|---|
-| bacteria | 8,812 | 43.4% | (71%) |
-| **eukarya** | **6,882** | **33.9%** | (14%) |
-| unknown | 2,417 | 11.9% | (4.5%) |
-| prokarya | 1,564 | 7.7% | (4.6%) |
-| archaea | 610 | 3.0% | (3.3%) |
-| organelle | 32 | 0.2% | (0.3%) |
+**Key cross-tabulation results (Tiara × geNomad):**
+- 1,659 Tiara-eukarya + geNomad-virus = giant virus candidates
+- 5,198 Tiara-eukarya, not viral = genuine eukaryotic singletons
+- 1,369/1,564 Tiara "prokarya" and 1,720/2,417 "unknown" are geNomad viral
 
-Eukaryotes are **2.4× enriched** outside the graph vs inside.
-
-**By geNomad:**
-- Virus: 8,296 (40.8%) — **3× enriched** vs graph (14%)
-- Plasmid: 173 (0.9%)
-- Neither: 11,848 (58.3%)
-
-**GTDB-Tk classified (beyond domain):** only 679 (3.3%)
-
-**Cross-tabulation (Tiara × geNomad):**
-
-| Tiara class | Total | Virus | Plasmid | Neither |
-|---|---|---|---|---|
-| bacteria | 8,812 | 3,192 | 136 | 5,484 |
-| eukarya | 6,882 | 1,659 | 25 | 5,198 |
-| archaea | 610 | 353 | 0 | 257 |
-| prokarya | 1,564 | 1,369 | 0 | 195 |
-| unknown | 2,417 | 1,720 | 12 | 685 |
-| organelle | 32 | 3 | 0 | 29 |
-
-**Key observations:**
-- **1,659 contigs are Tiara "eukarya" AND geNomad "virus"** — likely giant viruses (eukaryotic-like k-mers + viral genes)
-- **5,198 are Tiara eukarya, not viral** — genuine eukaryotic singletons, too compositionally unique to cluster
-- 1,369 of 1,564 "prokarya" are viral — Tiara couldn't decide domain, geNomad could
-- 1,720 of 2,417 "unknown" are viral — geNomad resolves most Tiara unknowns as viral
-
-**Why they're singletons:** Shorter (median 125 kbp vs 167 kbp in graph) and enriched for viruses and eukaryotes. Both have more variable k-mer composition than prokaryotes — eukaryotic genomes are especially heterogeneous along their length (introns, repeats, varying GC), so individual contigs from the same organism can have quite different k-mer profiles, making them less likely to find a neighbor within d=5.
+**Why singletons:** Shorter (median 125 kbp vs 167 kbp in graph). Eukaryotic genomes are heterogeneous along their length (introns, repeats, varying GC), so contigs from the same organism have divergent k-mer profiles — less likely to find a neighbor within d=5.
 
 **Full accounting of all 154,041 contigs >= 100 kbp:**
 
@@ -1385,157 +1054,20 @@ The VAE maps compositional signatures (k-mer frequencies), not organism identity
 
 ---
 
-# Archived Session Notes (Chronological)
+# Archived Session Notes (Chronological Summary)
 
-The following are historical session notes preserved for reference. The consolidated review above supersedes these.
+All findings are captured in the consolidated sections above. Key dates for reference:
 
-## 2026-02-02: Clustering analysis and codebase cleanup
+- **2026-02-02**: HDBSCAN on t-SNE (min_cluster_size=1000), VAEMulti→VAE rename, memory optimization
+- **2026-02-03**: 13.4M combined training; literature review confirms multi-scale k-mer VAE is novel
+- **2026-02-05**: Per-group CLR + Jeffreys prior; 10-issue codebase review
+- **2026-02-08–14**: 10 training runs (5 augmented + 5 SFE_SE); shuffling bug found/fixed; Euclidean > cosine
+- **2026-02-14–17**: 10 kbp clustering — hub problem, MCL >> Leiden, weight function comparison
+- **2026-02-17–18**: 100 kbp analysis — d=5 optimal, MCL I=3.0 best, d-hat=3.74
+- **2026-02-18**: nn1 length-threshold sweep — knee at 50-100 kbp
+- **2026-02-19**: 50 kbp clustering — marginal; absolute edge quality > relative threshold
+- **2026-02-20**: 5 experimental models; NCBI_5 best for 100 kbp marine; mixing sources hurts
+- **2026-02-21**: NCBI_5 vs SFE_SE_5 clustering comparison — switched to NCBI_5; ~110 GB cleanup
+- **2026-02-23**: RCL consensus clustering — hierarchy useful but no GC purity improvement over MCL I=3.0
 
-### HDBSCAN Clustering on t-SNE
-- Ran HDBSCAN clustering on full 4.8M t-SNE coordinates
-- Parameters: `min_cluster_size=1000`, `min_samples=100`
-- Discussed `min_samples` parameter: higher = more conservative, denser cores required
-
-### Codebase Rename: VAEMulti -> VAE
-- Renamed `VAEMulti.py` -> `VAE.py`, `VAEMulti.md` -> `VAE.md`
-- Updated all file paths and references
-
-### Memory Usage
-- `calculate_kmer_frequencies`: Fixed to use temp files + memmap (stays ~1 GB)
-- `VAE.py`: Loads all data into memory (~53 GB for 4.8M sequences)
-
-### VAE Training Parameters (optimal config)
-- Latent dim: 384, beta: 0.05, LR: 1e-4, batch: 1024, epochs: 1000
-
-## 2026-02-03: Extended training and literature search
-
-### Large Dataset Training
-- Combined aquatic (4.8M) + terrestrial (8.0M) + NCBI RefSeq (0.7M) = 13.4M sequences
-- Adding 655K NCBI sequences (~5% increase) caused ~30% improvement
-- Quality and taxonomic diversity matter more than quantity
-
-### Literature
-- Multi-scale k-mer VAE approach appears novel
-- Closest: VAMB (4-mers only), GenomeFace (k=1-10 but different architecture)
-
-## 2026-02-05: Per-group CLR + Jeffreys prior
-
-- Switched from joint CLR (mixing 6 compositions) to per-group CLR
-- Replaced 1e-6 pseudocount with Jeffreys prior (0.5/n_features)
-- Full codebase review identified 10 issues (most now fixed)
-
-## 2026-02-08 to 2026-02-14: Training runs and cross-comparison
-
-- 5 augmented runs (1K-5K bp thresholds) + 5 SFE_SE runs
-- Full 5x5 cross-comparison on shuffled data
-- Run_3 best augmented (0.702), SFE_SE_5 best marine (0.847)
-- SFE_SE models dominate all augmented models
-- Data shuffling bug found and fixed (was causing 34-48 pt train/val gap)
-- Euclidean > cosine confirmed (+0.076 Spearman)
-- Run_5 extreme-GC anomaly identified
-
-## 2026-02-14 to 2026-02-17: Clustering exploration (10 kbp)
-
-- Connected components at d=10: giant component of 1.3M (77% of clustered)
-- Hub analysis: top hub in-degree 58,377
-- Three graph methods compared: symmetric, mutual, capped
-- Leiden sweep across 17 distance thresholds (d=4 to d=12)
-- MCL introduced: dramatic improvement over Leiden (GC 6-9 pp vs 40-50 pp)
-- MCL cluster size distributions analyzed (power-law-like, median=2)
-- Weight function comparison: 1/(d+0.1) >> exp(-d)
-
-## 2026-02-17 to 2026-02-18: 100 kbp analysis
-
-- 154,040 sequences, d-hat=3.74, 78% connected at d=5
-- Leiden works reasonably well (7-15 pp GC spans)
-- MCL at d=5: excellent (4-6 pp GC at I=3.0)
-- d=7 experiment: worse than d=5 at I=1.4, comparable at I=3.0+
-- exp(-d) weights: counterintuitively worse
-- Confirmed d=5 as best tested distance threshold
-
-## 2026-02-18: nn1 length-threshold sweep
-
-- Computed nn1 for 10K queries at each threshold against ALL sequences
-- Clear knee at 50-100 kbp
-- 50 kbp: median nn1 crosses below 5 (the clustering threshold)
-- Below 50 kbp: noise-dominated; above 200 kbp: diminishing returns
-
-## 2026-02-19: 50 kbp clustering analysis
-
-- 461,674 sequences, d-hat=4.42, median nn1=5.01
-- Leiden at d=7: poor (19-46 pp GC spans)
-- MCL at d=7: better (4-13 pp) but inconsistent across communities
-- Relative threshold argument (d/median_nn1) did NOT hold
-- Absolute edge quality matters
-- 100 kbp remains best tested threshold
-
-## 2026-02-20: Experimental models and cross-model comparison
-
-- Trained 5 experimental models: NCBI_5, NCBI_100, SFE_SE_100, Run_100, SFE_SE_NCBI_5
-- Full cross-model comparison (8 models x 4 test sets)
-- NCBI genomes trivially easy to organize (all models 0.89-0.95 Spearman)
-- Length homogeneity matters more than source mixing (NCBI_5 beats all on 100 kbp marine)
-- SFE_SE_NCBI_5 surprisingly worst model — mixing sources hurts
-- NCBI_5 and NCBI_100 nearly identical — taxonomic breadth > sample count
-- NCBI_100 as test set confirms SFE_SE_5 dominates on NCBI data (0.947)
-- Run_100 mediocre: broad + long != better
-
-## 2026-02-21: Clustering comparison and model selection
-
-- Generated `embed_SFE_SE_1_NCBI_5.npy` using NCBI_5 encoder on SFE_SE_1 data
-- Full NCBI_5 clustering pipeline: ChromaDB -> kNN -> Leiden -> MCL
-- NCBI_5 connects 133K sequences (vs SFE_SE_5's 124K) at d=5
-- MCL I=3.0: NCBI_5 GC spans 4/4/4 pp vs SFE_SE_5 4/6/4 pp — essentially tied
-- Key finding: 0.070 Spearman gap didn't translate to clustering quality difference
-- Decision: switch to NCBI_5 (better coverage, comparable quality)
-- Updated model symlink to Run_NCBI_5
-- Major cleanup: removed ~110 GB obsolete files
-- Established naming convention: `embed_<data>_<model>.npy`
-
-### 2026-02-23: RCL Multi-Resolution Consensus Clustering
-
-- Implemented RCL pipeline in `Runs/RCL/`
-- Input: 14 flat clusterings (6 MCL I=1.4–6.0 + 8 Leiden r=0.2–2.0) on 100 kbp NCBI_5 graph (133K nodes)
-- Used `rcl mcl` to regenerate native-format MCL clusterings (original `.clusters` files were label-format, RCL needs native MCL matrix format)
-- Wrote `run_leiden_multi` PEP 723 script for Leiden in native MCL format
-- Leiden was very insensitive to resolution (5,772–5,865 clusters across 10× range, 1.6% variation) — effectively ~1 independent voice in the consensus. MCL's 6 inflations (7K–21K) provided the real diversity.
-- RCL consensus: 7 resolution levels from 5,697 (coarse) to 8,029 (fine) clusters
-- Res=3200 and 6400 identical (hierarchy saturated). Useful range: res=100 to res=1600 (5 distinct levels).
-- All levels cover all 133,724 nodes; nesting guaranteed by construction
-- Consensus is much coarser than individual methods (5.7K–8K vs MCL's 7K–21K) — only splits with cross-method agreement retained. Fine-grained MCL I=4+ splits (15K–21K) discarded as method-specific noise.
-- Power-law size distribution: ~60% of clusters have 2–5 members (7–9% of nodes); the few hundred clusters >=100 hold the bulk. At res=100, 339 large clusters (101–500) contain 45% of all nodes.
-- Nesting is clean: giant cluster (11,872 nodes at res=3200) splits into 12 children at res=1600 (3,503 + 3,190 + 1,659 + 1,342 + smaller), every node accounted for. At res=100, max cluster is only 889.
-- Files: `run_leiden_multi` (PEP 723), `consensus/` (`.cls` native clusters, `.labels` sequence names, `.txt` node→cluster, `.info` cluster metadata per resolution)
-- Created `RCL.ipynb` notebook (23 cells) with 5 sections: overview tables, size distributions (log-log rank-size, cumulative coverage), nesting visualization (Plotly Sankey), GC span validation, and per-child GC span trajectories
-- Key notebook findings:
-  - RCL res=100 median GC span 4.7 pp vs MCL I=3.0 median 3.9 pp (both on clusters ≥20 nodes)
-  - Scatter plot of GC span vs cluster size shows RCL and MCL on the same curve — no algorithm advantage, just different size distributions
-  - Per-child trajectory: largest lineage (11,872 nodes at res=3200) → median child GC span 2.0 pp at res=100
-  - **Conclusion: RCL adds hierarchy but doesn't improve GC purity over MCL I=3.0 at matched cluster sizes**
-- Added `nbclient` dependency to `pyproject.toml` for notebook execution via Python API (system `jupyter-nbconvert` doesn't use uv venv kernel)
-
-### 2026-02-26: Literature search — Unclassifiable megabase contigs from marine metagenomes
-
-**Context**: ~12K contigs (8-9% of MCL graph) have GTDB-Tk bacterial/archaeal markers but "insufficient amino acids in MSA" (2-10% MSA), are NOT geNomad viral/plasmid, cluster coherently by k-mer composition, and some clusters mix Bacteria/Archaea domain markers.
-
-**Key findings from literature search**:
-
-1. **Giant viruses (Nucleocytoviricota) are the top candidate**:
-   - Schulz et al. 2020 (mSystems): 70% of 230 published giant virus genomes classified as "Archaea" by CheckM; all as "low quality". Fadolivirus (1.6 Mbp) classified as archaeal origin.
-   - geNomad sensitivity for giant viruses: 94.7% (geNomad paper, Nature Biotech 2024), but BEREN benchmark shows only 63% of NCLDV contigs recovered by geNomad vs 77% by BEREN. So 37% of giant virus contigs may be missed.
-   - Giant viruses carry bacterial-origin translation genes (aminoacyl-tRNA synthetases, translation factors) acquired by HGT — this explains bacterial marker detection
-   - Klosneuviruses encode up to 19 aaRS + >40 translation proteins (Schulz et al. 2017, Science)
-   - Mirusviricota (herpesvirus-like giant virus relatives) are abundant in marine plankton and may be missed by NCLDV-specific tools
-
-2. **GTDB-Tk classifies eukaryotes as Asgard archaea** (GTDB Forum):
-   - Protist/diatom/fungal contigs forced into archaeal classifications due to lack of eukaryotic references
-   - Could explain mixed Bacteria/Archaea signals if eukaryotic contigs with organellar markers are present
-
-3. **Borgs** (Al-Shayeb et al. 2022, Nature):
-   - Megabase-scale (up to 1.1 Mbp) linear extrachromosomal elements in Methanoperedens archaea
-   - Not classifiable as virus or plasmid; carry archaeal metabolism genes
-   - But: associated with terrestrial wetlands/sediments, NOT marine environments; host Methanoperedens not reported in marine systems
-
-4. **Assembly artifacts**: metaFlye chimeric rate ~8.6% contamination in >90% complete contigs; 16S rRNA chimerism test shows 211/223 contigs have >97% similar 16S copies (low chimerism). But inter-species chimeras via shared repeats are a known mechanism.
-
-5. **Recommended next steps**: Run BEREN and/or ViralRecall on these contigs; run GVClass to check for NCLDV signatures; check for eukaryotic markers with EukCC/EukRep
+*(2026-02-26 literature search on unclassifiable megabase marine contigs — findings integrated into sections 5d dark matter analysis and 5c Phase 5 Tiara above)*
