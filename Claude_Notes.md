@@ -893,10 +893,11 @@ mobile elements share k-mer composition with their hosts, not with each other.
 ## 5d. Unannotated Dark Matter Analysis (2026-02-26)
 
 ### Length distributions: annotated vs unannotated
-- **Annotated** (Phases 2+3+4 combined): 53,281 contigs, median 207 kbp
-- **Unannotated**: 80,443 contigs, median 151 kbp
+- **Annotated** (all phases, P2+P3+P3b+P4+P5): 116,184 contigs, median 173 kbp
+- **Unannotated**: 17,540 contigs, median 139 kbp
 - Unannotated contigs are shorter on average — longer contigs have more markers for GTDB-Tk, more k-mer signal for embedding matching, more genes for geNomad
 - SFE vs SE split roughly even at >= 100 kbp (81,295 SFE vs 72,745 SE), despite SE having 1.7x more total contigs (4.2M vs 2.5M) — SE assemblies are more fragmented (median 7.7 kbp vs 11.1 kbp)
+- *(Updated 2026-02-27: originally showed P2+P3+P4 only; now reflects all-phase coverage after cell move)*
 
 ### Top 20 longest unannotated contigs (1.8-3.2 Mbp)
 - ALL have same failure mode: GTDB-Tk detects domain-level markers but "Insufficient number of amino acids in MSA" (3.9-9.6%)
@@ -1211,6 +1212,18 @@ Eukaryotes are **2.4× enriched** outside the graph vs inside.
 | Non-graph, viral (geNomad) | 8,296 | 5.4% of total |
 | Non-graph, eukaryotic (Tiara, not viral) | 5,198 | 3.4% of total |
 | Non-graph, other/uncharacterized | 6,823 | 4.4% of total |
+
+### MCL.ipynb full review and fixes (2026-02-27)
+
+Full review of all 33 cells. Cells 1-22 clean; three minor issues fixed in cells 23-32:
+
+1. **Cell 23 (0-idx 22):** Stale comment said `cluster_types` was a list of tuples; actually list of dicts. Fixed.
+2. **Cell 26 (length distributions):** Was positioned before Tiara/Phase 3b, using stale `any_annotation` from P2+P3+P4 only (39.8%). Moved to after Phase 3b (now 0-idx 28), updated to use `after_any`/`after_none` (86.9% = 116,184 annotated / 17,540 unannotated). Cell 25 (P2+P3+P4 coverage) preserved as historical snapshot.
+3. **Cell 30 (0-idx 29):** Fragile `k[0].upper()` abbreviation replaced with explicit `abbrev` dict (both "no markers" and "not in gtdbtk" mapped to "N").
+
+**Cell order after move:** ... → 25 (P2+P3+P4 coverage) → 26 (Phase 6 coding density) → 27 (coding density distributions) → 28 (Phase 3b) → 29 (length distributions) → 30 (characterize unannotated) → ...
+
+All cells re-executed and verified.
 
 ## 6. Codebase Status
 
