@@ -1077,3 +1077,5 @@ All findings are captured in the consolidated sections above. Key dates for refe
 - **2026-02-23**: RCL consensus clustering — hierarchy useful but no GC purity improvement over MCL I=3.0
 
 *(2026-02-26 literature search on unclassifiable megabase marine contigs — findings integrated into sections 5d dark matter analysis and 5c Phase 5 Tiara above)*
+
+- **2026-03-01**: Investigated 214,114 row gap between Table 1 ALL_1 (17,629,159) and kmers_1.npy (17,415,045). Root cause: Table 1 sums unfiltered per-source counts but kmers_1.npy is filtered at >= 1 kbp raw FASTA length. All 214,114 missing rows are NCBI sequences with raw length < 1 kbp. Additional finding: 172 NCBI sequences have raw length >= 1 kbp but ATGC-only length < 1 kbp (N bases in RefSeq genomes), so they appear in kmers_1.npy but would fail a column-0 filter. SFE, SE, and FD source FASTAs already had minimum lengths >= 1 kbp. Table 1 needs correction: ALL_1 NCBI count should be 903,568 (not 1,117,682).
