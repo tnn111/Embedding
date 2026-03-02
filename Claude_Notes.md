@@ -987,7 +987,7 @@ Removed ~110 GB of obsolete files: old SFE_SE_5 pipeline artifacts (embeddings, 
 
 ## 8. References
 
-~60 references organized by ~45 claims in `Claude_References.md`. Key categories:
+~75 unique references organized by ~64 claims in `Claude_References.md`. Key categories:
 - **Foundational**: VAE (Kingma & Welling 2014), beta-VAE (Higgins et al. 2017)
 - **Compositional data**: CLR (Aitchison 1982, 1986), Jeffreys prior (Jeffreys 1946), microbiome (Gloor et al. 2017)
 - **K-mer signatures**: Karlin & Burge 1995, Pride et al. 2003
@@ -999,8 +999,14 @@ Removed ~110 GB of obsolete files: old SFE_SE_5 pipeline artifacts (embeddings, 
 - **Long-read metagenomics**: metaMDBG (Benoit et al. 2024), HiFi (Kim et al. 2022)
 - **Taxonomy tools**: GTDB-Tk (Chaumeil et al. 2019, 2022), GTDB (Parks et al. 2018, 2022), Prodigal (Hyatt et al. 2010), HMMER3 (Eddy 2011), pplacer (Matsen et al. 2010)
 - **Viral/plasmid classification**: geNomad (Camargo et al. 2023)
+- **Giant viruses**: Schulz et al. 2020, 2017, 2022 (NCLDV diversity, Klosneuviruses, review); Gaïa et al. 2023 (Mirusviricota)
+- **Eukaryotic classification**: Tiara (Karlicki et al. 2022), EukRep (West et al. 2018), EukHeist (Alexander et al. 2023)
+- **Coding density**: Lynch & Conery 2003 (genome complexity), pyrodigal (Larralde 2022)
+- **Assembly**: metaFlye (Kolmogorov et al. 2020)
 - **Ocean microbiome**: Tara Oceans (Sunagawa et al. 2015)
 - **Novel archaea**: Lokiarchaeota (Spang et al. 2015), Asgardarchaeota (Zaremba-Niedzwiedzka et al. 2017)
+- **DPANN archaea**: Castelle et al. 2018, Dombrowski et al. 2019
+- **Babelota**: Pagnier et al. 2015, Weisse et al. 2025
 - **Microbial dark matter**: Rinke et al. 2013
 
 ## 9. Conclusions for the Paper

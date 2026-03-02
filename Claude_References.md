@@ -762,3 +762,101 @@ The 99.9% agreement between two methods with zero shared methodology -- one base
 The 99.2% phylum purity across 2,761 clusters (8x more clusters than the 325 available in Phase 2) represents a comprehensive independent audit of the clustering pipeline. The only impure clusters (7 at phylum level) all have exactly 2 classified members with a 1:1 split -- edge cases, not systematic failures.
 
 This level of cross-validation is unusual in metagenomic binning literature, where tools are typically validated against reference genomes in synthetic communities (e.g., CAMI benchmarks) rather than by independent taxonomic assignment methods applied to the same real-world data.
+
+---
+
+## Tiara: Eukaryotic Classification (Phase 5)
+
+**Claim:** Tiara v1.0.3 was used to classify all 154K contigs >= 100 kbp as eukaryotic, prokaryotic, or organellar. Tiara identified 25,247 eukaryotic contigs (16.4%), resolving the "dark matter" mystery: eukaryotes were invisible to GTDB-Tk (prokaryotic markers), NCBI signposts (prokaryotic reference set), and geNomad (virus/plasmid only). Tiara's two-step classification correctly identifies organellar sequences (478 plastid, 13 mitochondrial). Eukaryotic contigs cluster coherently in the VAE latent space (2,746 euk-dominated clusters, top 15 all 99-100% eukarya).
+
+### Karlicki, Antonowicz & Karnkowska (2022) -- Tiara: deep learning-based classification system for eukaryotic sequences
+- **Citation:** Karlicki, M., Antonowicz, S. & Karnkowska, A. (2022). Tiara: deep learning-based classification system for eukaryotic sequences. *Bioinformatics*, 38(2), 344-350. https://doi.org/10.1093/bioinformatics/btab672
+- **Summary:** Introduces Tiara, a deep-learning-based approach for classifying eukaryotic sequences in metagenomic data. Uses a two-step classification: first separating eukaryotic from prokaryotic sequences, then classifying organellar (plastid, mitochondrial) sequences within the eukaryotic fraction. Outperforms EukRep for eukaryotic classification with lower computation time, and is the only available tool that correctly classifies organellar sequences. In our Phase 5 analysis, Tiara identified 25,247 eukaryotic contigs (16.4% of the >= 100 kbp dataset), revealing that eukaryotes constitute the single largest component of "dark matter" -- invisible to all three prior annotation methods.
+
+### West et al. (2018) -- EukRep: Genome-reconstruction for eukaryotes from complex natural microbial communities
+- **Citation:** West, P.T., Probst, A.J., Grigoriev, I.V., Thomas, B.C. & Banfield, J.F. (2018). Genome-reconstruction for eukaryotes from complex natural microbial communities. *Genome Research*, 28(4), 569-580. https://doi.org/10.1101/gr.228429.117
+- **Summary:** Introduces EukRep, a k-mer-based classification tool that distinguishes eukaryotic from prokaryotic metagenomic contigs using support vector machines. Achieves >90% accuracy on 94% of tested eukaryotic genomes. EukRep is the predecessor tool to Tiara and established the feasibility of domain-level classification from k-mer composition alone -- the same principle underlying our VAE's ability to separate eukaryotic from prokaryotic sequences in the latent space without explicit domain labels.
+
+---
+
+## Giant Viruses (NCLDV): Nucleocytoviricota
+
+**Claim:** Giant viruses (Nucleocytoviricota / NCLDV) are a major component of the marine metagenome. Our analysis identified 4,142 "giant virus candidates" (intersection of Tiara-eukarya and geNomad-virus) in the MCL graph, clustering into 1,118 clusters with 82% GV-dominated. Giant viruses have intermediate coding density (median 0.870, between prokaryotic 0.888 and eukaryotic 0.748). Giant viruses carry prokaryotic-like marker genes (causing CheckM/GTDB-Tk to misclassify them as archaea), while Tiara classifies them as eukaryotic (they infect eukaryotes and carry eukaryotic-like genes). The Klosneuviruses encode up to 19 aminoacyl-tRNA synthetases and >40 translation proteins. Mirusviricota may be missed by NCLDV-specific tools.
+
+### Schulz et al. (2020) -- Giant virus diversity and host interactions through global metagenomics
+- **Citation:** Schulz, F., Roux, S., Paez-Espino, D., Jungbluth, S., Walsh, D.A., Denef, V.J., McMahon, K.D., Konstantinidis, K.T., Eloe-Fadrosh, E.A., Kyrpides, N.C. & Woyke, T. (2020). Giant virus diversity and host interactions through global metagenomics. *Nature*, 578(7795), 432-436. https://doi.org/10.1038/s41586-020-1957-x
+- **Summary:** Reconstructed 2,074 NCLDV genomes from global metagenomes, achieving an 11-fold increase in phylogenetic diversity and 10-fold expansion in functional diversity. Many viral genomes encoded proteins with putative roles in photosynthesis and substrate transport, indicating widespread host reprogramming. Critically, ~70% of these giant virus genomes were classified as "Archaea" by CheckM (a finding from the supplementary data), explaining why our GTDB-Tk analysis assigned mixed bacterial/archaeal markers to what turned out to be giant viruses. This systematic misclassification of giant viruses by prokaryotic marker-based tools is the primary reason our Phase 3 "dark matter" was so large before Tiara resolved it.
+
+### Schulz et al. (2017) -- Giant viruses with an expanded complement of translation system components
+- **Citation:** Schulz, F., Yutin, N., Ivanova, N.N., Ortega, D.R., Lee, T.K., Vierheilig, J., Daims, H., Horn, M., Wagner, M., Jensen, G.J., Kyrpides, N.C., Koonin, E.V. & Woyke, T. (2017). Giant viruses with an expanded complement of translation system components. *Science*, 356(6333), 82-85. https://doi.org/10.1126/science.aal4657
+- **Summary:** Reports the discovery of Klosneuviruses, a group of giant viruses with aminoacyl-tRNA synthetases for all 20 amino acids and >40 translation-related proteins. Phylogenomic analysis indicates these genes were acquired from hosts through extensive horizontal gene transfer, not inherited from a cellular ancestor. The expanded translation machinery explains why prokaryotic marker gene tools (HMMER in GTDB-Tk) detect markers in giant virus contigs -- these viral genomes contain bona fide translation genes that match bacterial/archaeal HMMs, leading to false taxonomic placement.
+
+### Schulz, Abergel & Woyke (2022) -- Giant virus biology and diversity in the era of genome-resolved metagenomics
+- **Citation:** Schulz, F., Abergel, C. & Woyke, T. (2022). Giant virus biology and diversity in the era of genome-resolved metagenomics. *Nature Reviews Microbiology*, 20(12), 721-736. https://doi.org/10.1038/s41579-022-00754-5
+- **Summary:** Comprehensive review of giant virus biology and diversity revealed by metagenomics. Summarizes how cultivation-independent approaches have expanded understanding of Nucleocytoviricota coding potential, diversity, and ecological impact. Discusses the challenges of giant virus identification in metagenomic data, including misclassification by tools designed for cellular organisms. Provides context for our finding that giant viruses constitute a distinct population in the MCL graph with intermediate coding density between prokaryotes and eukaryotes.
+
+### Gaïa et al. (2023) -- Mirusviruses link herpesviruses to giant viruses
+- **Citation:** Gaïa, M., Meng, L., Pelletier, E., Forterre, P., Vanni, C., Fernandez-Guerra, A., Jaillon, O., Wincker, P., Ogata, H., Krupovic, M. & Delmont, T.O. (2023). Mirusviruses link herpesviruses to giant viruses. *Nature*, 616(7958), 783-789. https://doi.org/10.1038/s41586-023-05962-4
+- **Summary:** Describes Mirusviricota, a new phylum of plankton-infecting viruses discovered through genome-resolved metagenomics of the sunlit oceans. Mirusviruses are chimeric: their virion morphogenesis module derives from Duplodnaviria (herpesvirus-related), while their transcription machinery is closely related to giant eukaryotic DNA viruses (Varidnaviria). With genomes up to 432 kbp, mirusviruses would be present in our >= 100 kbp dataset but may be missed by NCLDV-specific detection tools (including geNomad's NCLDV models), representing a potential source of uncharacterized viral dark matter.
+
+---
+
+## DPANN Archaea
+
+**Claim:** Our circular genome analysis identified 59 GTDB-Tk-classified circular archaeal contigs, overwhelmingly from the DPANN superphylum (~47 Nanobdellota, 5 Iainarchaeota, 1 Aenigmatarchaeota). DPANN archaea are characterized by ultrasmall cells, reduced genomes, and obligate symbiotic lifestyles, making them abundant in environmental metagenomes. 58 of 59 are from the Baltic Sea.
+
+### Castelle et al. (2018) -- Biosynthetic capacity, metabolic variety and unusual biology in the CPR and DPANN radiations
+- **Citation:** Castelle, C.J., Brown, C.T., Anantharaman, K., Probst, A.J., Huang, R.H. & Banfield, J.F. (2018). Biosynthetic capacity, metabolic variety and unusual biology in the CPR and DPANN radiations. *Nature Reviews Microbiology*, 16(10), 629-645. https://doi.org/10.1038/s41579-018-0076-2
+- **Summary:** Comprehensive review of the CPR bacteria and DPANN archaea -- massive radiations of organisms with small genomes (~0.5-1.5 Mbp), small cell sizes (~0.1-1.5 um), and limited metabolic repertoires. Many lack core biosynthetic pathways for nucleotides, amino acids, and lipids, making them obligate symbionts dependent on other microorganisms. DPANN stands for Diapherotrites, Parvarchaeota, Aenigmarchaeota, Nanoarchaeota, and Nanohaloarchaeota. Our finding of 47 circular Nanobdellota genomes in the Baltic Sea is consistent with the described ecology of these ultrasmall archaea, which are episymbionts of larger host cells and are ubiquitous in diverse environments.
+
+### Dombrowski et al. (2019) -- Genomic diversity, lifestyles and evolutionary origins of DPANN archaea
+- **Citation:** Dombrowski, N., Lee, J.-H., Williams, T.A., Offre, P. & Spang, A. (2019). Genomic diversity, lifestyles and evolutionary origins of DPANN archaea. *FEMS Microbiology Letters*, 366(2), fnz008. https://doi.org/10.1093/femsle/fnz008
+- **Summary:** Reviews the history of DPANN archaea discovery, their metabolic potential, reduced genome features, host-symbiont interactions, and evolutionary history. Establishes that DPANN members are generally considered obligate symbionts, with episymbiosis (surface attachment) documented for multiple lineages. The Pacearchaeota and Woesearchaeota (within Nanobdellota in GTDB) with the smallest genomes tend to encode extracellular lytic enzymes, suggesting parasitic interactions. This provides context for our observation that DPANN archaea, despite their tiny genomes, produce circular contigs >= 100 kbp that are identifiable by GTDB-Tk markers.
+
+---
+
+## Babelota: Obligate Intracellular Parasites of Protists
+
+**Claim:** Our dataset contains 86 Babelota contigs (76 Baltic Sea, 10 SFE), all class Babeliae, ranging from 103 kbp to 1.6 Mbp. The VAE segregates Babelota by GTDB family purely from k-mer composition: RVW-14 spans 7 MCL clusters, JAHIUU01 5, Chromulinivoraceae 4. Babelota are obligate intracellular parasites of protists with reduced, AT-biased genomes.
+
+### Pagnier et al. (2015) -- Babela massiliensis, a representative of a widespread bacterial phylum with unusual adaptations to parasitism in amoebae
+- **Citation:** Pagnier, I., Yutin, N., Croce, O., Makarova, K.S., Wolf, Y.I., Benamar, S., Raoult, D., Koonin, E.V. & La Scola, B. (2015). Babela massiliensis, a representative of a widespread bacterial phylum with unusual adaptations to parasitism in amoebae. *Biology Direct*, 10, 13. https://doi.org/10.1186/s13062-015-0043-z
+- **Summary:** Reports the isolation and genome analysis of Babela massiliensis, an obligate intracellular parasite of Acanthamoeba castellanii. B. massiliensis belongs to the candidate phylum TM6 (now Babelota), showing unusual fission-mode cell multiplication. Phylogenetic analysis places it as a representative of a widespread but previously uncultured phylum detected in diverse environments. Genome analysis reveals marked reduction and AT bias, consistent with adaptation to an intracellular parasitic lifestyle. Our finding of 86 Babelota contigs in marine metagenomes, with family-level segregation by k-mer composition, demonstrates that the VAE captures the compositional signatures that distinguish even closely related lineages within this phylum.
+
+### Weisse et al. (2025) -- Environmental diversity of Candidatus Babelota and their relationships with protists
+- **Citation:** Weisse, L., Martin, L., Moumen, B., Hechard, Y. & Delafont, V. (2025). Environmental diversity of Candidatus Babelota and their relationships with protists. *mSystems*, 10, e00261-25. https://doi.org/10.1128/msystems.00261-25
+- **Summary:** First comprehensive study of Ca. Babelota environmental diversity and host associations. Demonstrates that Babelota are strictly intracellular bacteria found in diverse environments but always at low relative abundance -- "among the most widespread phylum among the rare ones." All characterized isolates infect protists. Co-occurrence analyses revealed associations with diverse heterotrophic protists of various trophic regimes. The ubiquity yet low abundance of Babelota explains their detection in our marine metagenomes (86 contigs across 25 MCL clusters) and is consistent with our observation that 76/86 are from the Baltic Sea, which has higher eukaryotic diversity.
+
+---
+
+## Eukaryotic MAGs from Ocean Metagenomes
+
+**Claim:** 16.4% eukaryotic content at >= 100 kbp in our marine metagenomes is consistent with Tara Oceans findings, where EukHeist recovered >900 eukaryotic MAGs from global ocean samples. Eukaryotes are systematically underrepresented in standard metagenomic analyses because tools like GTDB-Tk, CheckM, and most binners target prokaryotic features.
+
+### Alexander et al. (2023) -- Eukaryotic genomes from a global metagenomic dataset illuminate trophic modes and biogeography of ocean plankton
+- **Citation:** Alexander, H., Hu, S.K., Krinos, A.I., Pachiadaki, M., Tully, B.J., Neely, C.J. & Reiter, T. (2023). Eukaryotic genomes from a global metagenomic data set illuminate trophic modes and biogeography of ocean plankton. *mBio*, 14(6), e01676-23. https://doi.org/10.1128/mbio.01676-23
+- **Summary:** Applied EukHeist, an automated pipeline for recovering eukaryotic MAGs from metagenomes, to the Tara Oceans large-size fraction data (0.8-2,000 um). Recovered >900 environmentally relevant eukaryotic MAGs and >4,000 bacterial and archaeal MAGs (TOPAZ collection). Demonstrates that eukaryotic genome recovery from metagenomes is feasible at scale and that marine metagenomes contain substantial eukaryotic content. Our finding of 25,247 eukaryotic contigs (16.4%) at >= 100 kbp is consistent with this work, and the systematic invisibility of these eukaryotes to prokaryotic annotation tools (GTDB-Tk, geNomad) mirrors the challenges EukHeist was designed to overcome.
+
+---
+
+## Coding Density as Diagnostic for Prokaryotes vs. Eukaryotes (Phase 6)
+
+**Claim:** Coding density measured by pyrodigal (prokaryotic gene finder) cleanly separates prokaryotes (median 0.888) from eukaryotes (median 0.748) with giant virus candidates intermediate (median 0.870). This independent axis validates Tiara's eukaryotic classifications. Prokaryotic genomes are 85-95% coding; eukaryotic genomes have much lower coding density due to introns, intergenic regions, and mobile elements. Prodigal on eukaryotic contigs finds only intronless genes and spurious exon-sized ORFs, making the systematic undercount itself diagnostic.
+
+### Lynch & Conery (2003) -- The Origins of Genome Complexity
+- **Citation:** Lynch, M. & Conery, J.S. (2003). The origins of genome complexity. *Science*, 302(5649), 1401-1404. https://doi.org/10.1126/science.1089370
+- **Summary:** Foundational paper analyzing complete genomic sequences across diverse phylogenetic lineages, documenting gradual increases in genome complexity from prokaryotes to multicellular eukaryotes. Shows increases in gene number (from gene duplication), spliceosomal introns, and mobile genetic elements with decreasing effective population size. Prokaryotic genomes are compact and gene-dense (85-95% coding), while eukaryotic genomes accumulate large amounts of non-coding DNA. This fundamental difference is what makes coding density diagnostic in our Phase 6 analysis: prokaryotic gene finders like pyrodigal systematically undercount coding capacity on eukaryotic contigs, producing the median 0.748 vs 0.888 separation we observe.
+
+### Larralde (2022) -- Pyrodigal: Python bindings and interface to Prodigal
+- **Citation:** Larralde, M. (2022). Pyrodigal: Python bindings and interface to Prodigal, an efficient method for gene prediction in prokaryotes. *Journal of Open Source Software*, 7(72), 4296. https://doi.org/10.21105/joss.04296
+- **Summary:** Introduces pyrodigal, Cython bindings and Python interface to Prodigal (Hyatt et al. 2010), providing identical gene predictions with improved performance and Python-native API. Used in our Phase 6 coding density analysis (v3.6.3, metagenomic mode) to predict genes on all 154K contigs >= 100 kbp. The metagenomic mode (-p meta) uses pre-trained gene models rather than learning from the input sequence, making it suitable for mixed-community data where individual contigs may come from diverse organisms.
+
+---
+
+## metaFlye: Metagenome Assembly
+
+**Claim:** The marine metagenomic contigs analyzed in this project were assembled using metaFlye, which produces long contigs from long-read sequencing data. metaFlye's contamination rate (~8.6%) is low enough that k-mer coherence across 440 unclassified MCL clusters requires biological signal, not random artifacts.
+
+### Kolmogorov et al. (2020) -- metaFlye: scalable long-read metagenome assembly using repeat graphs
+- **Citation:** Kolmogorov, M., Bickhart, D.M., Behsaz, B., Gurevich, A., Rayko, M., Shin, S.B., Kuhn, K., Yuan, J., Polevikov, E., Smith, T.P.L. & Pevzner, P.A. (2020). metaFlye: scalable long-read metagenome assembly using repeat graphs. *Nature Methods*, 17(11), 1103-1110. https://doi.org/10.1038/s41592-020-00971-x
+- **Summary:** Introduces metaFlye, an extension of the Flye assembler for long-read metagenomic data. Addresses challenges of uneven bacterial composition and intra-species heterogeneity in metagenomes. Benchmarking on simulated and mock communities demonstrated consistently better completeness and contiguity than competing long-read assemblers. Applied to the sheep microbiome, metaFlye reconstructed 63 complete or nearly complete bacterial genomes within single contigs. In our project, metaFlye assembled the SFE and SE marine metagenomes, producing the 154K contigs >= 100 kbp that form the basis of all downstream analysis. The assembly_info.txt output provides contig length, coverage, circularity, and repeat status used in our analyses.
