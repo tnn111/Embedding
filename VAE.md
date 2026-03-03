@@ -1845,3 +1845,93 @@ Added two new Results sections and updated Discussion/Draft in `ClusteringPaper/
 - Results outline: Replaced `[To be completed]` with Taxonomic Validation and Eukaryotic Dark Matter outlines
 - Discussion outline: Updated Para 5 (validation achieved) and Para 6 (eukaryotic dark matter)
 - Methods outline: Replaced placeholder with 7-point Taxonomic Validation methods
+
+## 2026-03-03: MMseqs2 Taxonomy Analysis (Phase 7)
+
+### Setup
+- MMseqs2 `taxonomy` with `-s 4.0 --lca-mode 2 --tax-lineage 1` against NCBI nr
+- Per-ORF results in `Runs/taxonomy/mmseqs_taxonomy.tsv` (37.6M lines)
+- ORFs from pyrodigal (Phase 6), one per line with `contigName_NNN` suffix
+
+### ORF-Level Statistics
+- **37,615,515 total ORFs** across 154,041 contigs
+- **30,370,321 classified** (80.7%), 7,245,194 unclassified (19.3%)
+- Top ranks: species 42.7%, "no rank" 22.9%, phylum 9.6%, domain 8.2%
+- ORFs per contig: median 180, mean 244, range 1-6,716
+
+### Contig-Level Aggregation
+- Consensus method: >= 80% of classified ORFs must agree at each rank
+- **137,049 contigs** (89.0%) get domain consensus
+- **102,771 contigs** (66.7%) get phylum consensus
+- **42,020 contigs** (27.3%) get species consensus
+- Domain distribution: Bacteria 117,686 (85.9%), Eukaryota 15,091 (11.0%), Archaea 2,794 (2.0%), Viruses 1,478 (1.1%)
+- Only 6 contigs have zero classified ORFs
+
+### Coverage Comparison (phylum level)
+| Method | Contigs | % of 154K |
+|--------|---------|-----------|
+| MMseqs2 | 102,771 | 66.7% |
+| GTDB-Tk | 26,841 | 17.4% |
+| MMseqs2 unique (not in GTDB-Tk) | 79,346 | 51.5% |
+
+### Cross-Validation with GTDB-Tk
+- 26,787 contigs classified by both methods
+- **Domain: 98.4% agreement** (440 disagree -- mostly MMseqs2=Eukaryota vs GTDB-Tk=Bacteria, which are plastid-bearing eukaryotes)
+- **Phylum: 95.3% agreement** (1,107 disagree)
+- **Class: 88.4%**, Order: 78.7%, Family: 67.5%, Genus: 50.6%, Species: 2.4%
+- Species disagreement is nomenclature, not biology: MMseqs2 gives "Pseudomonadota bacterium", GTDB-Tk gives "UBA3439 sp027620495"
+- Top phylum mismatches: Woesearchaeota->Nanobdellota (NCBI vs GTDB naming), Haptophyta->Cyanobacteriota (plastid genes)
+- Top class mismatches: Opitutia->Verrucomicrobiia (600), Cyanophyceae->Cyanobacteriia (324 -- these are eukaryotic chloroplast-bearing contigs)
+
+### Cross-Reference with Tiara
+- Tiara bacteria vs MMseqs2: 99.9% domain agreement (107,544/107,628)
+- Tiara archaea vs MMseqs2: 78.1% agreement (631 MMseqs2=Bacteria, mostly Bacteroidota/Pseudomonadota -- likely LCA confusion from horizontal gene transfer)
+- Tiara eukarya vs MMseqs2: 85.6% agreement; 14,484 Eukaryota, 1,698 Bacteria, 742 Viruses (giant virus contamination)
+- 8,323 Tiara-eukarya contigs have no MMseqs2 domain consensus at all
+- Eukaryotic phyla from MMseqs2: Chlorophyta 4,584, Haptophyta 1,955, Bacillariophyta 1,110, Ciliophora 48
+
+### Cross-Reference with geNomad
+- 30,278 contigs have any geNomad virus hit (25,490 with virus >= 100 kbp)
+- Of geNomad virus contigs with MMseqs2 consensus: 17,007 Bacteria (host genes dominating), 1,478 Viruses, 309 Eukaryota
+- Viral phyla: Nucleocytoviricota 1,317 (giant viruses), Uroviricota 613 (phages)
+- MMseqs2 Viruses domain (1,478 contigs): 989 Nucleocytoviricota/Megaviricetes, 438 Uroviricota/Caudoviricetes
+
+### MCL Cluster Purity
+- **Domain: 100.0%** (9,209/9,211 clusters with >= 2 classified members)
+- **Phylum: 99.1%** (5,496/5,547 clusters pure, only 51 mixed)
+- Purity scores: mean 0.995, median 1.000, 5,490 clusters are 100% pure
+- Matches GTDB-Tk cluster purity (99.2%) -- VAE latent space preserves taxonomic coherence regardless of classification method
+
+### Cluster Coverage
+- MMseqs2 touches 6,445 MCL clusters (53.2%), GTDB-Tk touches 3,469
+- 3,405 clusters have MMseqs2 but NO GTDB-Tk member -- nearly doubles cluster annotation
+- 5,264 clusters have >= 75% of members with MMseqs2 phylum
+
+### Combined Coverage (All Methods)
+| Cumulative | Contigs | % |
+|------------|---------|---|
+| GTDB-Tk | 26,841 | 17.4% |
+| + MMseqs2 phylum | 106,187 | 68.9% |
+| + Tiara domain | 143,499 | 93.2% |
+| + geNomad | 153,394 | 99.6% |
+| + MMseqs2 domain | 153,756 | 99.8% |
+| Remaining | 285 | 0.19% |
+
+- Only **285 contigs** remain without any classification from any method
+- These are Tiara "unknown" (226) and "prokarya" (59) -- truly novel/divergent sequences
+
+### Key Findings
+1. **MMseqs2 massively expands taxonomic coverage**: 66.7% phylum-level vs GTDB-Tk's 17.4%, a 3.8x improvement
+2. **High cross-validation**: 95.3% phylum agreement with GTDB-Tk where both classify
+3. **Eukaryotic classification**: 15,091 contigs classified as Eukaryota by MMseqs2, with 53% getting phylum-level resolution (vs zero from GTDB-Tk)
+4. **Cluster purity preserved**: 99.1% phylum purity in MCL clusters, matching GTDB-Tk's 99.2%
+5. **Nearly complete coverage**: Only 285 contigs (0.19%) escape all classification methods combined
+6. **Complementary methods**: MMseqs2 adds 3,405 annotated clusters that GTDB-Tk misses entirely
+7. **Giant virus identification**: MMseqs2 Nucleocytoviricota assignments align with geNomad virus calls + Tiara eukarya cross-section
+8. **Plastid gene confusion resolved**: The MMseqs2 Haptophyta vs GTDB-Tk Cyanobacteriota mismatch (145 contigs) is because GTDB-Tk uses plastid (cyanobacterial-origin) markers, while MMseqs2 ORF consensus correctly identifies the eukaryotic host
+
+### Output Files
+- `Runs/taxonomy/mmseqs_contig_consensus.tsv` -- 142,684 contigs with any consensus (all ranks)
+- `Runs/taxonomy/mmseqs_contig_summary.tsv` -- all 154,041 contigs with domain/phylum and ORF stats
+- `Runs/taxonomy/analyze_mmseqs.py` -- main analysis script
+- `Runs/taxonomy/analyze_mmseqs_part2.py` -- deeper analysis (kingdom, Tiara cross-tab, euk phyla, cluster coverage)

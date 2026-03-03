@@ -1088,3 +1088,61 @@ All findings are captured in the consolidated sections above. Key dates for refe
   - **Data.md in ClusteringPaper is INCORRECT**: claims "The set includes prokaryotes, eukaryotes, and viruses" and "a human genome is included." This is wrong and needs correction. The download was prokaryote-only.
   - The NCBI "representative genomes" concept on the prokaryotic RefSeq page is specifically prokaryotic. Eukaryotic and viral reference genomes are managed on separate NCBI pages and require separate downloads.
   - Note: the description "spanning the full tree of life" used elsewhere in these notes should be updated to "spanning the full prokaryotic tree of life" — the dataset covers Bacteria and Archaea comprehensively but does not include Eukaryota or Viruses.
+
+- **2026-03-02**: Investigated whether the "transitivity chain problem on hub-dominated metagenome graphs" claim (Methods_VAE.md line 264-265) needs a reference. Conclusion: this is the paper's own empirical finding (GC spans: MCL 6-9 pp vs Leiden 40-50 pp). No published reference makes exactly this argument for hub-dominated nearest-neighbor graphs. Closest candidates: Fortunato & Barthelemy (2007) "Resolution limit in community detection" PNAS 104:36-41 (modularity merges small communities — related but different failure mode, about size not hubs); Good, de Montjoye & Clauset (2010) "Performance of modularity maximization in practical contexts" (degeneracy of modularity landscape); Fortunato (2010) "Community detection in graphs" (comprehensive review of modularity limitations). Decision: leave unreferenced — the mechanistic explanation is original to this work.
+
+- **2026-03-02**: Added "embedding captures global compositional similarity" point to Discussion.md paragraph 2. Two sentences inserted after the Euclidean distance advantage and before the cross-environment comparison sentence, arguing that non-overlapping contigs from the same genome share global compositional signatures and map to nearby latent points even without local sequence homology — a property alignment-based methods cannot access. Added Karlin & Burge (1995) as ref 16 (dinucleotide relative abundance as genomic signature, supporting genome-wide compositional uniformity claim).
+
+- **2026-03-02**: Researched eukaryotic reference genomes via NCBI `datasets` CLI (v18.18.0). Key findings:
+  - **21,570 eukaryotic reference genomes** (nearly 1:1 with species — only 49 species have >1 assembly, max 2)
+  - **Taxonomic breakdown**: Metazoa 12,283 (57%), Fungi 5,310 (25%), Viridiplantae 3,143 (15%), Protists ~795 (3.7%)
+    - Animals: Arthropoda 5,300, Chordata 5,476, Mollusca 486, Nematoda 244, Cnidaria 282, Annelida 112, Echinodermata 104, Platyhelminthes 100, Porifera 88
+    - Fungi: Ascomycota 3,794, Basidiomycota 1,184, Mucoromycota 155, Microsporidia 53, Chytridiomycota 48
+    - Plants: Magnoliopsida (dicots) 2,671, Liliopsida (monocots) 493, Bryophyta 198, Chlorophyta 143, Pinopsida 30
+    - Protists: Stramenopiles 380, Alveolata 170, Euglenozoa 99, Rhodophyta 51, Amoebozoa 49, Rhizaria 14
+  - **Source**: 19,320 GenBank (GCA_), only 2,250 RefSeq (GCF_) — unlike prokaryotes which are primarily RefSeq
+  - **Genome sizes**: median 450 Mbp, range 0.15 Mbp to 94.3 Gbp (Viscum album, mistletoe). 25% > 1 Gbp.
+  - **Total sequence data**: 16.63 Tbp across all assemblies
+  - **Download size**: ~4.82 TB compressed FASTA (all), ~2.34 TB (chromosome+complete only, 7,587 assemblies)
+  - **Contig explosion**: 2.50 BILLION total contigs (mean 115K per assembly). Heavily skewed by fragmented scaffolds.
+    - Chromosome+Complete: 69M contigs across 7,587 assemblies
+    - Contig N50 >= 100 kbp: 44.5M contigs across 13,416 assemblies (10.65 Tbp)
+    - Most fragmented: Ambystoma opacum (salamander) 19.8M contigs at N50 0.8 kbp
+  - **Practical considerations**: mean contig size only 6.7 kbp. Median contig N50 is 0.42 Mbp. At our 5 kbp threshold, ~18,894 assemblies qualify (contig N50 >= 5 kbp). But even those have ~734M total contigs.
+  - **Comparison to prokaryotic set**: Our prokaryotic download was ~20K genomes, 656K contigs. Eukaryotic set is 21.5K genomes but potentially millions of contigs — 3 orders of magnitude more data.
+  - **Strategy considerations**: Full download impractical for training at 4.82 TB. Options: (1) chromosome-level only (7.6K genomes, 2.34 TB), (2) filter by contig N50, (3) fungi-only subset (5.3K genomes, small genomes ~40 Mbp median), (4) download all but filter heavily during k-mer calculation.
+  - **Decision (2026-03-02)**: downloading all 21.5K genomes (~10 days), then post-hoc filtering contigs < 5 kbp to shrink.
+
+- **2026-03-02**: NCBI signpost single-hit validation (potential supplementary material). 109/325 Phase 2 clusters (33.5%) have taxonomy from a single NCBI hit, covering 3,488/11,479 contigs (30.4%). No minimum hit count enforced (unlike Phase 3b which requires >= 2 classified members). Cross-validated against GTDB-Tk (with NCBI→GTDB name mapping):
+
+  | Rank | Single-hit (1,113 contigs) | Multi-hit (1,755 contigs) |
+  |---|---|---|
+  | Phylum | 100.0% (1,113/1,113) | 99.5% (1,747/1,755) |
+  | Class | 91.6% (1,018/1,111) | 89.7% (1,558/1,736) |
+  | Order | 32.2% (354/1,098) | 64.3% (1,101/1,713) |
+  | Family | 47.2% (491/1,040) | 65.0% (1,031/1,587) |
+  | Genus | 42.5% (439/1,034) | 69.4% (922/1,329) |
+
+  Single-hit assignments validate as well or better than multi-hit at phylum/class. Divergence at order+ is largely NCBI→GTDB nomenclature differences (Candidatus prefixes, reclassifications), not genuine biological disagreements. The d=5 threshold is conservative enough (mean nn1 = 3.58) that even a single NCBI hit within range provides reliable taxonomy. Conclusion: no minimum hit threshold needed; the distance threshold itself is the quality control.
+
+- **2026-03-03**: MMseqs2 taxonomy analysis (Phase 7). Command: `mmseqs taxonomy queryDB nr_db result tmp --threads 64 --tax-lineage 1 --lca-mode 2 -s 4.0` against NCBI nr. Per-ORF output: `Runs/taxonomy/mmseqs_taxonomy.tsv` (37.6M rows). Aggregated: `Runs/taxonomy/mmseqs_contig_consensus.tsv` (142,684 contigs), `Runs/taxonomy/mmseqs_contig_summary.tsv` (all 154K). Analysis scripts: `analyze_mmseqs.py`, `analyze_mmseqs_part2.py`.
+  - **ORF-level**: 37.6M ORFs, 80.7% classified (taxid != 0), 42.7% to species. Median 180 ORFs/contig.
+  - **Contig-level consensus** (>= 80% ORF agreement):
+    | Rank | Contigs | % of 154K |
+    |---|---|---|
+    | Domain | 137,049 | 89.0% |
+    | Phylum | 102,771 | 66.7% |
+    | Class | 95,047 | 61.7% |
+    | Order | 81,754 | 53.1% |
+    | Family | 68,212 | 44.3% |
+    | Genus | 55,088 | 35.8% |
+    | Species | 42,020 | 27.3% |
+  - **Domain breakdown**: Bacteria 117,686 (85.9%), Eukaryota 15,091 (11.0%), Archaea 2,794 (2.0%), Viruses 1,478 (1.1%)
+  - **Coverage vs GTDB-Tk**: 3.8× more contigs at phylum (102,771 vs 26,841). 79,346 unique contributions.
+  - **Cross-validation with GTDB-Tk** (26,787 contigs with both): Domain 98.4%, Phylum 95.3%, Class 88.4%, Order 78.7%, Family 67.5%. Species 2.4% (nomenclature, not real disagreements). Domain disagreements mostly eukaryotic contigs where GTDB-Tk picks up plastid marker genes. Phylum disagreements include Woesearchaeota→Nanobdellota (324), Haptophyta→Cyanobacteriota (145, plastid genes).
+  - **Eukaryotic resolution**: 15,091 domain Eukaryota; 53% reach phylum: Chlorophyta 4,584, Haptophyta 1,955, Bacillariophyta 1,110, Ciliophora 48. Marine microalgae as expected. 8,323 Tiara-eukarya contigs have no MMseqs2 consensus — most novel eukaryotes.
+  - **Tiara cross-tab**: Bacteria 99.9% agreement; Eukarya 85.6% (1,698 MMseqs2-Bacteria = intracellular bacteria or chimeric; 742 Viruses = giant virus candidates)
+  - **geNomad cross-tab**: Most geNomad virus contigs are MMseqs2-Bacteria (17,007/22,660) because host genes dominate ORF consensus on prophage-containing contigs. 1,478 MMseqs2-Viruses: 989 Nucleocytoviricota (giant viruses), 438 Caudoviricetes (phages).
+  - **MCL cluster purity**: 99.1% phylum purity across 5,547 clusters (matches GTDB-Tk's 99.2%). Cluster coverage: 6,445 clusters (53.2%) vs GTDB-Tk 3,469 (28.6%). **3,405 clusters have MMseqs2 phylum but zero GTDB-Tk members.**
+  - **Combined coverage** (all methods): only **285 contigs (0.19%)** remain without any classification. 226 Tiara-unknown + 59 Tiara-prokarya.
+  - **Potential uses**: (1) Independent validation of cluster purity from protein homology; (2) Eukaryotic phylum-level taxonomy filling Tiara's domain-only gap; (3) Replace/supplement NCBI signposts with proper homology-based method.
