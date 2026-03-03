@@ -1166,3 +1166,39 @@ Integrated MMseqs2 taxonomy results into all four paper sections (ClusteringPape
 - **Results_VAE.md**: Added "Protein-level validation by MMseqs2" paragraph (ref 18). Updated Table 13: added MMseqs2 row (95,563 contigs, 71.5%), total annotation 129,483 (96.8%), unannotated 4,241 (3.2%). MMseqs2 newly annotated 13,299 contigs not covered by other 5 methods.
 - **Discussion.md**: Added MMseqs2 corroboration sentence (ref 17). Updated coverage from 86.9% → 96.8%.
 - **Introduction.md**: Added MMseqs2 mention alongside GTDB-Tk (ref 26).
+
+### Session 2026-03-03 (cont.): Review and Polish
+
+**Critical fixes** (commit `a8a0c99`):
+- MMseqs2 count disambiguation: added "(95,563 of which fell within the MCL graph)"
+- Results refs renumbered: MMseqs2 → ref 11, shifted 11-17 → 12-18
+- Table renumbering cascade: 7b→8, 8→9, ..., 13→14
+- Added test set definitions to Table 8 caption
+- Fixed wrong table cross-ref (Table 8 → Table 9)
+- Introduction 99.2% disambiguation (GTDB-Tk vs MMseqs2)
+- Discussion refs completely renumbered to order-of-first-appearance (all 17 refs)
+- Added MMseqs2 version (v18.8cc5c) and nr database date (Feb 2026)
+
+**Major fixes** (commit `d507574`):
+- Methods: "six independent" → "six complementary"
+- Methods: Fixed forward reference for 80% threshold
+- Discussion: Added MCL quantitative evidence (4 pp vs 7-17 pp)
+- Discussion: Added key denominators (12,123 clusters, 133,724 contigs)
+- Discussion: Fixed hub problem explanation (geometric concentration)
+- Discussion: Split overloaded paragraph 2
+- Introduction: Split dense final paragraph into three
+- Introduction: Defined GC spans, added MCL description, added "(this study)"
+- Results: Split MMseqs2 paragraph into three
+
+**Minor fixes** (this commit):
+- Discussion: "substantially richer" → "20-fold richer" (quantified)
+- Discussion: Removed one "general-purpose" instance + expanded HNSW acronym
+- Discussion: "consistent with" → "aligns with" (removed repetition)
+- Discussion: Reduced "compositional" (→ coherent, oligonucleotide, organizational)
+- Discussion: Removed "learned" from closing paragraph
+- Discussion: Passive → active ("We evaluated embedding quality")
+- Discussion: Added table cross-refs (Table 8, Table 13)
+- Results: Added "dark matter" parenthetical gloss
+- Results: "substantially" → "76%" (quantified)
+- Results: Reduced "compositional" (→ sequence patterns, oligonucleotide signatures)
+- Methods: Added t-SNE mention to Cluster Quality Assessment section
