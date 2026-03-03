@@ -1146,3 +1146,23 @@ All findings are captured in the consolidated sections above. Key dates for refe
   - **MCL cluster purity**: 99.1% phylum purity across 5,547 clusters (matches GTDB-Tk's 99.2%). Cluster coverage: 6,445 clusters (53.2%) vs GTDB-Tk 3,469 (28.6%). **3,405 clusters have MMseqs2 phylum but zero GTDB-Tk members.**
   - **Combined coverage** (all methods): only **285 contigs (0.19%)** remain without any classification. 226 Tiara-unknown + 59 Tiara-prokarya.
   - **Potential uses**: (1) Independent validation of cluster purity from protein homology; (2) Eukaryotic phylum-level taxonomy filling Tiara's domain-only gap; (3) Replace/supplement NCBI signposts with proper homology-based method.
+  - **NCBI signpost vs MMseqs2 cross-validation** (11,474 contigs with both, both use NCBI taxonomy — clean comparison):
+    | Rank | Agreement |
+    |---|---|
+    | Domain | 100.0% (11,461/11,461) |
+    | Phylum | 99.7% (11,019/11,050) |
+    | Class | 99.0% (10,781/10,886) |
+    | Order | 96.9% (9,910/10,225) |
+    | Family | 92.5% (8,251/8,923) |
+    | Genus | 90.4% (6,491/7,180) |
+    | Species | 25.5% (397/1,554) |
+    Species gap is expected: signposts assign nearest reference species, MMseqs2 LCA often yields "Genus sp." or "Family bacterium". Only 5 signpost contigs lack any MMseqs2 consensus. **Validates the signpost approach** — k-mer proximity gives same answer as protein homology at 99.7% phylum. MMseqs2 then extends far beyond (102,771 vs 11,479 at phylum). Narrative: signposts are correct where testable but limited; MMseqs2 confirms and extends.
+  - **Novel eukaryote characterization**: 8,323 Tiara-eukarya with no MMseqs2 domain consensus. Median length 142 kbp (skewed toward 100 kbp minimum). Median classified ORF fraction 0.40 (vs 0.91 for bacteria). 71.5% have < 50% ORFs classified. Problem is sparse divergent coding content (eukaryotic genomes mostly non-coding, pyrodigal predicts spurious ORFs in intergenic/intronic regions), not search sensitivity. Figures: `Runs/taxonomy/novel_euk_length_hist.pdf`, `novel_euk_classified_frac.pdf`. MCL.ipynb cell 34.
+
+### Session 2026-03-03: MMseqs2 Integration into Paper
+
+Integrated MMseqs2 taxonomy results into all four paper sections (ClusteringPaper/):
+- **Methods_VAE.md**: Added MMseqs2 paragraph (refs 38-39), renumbered geNomad→40, Tiara→41, pyrodigal→42, Prodigal→43. Changed "five" → "six" methods.
+- **Results_VAE.md**: Added "Protein-level validation by MMseqs2" paragraph (ref 18). Updated Table 13: added MMseqs2 row (95,563 contigs, 71.5%), total annotation 129,483 (96.8%), unannotated 4,241 (3.2%). MMseqs2 newly annotated 13,299 contigs not covered by other 5 methods.
+- **Discussion.md**: Added MMseqs2 corroboration sentence (ref 17). Updated coverage from 86.9% → 96.8%.
+- **Introduction.md**: Added MMseqs2 mention alongside GTDB-Tk (ref 26).
