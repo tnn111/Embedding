@@ -1225,3 +1225,44 @@ Integrated MMseqs2 taxonomy results into all four paper sections (ClusteringPape
 **Paper changes**:
 - Results_VAE.md: New "Theoretical basis for the length threshold" subsection with CV table (Table 11) and 2 analysis paragraphs. Added refs 9 (Bohlin) and 10 (Alsop), renumbered 9-18 → 11-20. Tables renumbered: 11→12, 12→13, 13→14, 14→15.
 - Discussion.md: Expanded length-dependence paragraph (line 17) with multinomial sampling theory. Added refs 13 (Bohlin) and 14 (Alsop), renumbered 13-17 → 15-19. Updated Table 13 cross-ref → Table 14.
+
+### Review Round 6: Comprehensive Six-Agent Review (2026-03-03)
+
+Launched six parallel review agents (numbers consistency, reference integrity, scientific writing, table integrity, narrative coherence, technical accuracy). Key findings and fixes:
+
+**Critical fixes**:
+- Results line 641: `2,868` → `11,050` for signpost-vs-MMseqs2 overlap. The 2,868 was a copy-paste from the signpost-vs-GTDB-Tk comparison. Verified from data: 11,050 contigs with both signpost and MMseqs2 phylum, 99.7% agreement (11,019/11,050).
+- Introduction line 11: "12,123 clusters from 154,041 contigs" → "12,123 clusters encompassing 87% of 154,041 contigs" — clusters come from 133,724 graph nodes, not all 154K.
+
+**High priority fixes**:
+- Methods line 168: "8-model × 4-dataset" → "8-model × 3-dataset" (NCBI_100 column absent from Table 8)
+- Methods line 300: Enumerated all six annotation methods explicitly; clarified coding density as supplementary corroboration
+- Methods line 185: "at 10, 50, 100, 200, and 500 kbp" → "from 3 to 500 kbp" (Results Table 10 uses 8 thresholds)
+- Methods line 247: Removed I=6.0 from MCL inflation list (not in Results)
+- Methods line 306: Defined "2bLCA" as "two-step best lowest common ancestor"
+- Discussion line 17: Condensed CV paragraph to avoid near-verbatim duplication with Results (saved ~150 words)
+- Discussion line 11: Added SFE_SE_NCBI_5 mixing result (Spearman 0.662 vs 0.847/0.831 separately)
+- Discussion line 9: Specified "+0.070 Spearman gap on 100 kbp brackish test data"
+- Discussion paragraph 15: Split into two paragraphs at the natural break (archipelago / length dependence)
+- Results: Added parenthetical table references for Tables 2/3, 5/6, 11, 12, 13, 15
+
+**Medium priority fixes**:
+- Methods line 29: Removed redundant "previously"
+- Methods line 49: Unicode σ² instead of `<sup>2</sup>` (disambiguate from reference citations)
+- Results line 5: "systematically optimized" → "systematically explored" (only 8 configs tested)
+- Results line 127: "uniquely difficult" → "uniquely challenging"
+- Results line 253: "inversely correlated" → "diverged" (only 3 data points)
+- Results line 274-280: Toned down "important implications for the field" language
+- Results line 400: Unicode R² + "data lies" → "data lie"
+- Discussion line 7: "approximately uniform" → "approximately consistent"
+- Discussion line 9: "models" plural → singular (only one model comparison)
+- Introduction Writing Notes: Updated stale table numbers
+
+**Results/Discussion/Methods boundary cleanup**:
+- Results lines 621-623: Removed "validates domain transfer" interpretation → factual restatement
+- Results lines 657-660: Removed "despite no explicit phylogenetic information" → Discussion already has it
+- Results line 705: Removed "VAE learned signatures general enough" → factual "separation persisted despite"
+- Results ChromaDB section (lines 722-739): Moved entirely to Methods; refs 19-20 removed from Results (now 18 refs)
+- Methods: Added specific numbers (6,693,829 contigs, 10 GB, 7.2-fold, sub-linear query time) to Embedding Generation section
+
+**Verified correct by review** (no action needed): All mathematical calculations (Table 11 CV, all percentages, Spearman differences, fold-changes), all reference numbering, 136 canonical tetranucleotides, 2,772 features total, 410 kbp threshold logic.
