@@ -1202,3 +1202,26 @@ Integrated MMseqs2 taxonomy results into all four paper sections (ClusteringPape
 - Results: "substantially" → "76%" (quantified)
 - Results: Reduced "compositional" (→ sequence patterns, oligonucleotide signatures)
 - Methods: Added t-SNE mention to Cluster Quality Assessment section
+
+**Language refinements** (commit `4ff6d93`):
+- Introduction: "optimized" → "designed" (for binning tools, distancing from binning)
+- Introduction: Fixed agency problem ("curated set of contigs—trained" → "model trained on contigs")
+- All four files: "hub-dominated graphs" → "graphs where hub nodes often arise/form" (4 occurrences)
+
+**Future work expansion** (commit `f161c42`):
+- Split limitations+future work into separate paragraphs
+- Added three directions: eukaryotic training data (21K+ NCBI species), cross-environment evaluation, comparative metagenomics (extending 32-metagenome approach)
+
+### Session 2026-03-03 (cont.): K-mer frequency estimation theory
+
+**Research**: Investigated theoretical basis for 100 kbp minimum contig length threshold.
+- Multinomial sampling: CV of k-mer frequency ≈ √(C/L), C = canonical types, L = sequence length
+- At 100 kbp: 6-mer CV ~14.4% (avg), 5-mer ~7.2%, 4-mer ~3.7%, 1-3-mers <2%
+- At 10 kbp: 6-mer CV ~45.6% (noise-dominated), 4-mer CV ~11.7%
+- Naive all-hexamers CV<10% threshold: ~410 kbp (using worst-case palindromic C=4096)
+- Empirical knee at 50-100 kbp explained by: multi-scale architecture, CLR robustness, VAE denoising, non-uniform k-mer distributions
+- Key refs: Bohlin et al. (2008) BMC Genomics, Alsop & Raymond (2013) PLoS ONE
+
+**Paper changes**:
+- Results_VAE.md: New "Theoretical basis for the length threshold" subsection with CV table (Table 11) and 2 analysis paragraphs. Added refs 9 (Bohlin) and 10 (Alsop), renumbered 9-18 → 11-20. Tables renumbered: 11→12, 12→13, 13→14, 14→15.
+- Discussion.md: Expanded length-dependence paragraph (line 17) with multinomial sampling theory. Added refs 13 (Bohlin) and 14 (Alsop), renumbered 13-17 → 15-19. Updated Table 13 cross-ref → Table 14.
