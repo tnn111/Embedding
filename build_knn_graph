@@ -1,9 +1,9 @@
 #!/usr/bin/env -S uv run --quiet --script
 """
-Build a kNN graph with shared-nearest-neighbor (SNN) weights.
+Build a kNN graph from a neighbors TSV (from query_neighbors).
 
-Reads a neighbors TSV (from query_neighbors), keeps top k neighbors per
-sequence, and creates an undirected edge list.
+Reads neighbor lists with distances, keeps top k neighbors per sequence,
+and creates an undirected edge list.
 
 Weight modes:
   default              SNN count: |kNN(i) ∩ kNN(j)|
@@ -19,10 +19,10 @@ Output: TSV edge list to stdout (source, target, weight).
 Node indices are 0-based, matching line numbers in the IDs file.
 
 Usage:
-    ./build_snn_graph -n neighbors.tsv -id ids.txt > edges.tsv
-    ./build_snn_graph -n neighbors.tsv -id ids.txt --mutual > edges.tsv
-    ./build_snn_graph -n neighbors.tsv -id ids.txt --mutual --distance-weighted > edges.tsv
-    ./build_snn_graph -n neighbors.tsv -id ids.txt --mutual --distance-weighted --delta 1.0 > edges.tsv
+    ./build_knn_graph -n neighbors.tsv -id ids.txt > edges.tsv
+    ./build_knn_graph -n neighbors.tsv -id ids.txt --mutual > edges.tsv
+    ./build_knn_graph -n neighbors.tsv -id ids.txt --mutual --distance-weighted > edges.tsv
+    ./build_knn_graph -n neighbors.tsv -id ids.txt --mutual --distance-weighted --delta 1.0 > edges.tsv
 """
 # /// script
 # dependencies = []
