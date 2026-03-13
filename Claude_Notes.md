@@ -1058,6 +1058,39 @@ The VAE maps compositional signatures (k-mer frequencies), not organism identity
 - Biological characterization of clusters (taxonomy, function, source composition)
 - Update sweep plot in clustering_010.ipynb Cell 23
 
+### 2026-03-12: Paper Issue Review and Fixes (Session 2)
+
+**Comprehensive review** of Introduction, Methods, Results, Discussion found 6 severity levels of issues.
+
+**Fixed (CRITICAL)**:
+- C1: `paper_combined.md` had stale SFE_SE_5 Spearman values (0.847) — regenerated from corrected sections via `build_pdf.py`
+- C2: Methods line 169 called SFE_SE_5 "best brackish model" → corrected to SFE_SE_1
+
+**Fixed (HIGH)**:
+- H1: Discussion still listed bootstrap CI absence as a limitation → updated to report CIs (ρ = 0.831 [0.757, 0.880])
+- H1b: Added bootstrap CI description to Methods evaluation protocol section
+- H4: Discussion Writing Notes had stale "7.3-fold" → corrected to "10-fold" (6.7M / 656K)
+
+**Fixed (MEDIUM)**:
+- M3: Added completeness results (Table 14b: 91.7% species mean, 77.7% perfect) to Discussion taxonomic validation paragraph
+- M5: Introduction Writing Notes Spearman range corrected from "0.70–0.84" to "0.649–0.838"
+- M6: Added Karlin & Burge, Hildebrand, Bohlin, Alsop, Facco to global References.md (refs 56-60)
+
+**Fixed (LOW)**:
+- L1: Numbered intrinsic dimensionality table as Table 10b
+- L4: "University of Utrecht" → "Utrecht University" in all 4 files (Intro, Methods, Discussion, Draft)
+
+**Not fixed (require user decision)**:
+- M1: Figure placeholders remain in Results — need actual figures
+- M2: FIXED — Tightened Introduction contribution paragraphs (paras 5-6) to state claims without repeating specific numbers from Discussion. Removed: 656K/87%vs80%, 4pp vs 7-17pp, 12,123/11,413 counts, archipelago sentence, 99.2%/99.1%/2,753 purity details, 16.4% eukaryotic, tool names+refs. Discussion retains all specifics.
+- M4: FIXED — Added clarification that SFE_SE_5 was "initial candidate based on early cross-comparison results" and that "structural findings about hub nodes, MCL vs Leiden, and weight functions are properties of the graph topology and hold across models"
+
+**Fixed (Session 2, cont.)**:
+- H2: References.md pruned — 14 uncited refs moved to "Additional References" section, 60 cited refs renumbered to match manuscript.md
+- H3: Unified reference numbering — wrote `build_manuscript.py` that reads all 4 sections, strips per-section refs/writing notes, remaps all `<sup>` citation numbers to unified scheme, produces `manuscript.md` with single reference list (60 refs). Script in ClusteringPaper/.
+- Mapping: Introduction refs 1-26 (unchanged), Methods 1-44 → remapped, Results 1-17 → remapped, Discussion 1-15 → remapped. Verified key citations: GTDB-Tk→24, MMseqs2→25, Tiara→26, MCL→21/22, geNomad→54, etc.
+- References.md rewritten to match manuscript.md unified numbering
+
 ---
 
 # Archived Session Notes (Chronological Summary)
