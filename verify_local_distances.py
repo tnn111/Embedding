@@ -118,6 +118,8 @@ def main():
                         help = 'Size of sample to search within')
     parser.add_argument('--metric', choices = ['euclidean', 'cosine'], default = 'euclidean',
                         help = 'Distance metric for latent space (default: euclidean)')
+    parser.add_argument('--bootstrap', type = int, default = 10000,
+                        help = 'Number of bootstrap resamples for CI (0 to skip)')
     args = parser.parse_args()
 
     print(f'Loading encoder from {args.encoder}...')
@@ -184,6 +186,32 @@ def main():
     print()
     print(f'Pearson correlation:  r = {pearson_r:.4f} (p = {pearson_p:.2e})')
     print(f'Spearman correlation: r = {spearman_r:.4f} (p = {spearman_p:.2e})')
+
+    # Bootstrap CI over queries (the natural resampling unit, since
+    # neighbors within a query are correlated)
+    if args.bootstrap > 0:
+        n_queries = args.num_queries
+        n_neighbors = args.neighbors
+        # Reshape to (n_queries, n_neighbors) for query-level resampling
+        latent_by_query = all_latent_distances.reshape(n_queries, n_neighbors)
+        kmer_by_query = all_kmer_mses.reshape(n_queries, n_neighbors)
+
+        rng = np.random.default_rng(42)
+        boot_spearman = np.empty(args.bootstrap)
+        boot_pearson = np.empty(args.bootstrap)
+        for b in range(args.bootstrap):
+            idx = rng.choice(n_queries, size = n_queries, replace = True)
+            flat_lat = latent_by_query[idx].ravel()
+            flat_kmer = kmer_by_query[idx].ravel()
+            boot_spearman[b] = spearmanr(flat_lat, flat_kmer).statistic
+            boot_pearson[b] = pearsonr(flat_lat, flat_kmer).statistic
+
+        sp_lo, sp_hi = np.percentile(boot_spearman, [2.5, 97.5])
+        pe_lo, pe_hi = np.percentile(boot_pearson, [2.5, 97.5])
+        print(f'\nBootstrap 95% CI ({args.bootstrap:,} resamples over {n_queries} queries):')
+        print(f'  Spearman: {spearman_r:.4f} [{sp_lo:.4f}, {sp_hi:.4f}]')
+        print(f'  Pearson:  {pearson_r:.4f} [{pe_lo:.4f}, {pe_hi:.4f}]')
+
     print()
 
     # Analyze by neighbor rank

@@ -1136,23 +1136,23 @@ All SFE_SE models dramatically outperform augmented runs (best augmented: Run_3 
 
 | Model \ Test | SFE_SE_1 | SFE_SE_2 | SFE_SE_3 | SFE_SE_4 | SFE_SE_5 | Mean |
 |---|---|---|---|---|---|---|
-| SFE_SE_1 (1K) | 0.773 | 0.739 | 0.723 | 0.816 | 0.779 | 0.766 |
+| **SFE_SE_1 (1K)** | **0.773** | **0.739** | **0.723** | 0.816 | **0.779** | **0.766** |
 | SFE_SE_2 (2K) | 0.743 | 0.714 | 0.682 | 0.784 | 0.758 | 0.736 |
 | SFE_SE_3 (3K) | 0.749 | 0.704 | 0.676 | 0.776 | 0.736 | 0.728 |
 | SFE_SE_4 (4K) | 0.751 | 0.684 | 0.687 | 0.781 | 0.726 | 0.726 |
-| **SFE_SE_5 (5K)** | **0.862** | **0.862** | **0.823** | **0.868** | **0.819** | **0.847** |
+| SFE_SE_5 (5K) | 0.715 | 0.674 | 0.643 | 0.736 | 0.691 | 0.692 |
+
+> **CORRECTED 2026-03-12**: SFE_SE_5 row originally showed 0.862/0.862/0.823/0.868/0.819 (mean 0.847). Those values were computed with full validation pools (478K-670K) instead of the standardized 50K. All other rows used 50K. See "2026-03-12" entry for full investigation.
 
 ### Observations
 
-1. **SFE_SE data is harder than augmented data** — Models 1-4 score 0.73-0.77 on SFE_SE data vs 0.83-0.86 on augmented data. The SFE_SE test data contains more challenging sequences.
+1. **SFE_SE data is harder than augmented data** — Models score 0.69-0.77 on SFE_SE data vs 0.81-0.86 on augmented data.
 
-2. **Opposite ranking on SFE_SE vs augmented data** — On augmented data, SFE_SE_1 is best (0.856). On SFE_SE data, SFE_SE_5 dominates (0.847) with a massive gap over second-place SFE_SE_1 (0.766). The 5K threshold model excels on SFE_SE sequences.
+2. **Consistent ranking across domains** — SFE_SE_1 wins on both augmented (0.856) and SFE_SE (0.766) data. Lower thresholds consistently produce better embeddings.
 
-3. **SFE_SE_5 wins every column on SFE_SE data** — by a huge margin (+0.081 over SFE_SE_1). This is the reverse of the augmented data pattern where lower thresholds generalize better.
+3. **4K column is easiest on SFE_SE data** — consistently the highest score for all models. On augmented data, 1K was typically easiest. The 2K and 3K SFE_SE columns are the hardest.
 
-4. **4K column is easiest on SFE_SE data** — consistently the highest score for all models. On augmented data, 1K was typically easiest. The 2K and 3K SFE_SE columns are the hardest.
-
-5. **SFE_SE models still far outperform augmented models** — even the worst SFE_SE result on SFE_SE data (SFE_SE_3 on SFE_SE_3 at 0.676) approaches the best augmented result (Run_3 at 0.702).
+4. **SFE_SE models still far outperform augmented models on augmented data** — even the worst SFE_SE result (SFE_SE_5 at 0.812) exceeds the best augmented result (Run_3 at 0.702).
 
 ## 2026-02-14: Model selection for Leiden community detection
 
@@ -1935,3 +1935,83 @@ Added two new Results sections and updated Discussion/Draft in `ClusteringPaper/
 - `Runs/taxonomy/mmseqs_contig_summary.tsv` -- all 154,041 contigs with domain/phylum and ORF stats
 - `Runs/taxonomy/analyze_mmseqs.py` -- main analysis script
 - `Runs/taxonomy/analyze_mmseqs_part2.py` -- deeper analysis (kingdom, Tiara cross-tab, euk phyla, cluster coverage)
+
+---
+
+## 2026-03-12: Cluster Completeness Analysis
+
+### Motivation
+Reviewers will note that 99.2% purity is one-sided — over-splitting trivially produces high purity. Added completeness metric as the dual: for each taxon, what fraction of its contigs land in the largest cluster?
+
+### Results (MCL I=3.0, d=5, 100 kbp, NCBI_5 model, GTDB-Tk classifications)
+
+**Completeness by rank (taxa with >= 2 classified contigs in graph):**
+
+| Rank | Mean | Median | Perfect | % perfect | N taxa |
+|------|------|--------|---------|-----------|--------|
+| Species | 91.7% | 100% | 1056/1359 | 77.7% | 1,359 |
+| Genus | 80.7% | 100% | 556/1009 | 55.1% | 1,009 |
+| Family | 69.7% | 72.6% | 219/574 | 38.2% | 574 |
+| Order | 62.2% | 61.9% | 103/320 | 32.2% | 320 |
+| Class | 55.1% | 50.0% | 40/136 | 29.4% | 136 |
+| Phylum | 46.8% | 35.1% | 18/69 | 26.1% | 69 |
+| Domain | 1.6% | 1.6% | 0/2 | 0.0% | 2 |
+
+### Key findings
+1. **Species-level: 91.7% mean completeness, 77.7% perfect** — strong evidence against over-splitting
+2. Completeness naturally decreases at higher ranks (a phylum *should* span many clusters)
+3. Most fragmented species (>= 5 contigs, sorted by completeness):
+   - Polynucleobacter spp. dominate the list (25-33% completeness, split across 5-7 clusters)
+   - Pelagibacter spp. also heavily fragmented (28-33%)
+   - Both genera are known for extreme microdiversity and pangenome variation
+   - Fragmentation likely reflects real strain-level compositional variation, not method deficiency
+4. Largest species (UBA9145 sp001438145, 83 contigs) spans 4 clusters at 38.6% completeness
+
+### Interpretation for paper
+- Report species and genus completeness as companion to Table 14 (purity)
+- Note that completeness naturally decreases at higher ranks
+- Highlight that the most fragmented taxa (Polynucleobacter, Pelagibacter) are known microdiversity champions
+- The embedding is separating strains, which is arguably correct behavior
+
+### Implementation
+- Added as cell 19 in MCL.ipynb (after purity cell 18)
+
+---
+
+## 2026-03-12: Bootstrap CIs for Spearman Correlation
+
+### Motivation
+Paper reports Spearman values as point estimates from a single evaluation (100 queries × 50 neighbors). Reviewer concern: no uncertainty quantification.
+
+### Implementation
+Added `--bootstrap` flag to `verify_local_distances.py` (default 10,000 resamples). Bootstraps over **queries** (not individual pairs), since 50 neighbors per query are correlated. Reports 95% percentile CIs.
+
+### Results
+
+**NCBI_5 (selected model) — CIs reproduce reported values exactly:**
+
+| Model | Test data | Spearman | 95% CI (10K bootstrap over 100 queries) |
+|-------|-----------|----------|--------|
+| NCBI_5 | SFE_SE_5 (brackish) | 0.831 | [0.757, 0.880] |
+| NCBI_5 | NCBI_5 (reference) | 0.934 | [0.904, 0.952] |
+
+CIs are ±0.06-0.07 wide due to 100-query resampling unit. Key comparisons robust: NCBI_5-on-brackish CI [0.757, 0.880] well separated from worst models (ALL_5 at 0.644).
+
+**SFE_SE_5 DISCREPANCY — RESOLVED (2026-03-12):**
+
+Root cause: the original SFE_SE cross-comparison (Runs.md §6-7) used **full validation sets**, not the 50K subsamples that were later standardized in CLAUDE.md. Spearman correlation is monotonically dependent on pool size because larger pools provide more neighbor candidates at diverse distances, giving a richer distance-vs-similarity relationship.
+
+Evidence:
+
+| Pool size | Spearman (SFE_SE_5 self) | Notes |
+|-----------|--------------------------|-------|
+| 10,000 | 0.491 | Script default |
+| 50,000 | 0.691 | Standardized protocol |
+| 200,000 | 0.781 | — |
+| 477,677 (full val) | **0.822** | Matches reported **0.819** |
+
+SFE_SE_5 on SFE_SE_4 full validation (530K): **0.847** (vs reported 0.868 — within query noise).
+
+NCBI_5 reproduced with 50K because its full validation set (65.6K) is close to the 50K sample — captures 76% of the validation data. SFE_SE_5's 50K is only 10.5% of its 477K validation set.
+
+**Implication for the paper:** Spearman values are not comparable across pool sizes. The Table 8 cross-comparison (Runs.md §8) reports means from the §6 5×5 matrix (full-val evaluations) alongside §8 experimental model evaluations. For consistency, either all values should be re-run with fixed pool size, or the paper should report only the NCBI_5 Spearman values (which are stable at 50K).

@@ -236,21 +236,25 @@ SFE_SE_1 wins every column on augmented data. Ranking: SFE_SE_1 (0.856) > SFE_SE
 
 | Model \ Test | SFE_SE_1 | SFE_SE_2 | SFE_SE_3 | SFE_SE_4 | SFE_SE_5 | Mean |
 |---|---|---|---|---|---|---|
-| SFE_SE_1 (1K) | **0.773** | 0.739 | 0.723 | 0.816 | 0.779 | 0.766 |
+| **SFE_SE_1 (1K)** | **0.773** | **0.739** | **0.723** | 0.816 | **0.779** | **0.766** |
 | SFE_SE_2 (2K) | 0.743 | **0.714** | 0.682 | 0.784 | 0.758 | 0.736 |
 | SFE_SE_3 (3K) | 0.749 | 0.704 | **0.676** | 0.776 | 0.736 | 0.728 |
 | SFE_SE_4 (4K) | 0.751 | 0.684 | 0.687 | **0.781** | 0.726 | 0.726 |
-| **SFE_SE_5 (5K)** | **0.862** | **0.862** | **0.823** | **0.868** | **0.819** | **0.847** |
+| SFE_SE_5 (5K) | 0.715 | 0.674 | 0.643 | 0.736 | 0.691 | 0.692 |
+
+> **Correction (2026-03-12):** SFE_SE_5 row previously reported values computed with full validation sets (478K-670K pool) instead of the 50K pool used for all other evaluations. The original values (0.862, 0.862, 0.823, 0.868, 0.819, mean 0.847) made SFE_SE_5 appear to dominate; at the standard 50K pool, it is the weakest model. See VAE.md "2026-03-12" entry for full investigation.
 
 ### SFE_SE Models on SFE_SE Test Data (Top 1 Neighbor MSE)
 
 | Model \ Test | SFE_SE_1 | SFE_SE_2 | SFE_SE_3 | SFE_SE_4 | SFE_SE_5 | Mean |
 |---|---|---|---|---|---|---|
-| SFE_SE_1 (1K) | **0.203** | 0.191 | 0.153 | 0.150 | 0.122 | 0.164 |
+| **SFE_SE_1 (1K)** | **0.203** | **0.191** | **0.153** | 0.150 | **0.122** | **0.164** |
 | SFE_SE_2 (2K) | 0.217 | **0.193** | 0.168 | 0.154 | 0.125 | 0.171 |
 | SFE_SE_3 (3K) | 0.216 | 0.201 | **0.169** | 0.146 | 0.135 | 0.173 |
 | SFE_SE_4 (4K) | 0.221 | 0.206 | 0.168 | **0.149** | 0.133 | 0.175 |
-| **SFE_SE_5 (5K)** | **0.200** | **0.198** | **0.165** | **0.135** | **0.121** | **0.164** |
+| SFE_SE_5 (5K) | 0.200 | 0.198 | 0.165 | **0.135** | 0.121 | 0.164 |
+
+> **Note:** Top 1 MSE table was not re-run (pool-size effect is expected to be smaller for Top 1 MSE than for Spearman correlation). SFE_SE_5 MSE values may still reflect the full-validation pool and should be interpreted with caution.
 
 ### Grand Comparison: All Models on Augmented Test Data
 
@@ -273,15 +277,13 @@ Every SFE_SE model outperforms every augmented model. The gap between the worst 
 
 1. **All SFE_SE models dramatically outperform augmented models on augmented test data**. The worst SFE_SE mean (SFE_SE_4 at 0.829) exceeds the best augmented mean (Run_3 at 0.702) by +0.127. This demonstrates that training data source composition matters more than sequence count.
 
-2. **Opposite ranking on SFE_SE vs augmented data**. On augmented data: SFE_SE_1 wins (0.856). On SFE_SE data: SFE_SE_5 wins (0.847). The optimal threshold depends on the evaluation domain.
+2. **Consistent ranking across evaluation domains**. On both augmented and SFE_SE data, lower thresholds produce better embeddings: SFE_SE_1 (0.766) > SFE_SE_2 (0.736) > SFE_SE_3 (0.728) > SFE_SE_4 (0.726) > SFE_SE_5 (0.692). More diverse training data (including shorter sequences) consistently improves embedding quality.
 
-3. **SFE_SE data is harder than augmented data**. Models 1-4 score 0.73-0.77 on SFE_SE data vs 0.83-0.86 on augmented data.
+3. **SFE_SE data is harder than augmented data**. Models score 0.69-0.77 on SFE_SE data vs 0.81-0.86 on augmented data.
 
-4. **SFE_SE_5 dominates SFE_SE evaluation** with a massive gap (+0.081 over second-place SFE_SE_1). It wins every column in both Spearman and Top 1 MSE.
+4. **4K column is easiest on SFE_SE data** (consistently highest Spearman across all models), while 2K and 3K are the hardest. On augmented data, 1K is the easiest column.
 
-5. **4K column is easiest on SFE_SE data** (consistently highest Spearman across all models), while 2K and 3K are the hardest. On augmented data, 1K is the easiest column.
-
-6. **SFE_SE models have higher per-k-mer training MSE but better embedding quality** — training reconstruction loss is a poor predictor of downstream embedding performance across model families.
+5. **SFE_SE models have higher per-k-mer training MSE but better embedding quality** — training reconstruction loss is a poor predictor of downstream embedding performance across model families.
 
 ---
 
@@ -299,32 +301,30 @@ Every SFE_SE model outperforms every augmented model. The gap between the worst 
 
 ### Grand Comparison: All Models on SFE_SE Test Data
 
-Combining augmented and SFE_SE models evaluated on SFE_SE test data:
+Combining augmented and SFE_SE models evaluated on SFE_SE test data (all at 50K pool):
 
 | Model | Mean Spearman on SFE_SE data | Model Type |
 |-------|------------------------------|------------|
-| SFE_SE_5 (5K) | **0.847** | SFE_SE |
-| Run_3 (3K) | 0.769 | Augmented |
+| Run_3 (3K) | **0.769** | Augmented |
 | SFE_SE_1 (1K) | 0.766 | SFE_SE |
 | SFE_SE_2 (2K) | 0.736 | SFE_SE |
 | Run_4 (4K) | 0.735 | Augmented |
 | SFE_SE_3 (3K) | 0.728 | SFE_SE |
 | SFE_SE_4 (4K) | 0.726 | SFE_SE |
 | Run_2 (2K) | 0.699 | Augmented |
+| SFE_SE_5 (5K) | 0.692 | SFE_SE |
 | Run_5 (5K) | 0.688 | Augmented |
 | Run_1 (1K) | 0.684 | Augmented |
 
 ### Key Findings — Cross-Domain
 
-1. **Run_3 is the best augmented model on SFE_SE data too** (0.769), matching its dominance on augmented data. The 3K threshold produces the most transferable embeddings regardless of evaluation domain.
+1. **Run_3 is the best model on SFE_SE data** (0.769), narrowly beating SFE_SE_1 (0.766). The 3K threshold produces the most transferable embeddings regardless of evaluation domain.
 
-2. **Augmented models score higher on SFE_SE data than on augmented data**. Run_3: 0.769 on SFE_SE vs 0.702 on augmented (+0.067). This is likely because SFE_SE test data (4.8-6.7M sequences) is a more homogeneous subset, and the 50k sample from a smaller pool produces denser coverage with more reliable neighbor relationships.
+2. **Augmented models score higher on SFE_SE data than on augmented data**. Run_3: 0.769 on SFE_SE vs 0.702 on augmented (+0.067). This is likely because SFE_SE test data is more homogeneous.
 
-3. **SFE_SE_5 stands alone at the top** (0.847) — 0.078 above second-place Run_3 (0.769). The remaining SFE_SE models (1-4) are interleaved with augmented models, suggesting the SFE_SE advantage is not universal across thresholds.
+3. **Augmented and SFE_SE models are interleaved** — there is no clear advantage from domain-matched training. Run_3 (augmented, 0.769) beats all SFE_SE models except SFE_SE_1 (0.766). Run_4 (augmented, 0.735) beats SFE_SE_3 and SFE_SE_4. SFE_SE_5 (0.692) and Run_5 (0.688) are near the bottom, confirming that higher thresholds consistently hurt.
 
-4. **Augmented Run_3 outperforms SFE_SE models 1-4 on SFE_SE data**. Despite being trained on different data, Run_3 (0.769) beats SFE_SE_1 (0.766), SFE_SE_2 (0.736), SFE_SE_3 (0.728), and SFE_SE_4 (0.726). The FD + NCBI training data provides broader biological coverage that transfers well.
-
-5. **SFE_SE_4 column is consistently the easiest** across both augmented and SFE_SE models. The SFE_SE_3 column is consistently the hardest.
+4. **SFE_SE_4 column is consistently the easiest** across both augmented and SFE_SE models. The SFE_SE_3 column is consistently the hardest.
 
 ---
 
@@ -346,18 +346,21 @@ The original 10 models (5 augmented + 5 SFE_SE) established that SFE_SE_5 was th
 
 ### Cross-Model Spearman Comparison (8 models x 4 test sets)
 
-| Model | Training data | N seqs | SFE_SE_5 test | SFE_SE_100 test | NCBI_5 test | Own data |
-|---|---|---|---|---|---|---|
-| **SFE_SE_5** | Marine >= 5 kbp | 4.8M | **0.847** | 0.766 | **0.946** | — |
-| **NCBI_5** | NCBI >= 5 kbp | 656K | 0.831 | **0.836** | 0.934 | — |
-| NCBI_100 | NCBI >= 100 kbp | 175K | 0.836 | 0.832 | 0.919 | — |
-| SFE_SE_100 | Marine >= 100 kbp | 154K | 0.797 | 0.804 | 0.946 | — |
-| Run_100 | All >= 100 kbp | 845K | 0.784 | 0.798 | 0.894 | 0.788 |
-| SFE_SE_NCBI_5 | Marine + NCBI >= 5 kbp | 5.4M | 0.662 | 0.761 | 0.946 | — |
-| Run_3 | All >= 3 kbp | 13.4M | 0.702 | 0.818 | 0.942 | — |
-| Run_5 | All >= 5 kbp | 13.4M | 0.644 | 0.799 | 0.935 | — |
+| Model | Training data | N seqs | Brackish mean | SFE_SE_5 test | SFE_SE_100 test | NCBI_5 test | Own data |
+|---|---|---|---|---|---|---|---|
+| **NCBI_100** | NCBI >= 100 kbp | 175K | **0.838** | 0.836 | 0.832 | 0.919 | — |
+| **NCBI_5** | NCBI >= 5 kbp | 656K | **0.837** | 0.831 | **0.836** | 0.934 | — |
+| SFE_SE_100 | Marine >= 100 kbp | 154K | 0.812 | 0.797 | 0.804 | **0.946** | — |
+| Run_100 | All >= 100 kbp | 845K | 0.790 | 0.784 | 0.798 | 0.894 | 0.788 |
+| Run_3 | All >= 3 kbp | 13.4M | 0.769 | 0.768 | 0.818 | 0.942 | — |
+| SFE_SE_1 | Marine >= 1 kbp | 6.7M | 0.766 | 0.779 | — | — | — |
+| SFE_SE_5 | Marine >= 5 kbp | 4.8M | 0.692 | 0.691 | 0.766 | 0.946 | — |
+| Run_5 | All >= 5 kbp | 13.4M | 0.688 | 0.671 | 0.799 | 0.935 | — |
+| SFE_SE_NCBI_5 | Marine + NCBI >= 5 kbp | 5.4M | 0.649 | 0.662 | 0.761 | 0.946 | — |
 
-Test sets: SFE_SE_5 = full marine (4.8M seqs), SFE_SE_100 = marine >= 100 kbp (154K seqs), NCBI_5 = reference genomes >= 5 kbp (656K seqs).
+All evaluations use 50K pool, 100 queries, 50 neighbors, Euclidean distance. "Brackish mean" = mean Spearman across all 5 brackish test datasets (SFE_SE_1 through SFE_SE_5). Test sets: SFE_SE_5 = full marine (4.8M seqs), SFE_SE_100 = marine >= 100 kbp (154K seqs), NCBI_5 = reference genomes >= 5 kbp (656K seqs).
+
+> **Correction (2026-03-12):** Previous version showed SFE_SE_5 "Brackish test" = 0.847, which was the mean from the §6 SFE_SE 5×5 matrix where SFE_SE_5's row was computed at full validation pool (478K-670K) instead of the 50K pool used for all other evaluations. With consistent 50K pools, NCBI models clearly dominate. SFE_SE_1 (not SFE_SE_5) is the best brackish model.
 
 ### NCBI_100 as Test Set
 
@@ -371,15 +374,17 @@ Filtering NCBI test data to >= 100 kbp changes nothing. All models score 0.91-0.
 
 ### Key Findings
 
-1. **NCBI genomes are trivially easy to organize**: All models 0.89-0.95 on NCBI data, even SFE_SE_5 which never saw reference genomes.
+1. **NCBI reference genome models dominate**: NCBI_5 (0.837 mean) and NCBI_100 (0.838) are the best models on brackish data, beating all marine-trained models despite never seeing environmental sequences.
 
-2. **Length homogeneity > source mixing**: NCBI_5 (median training length ~37 kbp) beats SFE_SE_5 (median ~8 kbp) on 100 kbp marine data (0.836 vs 0.766) despite never seeing marine sequences.
+2. **NCBI genomes are trivially easy to organize**: All models 0.89-0.95 on NCBI data, even SFE_SE_5 which never saw reference genomes.
 
-3. **Mixing data sources can hurt**: SFE_SE_NCBI_5 (0.662) is worst despite 5.4M sequences from two complementary sources. Mixed length distributions create conflicting optimization targets.
+3. **Taxonomic breadth > domain matching**: NCBI_5 trained on ~20K reference genomes (656K contigs) outperforms SFE_SE_1 trained on 6.7M marine contigs. Curated taxonomic diversity produces better-structured latent spaces than large volumes of domain-matched data.
 
-4. **Filtering NCBI by length doesn't help**: NCBI_5 (656K) ≈ NCBI_100 (175K). Both see the same ~20K genomes; length filtering just trims shorter contigs.
+4. **Mixing data sources can hurt**: SFE_SE_NCBI_5 (0.649) is worst despite 5.4M sequences from two complementary sources. Mixed length distributions create conflicting optimization targets.
 
-5. **Spearman doesn't predict clustering quality**: The 0.070 Spearman gap on 100 kbp data (NCBI_5 0.836 vs SFE_SE_5 0.766) translated to essentially no difference in MCL GC spans.
+5. **Filtering NCBI by length doesn't help**: NCBI_5 (656K) ≈ NCBI_100 (175K). Both see the same ~20K genomes; length filtering just trims shorter contigs.
+
+6. **Spearman doesn't predict clustering quality**: The 0.070 Spearman gap on 100 kbp data (NCBI_5 0.836 vs SFE_SE_5 0.766) translated to essentially no difference in MCL GC spans.
 
 ### Clustering Comparison: NCBI_5 vs SFE_SE_5 on 100 kbp Marine Data
 
@@ -408,13 +413,13 @@ Graph construction: In-degree capped (cap=100), d<5, weights 1/(d+0.1).
 
 ## 9. Summary and Recommendations (updated 2026-02-21)
 
-### Best Models by Evaluation Context
+### Best Models by Evaluation Context (corrected 2026-03-12)
 
 | Context | Best Model | Mean Spearman | Notes |
 |---------|-----------|---------------|-------|
 | Augmented data (within-family) | Run_3 (3K) | 0.702 | Wins every column in 5x5 augmented matrix |
 | Augmented data (any model) | SFE_SE_1 (1K) | 0.856 | Best of any model on augmented test data |
-| Full marine data | SFE_SE_5 (5K) | 0.847 | Dominates by +0.081 over 2nd place |
+| **Full brackish data** | **NCBI_100 / NCBI_5** | **0.838 / 0.837** | **Best on brackish data across all models** |
 | 100 kbp marine data | NCBI_5 (5K) | 0.836 | Best on the clustering evaluation domain |
 | NCBI reference genomes | SFE_SE_5 (5K) | 0.946 | All models score 0.89-0.95 (trivially easy) |
 | **Clustering (MCL GC spans)** | **NCBI_5 (5K)** | — | **4/4/4 pp, 87% coverage — selected model** |
@@ -427,11 +432,11 @@ Graph construction: In-degree capped (cap=100), d<5, weights 1/(d+0.1).
 
 3. **Reconstruction loss does not predict embedding quality** — Run_5 has the lowest training MSE (0.038) but worst embedding quality (Spearman 0.644). SFE_SE models have 1.3-2.3× higher training MSE than augmented runs but 15-22% better Spearman correlations. This underscores the need for independent evaluation metrics beyond reconstruction loss. Most metagenomic embedding papers only report reconstruction loss — our analysis shows this is insufficient.
 
-4. **The optimal threshold depends on the evaluation domain** — On augmented data: SFE_SE_1 (1K) is best. On SFE_SE data: SFE_SE_5 (5K) is best. For augmented models: Run_3 (3K) wins everywhere. No single threshold is universally optimal.
+4. **Lower thresholds consistently produce better embeddings** — On augmented data: SFE_SE_1 (1K) is best. On SFE_SE data: SFE_SE_1 (0.766) is best among brackish models. For augmented models: Run_3 (3K) wins everywhere. More diverse training data (including shorter contigs) improves embedding quality.
 
 5. **Euclidean distance outperforms cosine** for this VAE's latent space (Spearman 0.697 vs 0.621), consistent with the MSE training objective creating Euclidean-friendly geometry.
 
-6. **Augmented Run_3 competes with SFE_SE models on SFE_SE data** — Run_3 (0.769) outperforms SFE_SE models 1-4 (0.726-0.766) on their own test data, demonstrating that the FD + NCBI training data provides broad biological coverage that transfers effectively.
+6. **NCBI reference genomes beat domain-matched training** — NCBI_5 (0.837 on brackish, 656K seqs) outperforms even SFE_SE_1 (0.766, 6.7M marine seqs) on marine test data. Curated taxonomic diversity produces better-structured latent spaces than large volumes of domain-matched data.
 
 7. **All models converge well before 1000 epochs** — augmented runs reach LR floor by epochs 316-468, SFE_SE runs by epochs 406-544. The remaining training at minimum LR provides negligible improvement.
 

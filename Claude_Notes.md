@@ -1266,3 +1266,33 @@ Launched six parallel review agents (numbers consistency, reference integrity, s
 - Methods: Added specific numbers (6,693,829 contigs, 10 GB, 7.2-fold, sub-linear query time) to Embedding Generation section
 
 **Verified correct by review** (no action needed): All mathematical calculations (Table 11 CV, all percentages, Spearman differences, fold-changes), all reference numbering, 136 canonical tetranucleotides, 2,772 features total, 410 kbp threshold logic.
+
+---
+
+### 2026-03-12: SFE_SE_5 Spearman Discrepancy RESOLVED — Major Paper Correction
+
+**Root cause**: The SFE_SE 5×5 matrix (Table 7) used full validation pools (478K-670K) for the SFE_SE_5 row, while all other evaluations used standardized 50K pools. Spearman correlation is monotonically pool-size dependent.
+
+**Evidence**:
+- SFE_SE_5 self-eval at 50K: 0.691; at full val (478K): 0.822 (matches reported 0.819)
+- SFE_SE_1-4 rows in Table 7 were at 50K (confirmed by exact reproduction)
+- SFE_SE_5 finished training last (Feb 14 01:30, others finished Feb 12-13) → evaluated separately with different protocol
+
+**Impact on findings**:
+- SFE_SE_5 was reported as best brackish model (0.847 mean) → actually WORST (0.692 at 50K)
+- "Opposite ranking on SFE_SE vs augmented data" was artifact → ranking is consistent (1 > 2 > 3 > 4 > 5)
+- NCBI_5 (0.837) now clearly outperforms all brackish models, not just "matches"
+- Table 8 corrected: NCBI models dominate (0.837-0.838), best brackish (SFE_SE_1) only 0.766
+
+**Files updated**:
+- Runs.md: Table 7 (§6), Grand Comparison (§7), Table 8 (§8), Key Findings, Summary (§9)
+- VAE.md: Corrected SFE_SE cross-comparison table, added correction note, resolved discrepancy section
+- Results_VAE.md: Tables 7, 8, narrative sections, model selection justification
+- Introduction.md: Strengthened NCBI finding, updated Spearman range
+- MEMORY.md: Corrected model comparison table, updated key findings
+
+**Added to verify_local_distances.py**: Bootstrap CI (`--bootstrap` flag, default 10K resamples over queries). Bootstrap CIs for NCBI_5 confirmed stable: 0.831 [0.757, 0.880] on brackish, 0.934 [0.904, 0.952] on reference.
+
+**Completeness metric added to MCL.ipynb**: Cell 19 computes per-taxon completeness (fraction in largest cluster). Species 91.7% mean / 77.7% perfect, Genus 80.7% / 55.1% perfect. Added to Results_VAE.md Table 14b.
+
+**GTDB-Tk language correction**: "well-characterized" → "prokaryotic contigs with sufficient marker genes for phylogenetic placement" (Results_VAE.md, Methods_VAE.md).
