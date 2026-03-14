@@ -1329,3 +1329,82 @@ Launched six parallel review agents (numbers consistency, reference integrity, s
 **Completeness metric added to MCL.ipynb**: Cell 19 computes per-taxon completeness (fraction in largest cluster). Species 91.7% mean / 77.7% perfect, Genus 80.7% / 55.1% perfect. Added to Results_VAE.md Table 14b.
 
 **GTDB-Tk language correction**: "well-characterized" → "prokaryotic contigs with sufficient marker genes for phylogenetic placement" (Results_VAE.md, Methods_VAE.md).
+
+## 2026-03-13: PCA Baseline & Journal Assessment
+
+### Journal Targets
+Assessed multiple journals for the manuscript (budget < $2,000, no institution, paywall OK):
+- **mSystems (ASM)**: Best topical fit, $4,100 but request fee waiver (ASM grants waivers for unfunded authors)
+- **Genome Research (CSHL)**: $1,500 mandatory charge, within budget, 6-month embargo then free
+- Ruled out: Nature Methods (word limit), Genome Biology ($5,490), Microbiome ($5,190), NAR ($4,192), Bioinformatics ($3,800, now fully OA), GPB ($3,650)
+- Full details saved to memory: `project_journal_targets.md`
+
+### Simulated Peer Review
+Ran 3-reviewer simulation. All recommended Major Revision. Key concerns:
+1. **Reviewer 1**: Missing comparison with PCA/UMAP baselines; Spearman metric circularity
+2. **Reviewer 2**: GC span as sole quality metric; scalability questions
+3. **Reviewer 3**: No cross-validation; limited ecological interpretation
+
+### PCA Baseline — Spearman Evaluation (pca_baseline.py)
+- Raw CLR: Spearman = 1.000 (trivially — measures own training objective)
+- PCA-384: Spearman = 0.948 (lossy linear projection, no KL distortion)
+- VAE NCBI_5: Spearman = 0.837
+- **Confirms**: Spearman metric is circular, measures fidelity to CLR distances
+
+### PCA Baseline — Clustering (pca_clustering_baseline.py)
+Full pipeline: 154K contigs >= 100 kbp → 50-NN → threshold calibrated to 86.8% nn1 connectivity → in-degree cap 100 → MCL I=3.0 → GC span analysis.
+
+**Result: PCA-384 outperforms VAE-384 on ALL GC span metrics:**
+- PCA-384 median GC span: 0.98 pp (VAE: 1.16 pp)
+- PCA-384 mean GC span: 1.25 pp (VAE: 1.67 pp)
+- PCA-384 weighted mean: 2.43 pp (VAE: 3.55 pp)
+
+**Edge-matched follow-up (v2, pca_clustering_baseline_v2.py)**: Tightened VAE threshold to match PCA edge count.
+- VAE d=4.9: 2,190,563 edges (≈ PCA's 2,212,069) → median 1.13, mean 1.62 — **PCA still wins**
+- VAE matches PCA's median (0.98) only at d=4.5 with 20% fewer edges and 6% fewer connected sequences
+- Conclusion: edge density was a confound but NOT the full explanation. PCA genuinely outperforms VAE on GC spans at matched edge counts.
+- Key nuance: VAE's nearest neighbors are high quality (GC span excellent at d < 4), but quality degrades faster than PCA with increasing threshold. PCA preserves distance rankings better (Spearman 0.948 vs 0.837).
+### Taxonomic Coherence Comparison (taxonomy_baseline_comparison.py)
+- **Purity**: PCA marginally better (phylum 99.6% vs VAE 99.2% perfect) — essentially tied
+- **Completeness**: VAE wins decisively:
+  - Species perfect: VAE 77.9% vs PCA 66.4% (+11.5 pp)
+  - Genus perfect: VAE 55.1% vs PCA 46.3% (+8.8 pp)
+- **Conclusion**: PCA's better GC spans are an artifact of over-splitting. VAE's nonlinear geometry groups same-species contigs together more effectively. The learned embedding IS adding value — not in distance fidelity, but in biologically meaningful grouping.
+- CLR-2772 sits between PCA and VAE on completeness (species 73.0%)
+
+### Extended Taxonomic Metrics (taxonomy_baseline_extended.py)
+- **V-measure**: VAE wins at all ranks (genus 0.8815 vs PCA 0.8740, species 0.9421 vs 0.9397)
+- **ARI**: VAE 12% better at genus (0.2275 vs 0.2023), tied at species (0.6689 vs 0.6683)
+- **Pairwise F1**: VAE 17% better at genus (0.2281 vs 0.1945), tied at species
+- **Fragmentation**: 70.1% of species in single cluster (VAE) vs 56.7% (PCA) — +13.4 pp
+- **Cross-sample coherence**: Tied (99-100% at species), not differentiating
+- **VAE d=4.9 (edge-matched)** sometimes beats d=5.0 — tighter threshold helps precision
+- **Bottom line**: VAE wins on every combined metric. PCA's GC span advantage = over-splitting artifact.
+
+**Files**: `pca_baseline.py`, `pca_clustering_baseline.py`, `pca_clustering_baseline_v2.py`, `taxonomy_baseline_comparison.py`, `taxonomy_baseline_extended.py`, `Runs/PCA_baseline/`
+
+---
+
+## 2026-03-14: PCA Baseline Incorporation into Paper + Review Round 7
+
+### Manuscript Changes
+- **Methods_VAE.md**: Added "Baseline Comparisons" subsection after "Embedding Quality Evaluation" (~2 paragraphs). Added scikit-learn as local ref 44.
+- **Results_VAE.md**: Inserted new section "The VAE Embedding Outperforms Linear Baselines on Taxonomic Coherence" with Tables 10 (V-measure, ARI, pairwise F1) and 11 (species completeness/fragmentation). Renumbered all subsequent tables (old 10→12, 11→13, 12→14, 13→15, 14→16, 15→17).
+- **Discussion.md**: Added PCA comparison text to paragraph 2 (2 sentences). Renumbered Table 14→16, 14b→16b, 11→13.
+- **Introduction.md**: Added PCA clause to final paragraph.
+- **References.md**: Added ref #60 (Pedregosa et al. 2011, scikit-learn).
+- **build_manuscript.py**: Added mapping 44→60, updated UNIFIED_REFS. Rebuilt manuscript.md (60 refs).
+
+### Review Round 7 (7 Agents)
+Full report: `/home/torben/ClusteringPaper/Review_Round_7.md`
+
+**Key new findings:**
+- ERROR: Line 578 contradicts line 920 re NCBI_5 vs SFE_SE_5 clustering quality
+- ERROR: 154,040 vs 154,041 inconsistency in new baseline text
+- ERROR: Reference ordering broken (37 of 60 misnumbered from ref 24 onward)
+- NMI promised in Methods but never reported in Results
+- Discussion PCA paragraph overloaded — needs splitting
+- "Circular" overstates PCA Spearman bias — "structurally favored" more precise
+- Over-splitting argument for PCA GC spans is thin (only 2.7% more clusters)
+
+**Carried forward from R6 (still open):** Abstract, end-matter sections, SE data deposition, placeholder figures, missing CIs on most metrics, no runtime table.
