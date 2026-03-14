@@ -2015,3 +2015,171 @@ SFE_SE_5 on SFE_SE_4 full validation (530K): **0.847** (vs reported 0.868 — wi
 NCBI_5 reproduced with 50K because its full validation set (65.6K) is close to the 50K sample — captures 76% of the validation data. SFE_SE_5's 50K is only 10.5% of its 477K validation set.
 
 **Implication for the paper:** Spearman values are not comparable across pool sizes. The Table 8 cross-comparison (Runs.md §8) reports means from the §6 5×5 matrix (full-val evaluations) alongside §8 experimental model evaluations. For consistency, either all values should be re-run with fixed pool size, or the paper should report only the NCBI_5 Spearman values (which are stable at 50K).
+
+## 2026-03-13: PCA Baseline Comparison
+
+### Spearman Evaluation (pca_baseline.py)
+
+Tested PCA and raw CLR against VAE on SFE_SE_5 validation data (50K pool).
+PCA fitted on NCBI_5 training data (matching VAE cross-domain setup).
+
+| Method | Dims | Spearman | 95% CI |
+|--------|------|----------|--------|
+| Raw CLR | 2772 | **1.000** | [1.000, 1.000] |
+| PCA-384 | 384 | **0.948** | [0.917, 0.963] |
+| PCA-128 | 128 | 0.812 | [0.739, 0.860] |
+| PCA-32 | 32 | 0.612 | [0.501, 0.700] |
+| VAE NCBI_5 | 384 | 0.837 | [0.757, 0.880] |
+
+**Key insight**: Raw CLR gets a perfect 1.000 trivially — the Spearman metric
+measures correlation between embedding distances and k-mer MSE in CLR space,
+which IS the CLR space itself. PCA-384 preserves 92.3% of variance and achieves
+higher Spearman than the VAE because PCA has no KL regularization distorting
+the space. This confirms Reviewer 1's concern about Spearman metric circularity.
+
+The meaningful comparison is **clustering quality** (GC spans), not Spearman.
+The VAE's KL regularization trades distance fidelity for a more clusterable
+latent geometry. PCA-384 with higher Spearman may cluster worse.
+
+### Clustering Baseline (pca_clustering_baseline.py)
+
+Full pipeline: PCA-384 and CLR-2772 → k-NN graph (50 neighbors) →
+threshold calibrated for 86.8% nn1 connectivity (matching VAE) → in-degree
+cap 100 → MCL I=3.0 → GC span comparison. PCA fitted on NCBI_5 training data.
+154,040 contigs >= 100 kbp from SFE+SE marine metagenomes.
+
+#### Results (all non-singleton clusters)
+
+| Metric | VAE-384 | PCA-384 | CLR-2772 |
+|--------|---------|---------|----------|
+| Clusters | 11,413 | 11,717 | 10,879 |
+| Singletons | 710 | 346 | 225 |
+| Edges | 3,550,516 | 2,212,069 | 2,255,398 |
+| **GC span median** | 1.16 pp | **0.98 pp** | 1.07 pp |
+| GC span mean | 1.67 pp | 1.25 pp | 1.42 pp |
+| GC span weighted mean | 3.55 pp | 2.43 pp | 2.84 pp |
+| P75 GC span | 2.40 pp | 1.82 pp | 2.08 pp |
+| P90 GC span | 3.92 pp | 2.77 pp | 3.23 pp |
+| < 5 pp | 95.0% | 99.6% | 98.5% |
+| Threshold | 5.00 | 4.62 | 6.14 |
+
+**PCA-384 outperforms VAE-384 on every GC span metric.** CLR-2772 also beats VAE.
+
+#### Edge-matched comparison (v2, pca_clustering_baseline_v2.py)
+
+v1 had 60% more edges for VAE (3.55M vs 2.21M). Tightened VAE threshold
+to match PCA edge count. Key data points:
+
+| Method | Threshold | Edges | Connected | GC median | GC mean | GC wmean | <5pp |
+|--------|-----------|-------|-----------|-----------|---------|----------|------|
+| PCA-384 | 4.62 | 2,212,069 | ~87% | **0.98** | **1.25** | **2.43** | **99.6%** |
+| VAE d=4.9 | 4.90 | 2,190,563 | 85.9% | 1.13 | 1.62 | 3.45 | 95.6% |
+| VAE d=4.5 | 4.50 | 1,767,561 | 81.3% | 0.98 | 1.40 | 3.07 | 97.4% |
+| VAE d=4.2 | 4.20 | 1,421,177 | 77.1% | 0.85 | 1.23 | 2.69 | 98.4% |
+| VAE d=5.0 | 5.00 | 3,550,516 | ~87% | 1.16 | 1.67 | 3.55 | 95.0% |
+
+**Edge-matched (d=4.9 vs PCA): PCA still wins** — median 0.98 vs 1.13, every metric.
+
+**VAE matches PCA median only at d=4.5** — but with 20% fewer edges (1.77M vs 2.21M)
+and 6% fewer connected sequences (81% vs 87%). The VAE achieves the same median
+GC span by clustering fewer, easier-to-cluster sequences.
+
+#### Interpretation
+
+The VAE's nearest neighbors are high quality (d < 4 range), but distance
+quality degrades faster than PCA as threshold increases. At matched edge
+counts, PCA's additional edges connect more compositionally similar sequences
+than VAE's. This is consistent with the Spearman results (PCA 0.948 vs VAE
+0.837) — PCA preserves CLR distance rankings better.
+
+However, GC span is not the only metric that matters. The paper's validation
+used taxonomy coherence (99.2% phylum purity, 91.7% species completeness),
+which may tell a different story.
+
+### Taxonomic Coherence Comparison (taxonomy_baseline_comparison.py)
+
+Used GTDB-Tk direct classifications (26,841 contigs, not propagated) to
+evaluate purity and completeness for VAE, PCA, and CLR clusterings.
+
+#### Purity (essentially tied)
+
+| Rank | VAE d=5.0 | PCA-384 | CLR-2772 |
+|------|-----------|---------|----------|
+| Phylum (% perfect) | 99.2% | **99.6%** | 99.1% |
+| Genus (% perfect) | 95.5% | **96.1%** | 94.7% |
+| Species (% perfect) | 60.7% | **61.7%** | 57.3% |
+
+PCA has marginally higher purity at every rank. All methods are excellent.
+
+#### Completeness (VAE wins decisively)
+
+| Rank | VAE d=5.0 | PCA-384 | CLR-2772 |
+|------|-----------|---------|----------|
+| Genus mean | **80.7%** | 76.7% | 80.0% |
+| Genus (% perfect) | **55.1%** | 46.3% | 52.5% |
+| Species mean | **91.9%** | 88.1% | 90.1% |
+| Species (% perfect) | **77.9%** | 66.4% | 73.0% |
+
+**The VAE keeps same-species contigs together 78% of the time vs PCA's 66%.**
+
+#### Interpretation
+
+PCA's better GC spans were an artifact of **over-splitting**. PCA makes
+slightly purer clusters by fragmenting taxa across more clusters. The VAE's
+nonlinear geometry groups related organisms more completely — this is the
+real value of the learned embedding.
+
+The purity/completeness tradeoff:
+- PCA: higher purity, lower completeness (over-splits)
+- VAE: slightly lower purity (still >99% at phylum), much higher completeness
+- CLR-2772: between PCA and VAE on both metrics
+
+For biological applications, completeness matters as much as purity — a
+clustering that scatters one species across 5 clusters is less useful than
+one that keeps it together, even if both are taxonomically pure.
+
+### Extended Taxonomic Comparison (taxonomy_baseline_extended.py)
+
+Computed V-measure, ARI, NMI, pairwise F1, fragmentation, and cross-sample
+coherence. All metrics use GTDB-Tk direct classifications only (26,841 contigs).
+
+#### Combined metrics (VAE wins all)
+
+| Metric | VAE d=5.0 | VAE d=4.9 | PCA-384 | CLR-2772 |
+|--------|-----------|-----------|---------|----------|
+| V-measure (genus) | **0.8815** | 0.8809 | 0.8740 | 0.8794 |
+| V-measure (species) | 0.9412 | **0.9421** | 0.9397 | 0.9378 |
+| ARI (genus) | **0.2275** | 0.2254 | 0.2023 | 0.2176 |
+| ARI (species) | 0.6689 | **0.6729** | 0.6683 | 0.6606 |
+| Pairwise F1 (genus) | **0.2281** | 0.2138 | 0.1945 | 0.2193 |
+| Pairwise F1 (species) | 0.6667 | **0.7031** | 0.6658 | 0.6437 |
+
+VAE outperforms PCA on every combined metric at every rank. ARI at genus
+shows 12% relative improvement (0.2275 vs 0.2023). Pairwise F1 at genus
+shows 17% relative improvement (0.2281 vs 0.1945).
+
+Notably, VAE d=4.9 (edge-matched with PCA) often beats VAE d=5.0 — the
+tighter threshold improves precision without losing much recall.
+
+#### Fragmentation (VAE fragments species far less)
+
+| Metric | VAE d=5.0 | PCA-384 | CLR-2772 |
+|--------|-----------|---------|----------|
+| Single-cluster species | **70.1%** | 56.7% | 64.7% |
+| Single-cluster genus | **39.1%** | 29.0% | 36.3% |
+| Species in <= 3 clusters | **93.0%** | 91.0% | 90.3% |
+
+PCA scatters species across more clusters: only 56.7% of species stay in
+a single cluster vs VAE's 70.1% (+13.4 pp).
+
+#### Cross-sample coherence (tied)
+
+All methods achieve 99-100% cross-sample co-clustering at species level.
+Not differentiating — all embeddings handle SFE/SE bridging equally well.
+
+#### Bottom line
+
+PCA's GC span advantage was an artifact of over-splitting. On every formal
+clustering metric that balances purity and completeness (V-measure, ARI,
+pairwise F1), the VAE wins. The nonlinear embedding creates a geometry where
+biologically related sequences are more consistently grouped together.
