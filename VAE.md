@@ -2261,3 +2261,10 @@ Per-species cap options:
 6. Pairs naturally with denoising objective: fragments are real-world noisy
    versions of the full-genome compositional signature
 7. Could also add eukaryotic data from the Spawn run
+
+### Clean + Noisy Training (planned)
+Current VAE_denoise.py only trains noisy→clean. Design flaw: at inference, long
+contigs have clean profiles but the model never trained on clean input.
+**Fix**: feed both clean→clean and noisy→clean for every sample — each sequence
+appears twice per epoch. Clean is just the zero-noise end of the continuum.
+Will implement after current denoising run completes.

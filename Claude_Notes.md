@@ -1465,3 +1465,11 @@ Run_NCBI_euk_5 on `/Spawn/Claude/Runs/` — NCBI_5 + 12,403 eukaryotic sequences
 3. **Also include full-length genome k-mer profiles** as "complete species points" — cleanest possible compositional signature
 4. Could combine with eukaryotic data from Spawn
 5. Pairs naturally with denoising: fragments are real-world noisy versions of full-genome profiles
+
+### Denoising VAE Design Discussion
+- Current VAE_denoise.py only trains on noisy→clean; model never sees clean→clean during training
+- Problem: at inference, long contigs have clean k-mer profiles. Model should handle both.
+- **Decision**: feed both clean→clean AND noisy→clean for every training sample — each sequence appears twice per epoch. No randomness, no ratio hyperparameter.
+- Rationale: clean is just the zero-noise end of the continuum. Teaches model to pass through faithfully when input is already clean, denoise when it's not.
+- Only cost is doubling training time per epoch — not a concern.
+- Will implement after current denoising run completes.
