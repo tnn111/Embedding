@@ -2183,3 +2183,81 @@ PCA's GC span advantage was an artifact of over-splitting. On every formal
 clustering metric that balances purity and completeness (V-measure, ARI,
 pairwise F1), the VAE wins. The nonlinear embedding creates a geometry where
 biologically related sequences are more consistently grouped together.
+
+## 2026-03-14: Denoising VAE Implementation (VAE_denoise.py)
+
+### Design
+Created `VAE_denoise.py` — a standalone denoising variant of the VAE. Identical
+architecture (2772→1024→512→384→512→1024→2772, β=0.05) but adds calibrated
+multinomial sampling noise during training to improve robustness to sequence
+length variation.
+
+### Noise Model
+For each training sample:
+1. Draw simulated contig length log-uniformly in [5000, actual_length]
+2. For each k-mer group, compute n_eff = sim_length - k + 1
+3. Sample noisy frequencies from Dirichlet(n_eff × raw_freqs) — vectorized via
+   gamma sampling, matching multinomial variance to O(1/n)
+4. CLR-transform the noisy frequencies
+5. Train to reconstruct clean CLR from noisy CLR
+
+### Implementation Details
+- Model receives concatenated [noisy_clr, clean_clr] (5544-dim) input during
+  training. `call()` slices to route noisy through encoder, computes loss vs clean.
+- Encoder/decoder retain standard 2772/384-dim interfaces for inference.
+- Validation uses clean data (no noise) for fair model selection.
+- Dirichlet approximation to multinomial: fully vectorized (6 NumPy calls per
+  batch regardless of batch size), no per-sample loop.
+- Memory: ~14.4 GB for NCBI_5 (raw + CLR + lengths for train, CLR for val).
+
+### Run Setup
+- Directory: `Runs/Run_NCBI_5_denoise/`
+- Command: `cd Runs/Run_NCBI_5_denoise && bash run.sh`
+- Convenience script: `run.sh` (calls VAE_denoise.py with NCBI_5 data, 1000 epochs)
+- Tested: 20K samples, 3 epochs — pipeline works end-to-end. Train loss drops
+  consistently (1117→435→270), validation checkpointing functional.
+
+### Training Progress (2026-03-14)
+- Full run started on NCBI_5 data (656K sequences, 1000 epochs)
+- Epoch 41: val_loss 89.72 (still improving), KL ~117, MSE 0.030
+- ~1 min/epoch, ~16 hrs total
+- KL notably lower than standard NCBI_5 (117 vs 169) — denoising objective
+  may be encouraging tighter latent representations
+
+---
+
+## 2026-03-14: Next-Generation Training Data — Complete Genomes
+
+### Motivation
+Current NCBI_5 model trained on ~20K reference genomes (656K contigs >= 5 kbp).
+NCBI now has **58,876 complete prokaryotic genomes** (RefSeq) spanning **14,926 species**.
+Complete genomes are single-contig (median 1, Q3 = 3), median 4.4 Mbp.
+
+### Previous Eukaryotic Run (found on Spawn)
+Run_NCBI_euk_5 in `/Spawn/Claude/Runs/Run_NCBI_euk_5/` — NCBI_5 + 12,403
+eukaryotic sequences (diatoms, fish, picoeukaryotes, protists). Completed 1000
+epochs March 6. Best val_loss 85.334. Eukaryotic k-mer data available at
+`/Spawn/Claude/Runs/kmers_eukaryotes.npy`.
+
+### Taxonomic Distribution of Complete Genomes
+Extremely skewed: 12,318 species (83%) have just 1 genome, while 4 species
+have >1,000 (*E. coli* 4,316, *K. pneumoniae* 2,838, *S. aureus* 1,728,
+*P. aeruginosa* 1,294).
+
+Per-species cap options:
+| Cap | Genomes | Sequences |
+|-----|---------|-----------|
+| 10  | 24,524  | ~45K      |
+| 20  | 28,172  | ~53K      |
+| None| 58,876  | ~135K     |
+
+### Proposed Training Strategy
+1. **Fragment** complete genomes into 100 kbp chunks → ~1.1M fragments (at cap=10)
+2. **Also include full-length** genome k-mer profiles → ~45K sequences
+3. Total: ~1.1M training sequences, ~12 GB k-mer matrix
+4. Full-length genomes provide the "complete species point" — the cleanest
+   possible k-mer profile with minimal sampling noise
+5. Fragments provide natural length-dependent variation around that point
+6. Pairs naturally with denoising objective: fragments are real-world noisy
+   versions of the full-genome compositional signature
+7. Could also add eukaryotic data from the Spawn run

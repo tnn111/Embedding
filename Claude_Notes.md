@@ -1381,7 +1381,7 @@ Full pipeline: 154K contigs >= 100 kbp → 50-NN → threshold calibrated to 86.
 - **VAE d=4.9 (edge-matched)** sometimes beats d=5.0 — tighter threshold helps precision
 - **Bottom line**: VAE wins on every combined metric. PCA's GC span advantage = over-splitting artifact.
 
-**Files**: `pca_baseline.py`, `pca_clustering_baseline.py`, `pca_clustering_baseline_v2.py`, `taxonomy_baseline_comparison.py`, `taxonomy_baseline_extended.py`, `Runs/PCA_baseline/`
+**Files**: `Scripts/pca_baseline.py`, `Scripts/pca_clustering_baseline.py`, `Scripts/pca_clustering_baseline_v2.py`, `Scripts/taxonomy_baseline_comparison.py`, `Scripts/taxonomy_baseline_extended.py`, `Runs/PCA_baseline/`
 
 ---
 
@@ -1394,6 +1394,15 @@ Full pipeline: 154K contigs >= 100 kbp → 50-NN → threshold calibrated to 86.
 - **Introduction.md**: Added PCA clause to final paragraph.
 - **References.md**: Added ref #60 (Pedregosa et al. 2011, scikit-learn).
 - **build_manuscript.py**: Added mapping 44→60, updated UNIFIED_REFS. Rebuilt manuscript.md (60 refs).
+
+### Simulated Peer Review Round 2 (3 Reviewers)
+Full report: `/home/torben/ClusteringPaper/Simulated_Review_2.md`
+- **Reviewer 1 (ML)**: Minor Revision
+- **Reviewer 2 (Ecology)**: Major Revision
+- **Reviewer 3 (Biostatistics)**: Major Revision
+- **Consensus**: Major Revision (2 of 3)
+- Top consensus issues: VAMB comparison (dismissed — different problem), beta=0 ablation (addressed by softening claims), Spearman underpowered, missing runtime data
+- Addressed: softened KL regularization claims to "learned nonlinear representation"; added explicit anti-binning sentences to Introduction and Discussion
 
 ### Review Round 7 (7 Agents)
 Full report: `/home/torben/ClusteringPaper/Review_Round_7.md`
@@ -1408,3 +1417,51 @@ Full report: `/home/torben/ClusteringPaper/Review_Round_7.md`
 - Over-splitting argument for PCA GC spans is thin (only 2.7% more clusters)
 
 **Carried forward from R6 (still open):** Abstract, end-matter sections, SE data deposition, placeholder figures, missing CIs on most metrics, no runtime table.
+
+## 2026-03-14: Ideas for Model Improvement
+
+### 1. Denoising Training for Shorter Contigs (highest priority)
+The 100 kbp floor is the biggest practical limitation. The noise at shorter lengths is well-understood — multinomial sampling noise scaling as √(C/L). Idea: take a training contig's clean k-mer frequencies, add calibrated noise simulating a shorter length (e.g., resample as if the contig were 10-20 kbp), train the VAE to reconstruct the *clean* frequencies from the noisy input. The encoder learns to map noisy short-contig profiles to the same latent region as their clean long-contig equivalents. Could push the useful threshold down to 20-50 kbp, making a much larger fraction of the metagenome accessible. Small code change — add noise before encoding, reconstruct clean target.
+
+### 2. Eukaryotic Training Data
+16.4% of contigs are eukaryotic but the model was trained exclusively on prokaryotes. Adding eukaryotic reference genomes would improve organization of that fraction and better resolve the eukaryote/giant virus boundary. Fungi are lowest-hanging fruit (~40 Mbp median genome, manageable contig counts). See NCBI eukaryotic reference genome survey in MEMORY.md for download details.
+
+### 3. Weighted Reconstruction Loss
+6-mers are the most discriminative features and dominate reconstruction error (75% of features = 2,080 of 2,772). Lower-order k-mers already reconstruct almost perfectly. Upweighting 6-mer reconstruction relative to lower-order k-mers could sharpen focus on the most taxonomically informative features without changing architecture.
+
+## 2026-03-14: Denoising VAE Setup
+
+Created `VAE_denoise.py` — standalone denoising variant of VAE.py. Same architecture, adds Dirichlet-calibrated multinomial sampling noise during training simulating shorter contigs (min 5 kbp). Model receives concatenated [noisy, clean] input, reconstructs clean CLR from noisy. Dirichlet noise is vectorized via gamma sampling. Run directory: `Runs/Run_NCBI_5_denoise/`, command: `bash run.sh`. Tested end-to-end with 20K samples/3 epochs — pipeline functional.
+
+### Denoising Run Progress
+- Full run started, epoch 41: val_loss 89.72, KL ~117 (vs 169 for standard NCBI_5), MSE 0.030
+- Lower KL suggests denoising objective encourages tighter latent representations
+
+## 2026-03-14: Complete Genome Training Data Survey
+
+### NCBI Complete Genome Census (queried 2026-03-14)
+| Domain | Complete genomes (RefSeq) |
+|---|---|
+| Bacteria | 58,173 |
+| Archaea | 703 |
+| Total prokaryotic | 58,876 |
+| (Eukaryota) | 1,075 |
+| (Viruses) | 243,003 |
+
+14,926 distinct prokaryotic species. Median genome 4.4 Mbp, median 1 contig per assembly.
+
+### Distribution is extremely skewed
+- 12,318 species (83%) have just 1 genome
+- 4 species have >1,000 genomes (E. coli 4,316, K. pneumoniae 2,838, S. aureus 1,728, P. aeruginosa 1,294)
+- Per-species cap of 10 → 24,524 genomes / ~45K sequences
+- Per-species cap of 20 → 28,172 genomes / ~53K sequences
+
+### Previous Eukaryotic Run (rediscovered)
+Run_NCBI_euk_5 on `/Spawn/Claude/Runs/` — NCBI_5 + 12,403 eukaryotic sequences. Completed 1000 epochs March 6. Eukaryotic k-mer data: `/Spawn/Claude/Runs/kmers_eukaryotes.npy`.
+
+### Proposed Next-Gen Training Strategy
+1. Download all complete prokaryotic genomes, cap at N per species
+2. Fragment into 100 kbp chunks (~1.1M fragments at cap=10)
+3. **Also include full-length genome k-mer profiles** as "complete species points" — cleanest possible compositional signature
+4. Could combine with eukaryotic data from Spawn
+5. Pairs naturally with denoising: fragments are real-world noisy versions of full-genome profiles
