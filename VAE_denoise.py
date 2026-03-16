@@ -2,17 +2,17 @@
 """
 Denoising Variational Autoencoder for multi-scale k-mer frequency distributions.
 
-Based on VAE.py with one key change: during training, calibrated multinomial
-sampling noise is added to simulate shorter contigs. The model receives noisy
-k-mer frequencies and learns to reconstruct the clean CLR-transformed
-frequencies. This acts as a regularizer that improves robustness to sequence
-length variation.
+Based on VAE.py with dual clean+noisy training: each training sample appears
+twice per epoch — once with calibrated Dirichlet noise (noisy→clean) and once
+without noise (clean→clean). This teaches the encoder to denoise short contigs
+while faithfully passing through clean long-contig profiles. Clean input is
+just the zero-noise end of the continuum.
 
-Noise model: For each training sample, a simulated contig length is drawn
-log-uniformly between --min-sim-length and the actual contig length. Per-group
-k-mer frequencies are then resampled from a Dirichlet distribution calibrated
-to the effective k-mer count at the simulated length, producing noise whose
-magnitude scales naturally with 1/sqrt(contig length).
+Noise model: For each noisy training sample, a simulated contig length is
+drawn log-uniformly between --min-sim-length and the actual contig length.
+Per-group k-mer frequencies are then resampled from a Dirichlet distribution
+calibrated to the effective k-mer count at the simulated length, producing
+noise whose magnitude scales naturally with 1/sqrt(contig length).
 
 Validation uses clean (un-noised) data for fair model selection.
 
@@ -395,14 +395,22 @@ def load_data_with_raw(file_path: str, start_idx: int, end_idx: int) -> tuple[np
 
 
 class DenoisingBatchDataset(keras.utils.PyDataset):
-    """Dataset that adds calibrated Dirichlet noise to k-mer frequencies.
+    """Dataset with dual clean+noisy training for k-mer frequencies.
 
-    For each training sample:
+    Each sample appears twice per epoch: once with calibrated Dirichlet noise
+    (noisy→clean) and once without noise (clean→clean). Noisy and clean
+    batches are interleaved: even batch indices produce noisy batches, odd
+    indices produce clean batches from the same data slice.
+
+    For noisy batches:
     1. Draw a simulated contig length log-uniformly in [min_sim_length, actual_length]
     2. For each k-mer group, compute n_eff = sim_length - k + 1
     3. Sample noisy frequencies from Dirichlet(n_eff * raw_freqs)
     4. CLR-transform the noisy frequencies
     5. Return concatenated [noisy_clr, clean_clr] as model input
+
+    For clean batches:
+    Return concatenated [clean_clr, clean_clr] as model input.
 
     The Dirichlet approximation to multinomial sampling is exact in the first
     two moments (mean and covariance) and avoids the per-sample loop that
@@ -419,7 +427,7 @@ class DenoisingBatchDataset(keras.utils.PyDataset):
         self.min_sim_length = min_sim_length
         self.shuffle = shuffle
         self.n_samples = len(raw_data)
-        self.n_batches = self.n_samples // batch_size
+        self.n_data_batches = self.n_samples // batch_size
         self.indices = np.arange(self.n_samples)
         if shuffle:
             np.random.shuffle(self.indices)
@@ -433,28 +441,34 @@ class DenoisingBatchDataset(keras.utils.PyDataset):
         # Log noise statistics
         logger.info(
             f'DenoisingBatchDataset: {self.n_samples:,} samples, '
+            f'dual clean+noisy (2x batches per epoch), '
             f'min_sim_length={min_sim_length}, '
             f'contig lengths: median={np.median(lengths):.0f}, '
             f'min={np.min(lengths):.0f}, max={np.max(lengths):.0f}'
         )
 
     def __len__(self):
-        return self.n_batches
+        # Double: interleaved noisy (even) and clean (odd) batches
+        return 2 * self.n_data_batches
 
     def __getitem__(self, idx):
-        start = idx * self.batch_size
+        data_idx = idx // 2
+        is_noisy = (idx % 2 == 0)
+
+        start = data_idx * self.batch_size
         end = start + self.batch_size
         batch_indices = self.indices[start:end]
 
-        raw_batch = self.raw_data[batch_indices]
         clean_batch = self.clr_data[batch_indices]
-        lengths_batch = self.lengths[batch_indices]
 
-        # Generate noisy CLR-transformed frequencies
-        noisy_clr = self._add_noise_and_transform(raw_batch, lengths_batch)
+        if is_noisy:
+            raw_batch = self.raw_data[batch_indices]
+            lengths_batch = self.lengths[batch_indices]
+            noisy_clr = self._add_noise_and_transform(raw_batch, lengths_batch)
+            combined = np.concatenate([noisy_clr, clean_batch], axis = 1)
+        else:
+            combined = np.concatenate([clean_batch, clean_batch], axis = 1)
 
-        # Concatenate [noisy, clean] for the DenoisingVAE model
-        combined = np.concatenate([noisy_clr, clean_batch], axis = 1)
         return combined, combined
 
     def _add_noise_and_transform(self, raw_batch, lengths):
@@ -496,6 +510,58 @@ class DenoisingBatchDataset(keras.utils.PyDataset):
         # CLR transform the noisy frequencies
         clr_transform_inplace(noisy)
         return noisy
+
+    def on_epoch_end(self):
+        if self.shuffle:
+            np.random.shuffle(self.indices)
+
+
+class CorruptedPairBatchDataset(keras.utils.PyDataset):
+    """Dataset with dual clean+corrupted training from pre-computed pairs.
+
+    Each sample appears twice per epoch: once as [corrupted_clr, clean_clr]
+    and once as [clean_clr, clean_clr]. Interleaved: even batch indices
+    produce corrupted batches, odd indices produce clean batches.
+    """
+
+    def __init__(self, clean_clr, corrupted_clr, batch_size,
+                 shuffle = True, **kwargs):
+        super().__init__(**kwargs)
+        self.clean_clr = clean_clr
+        self.corrupted_clr = corrupted_clr
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.n_samples = len(clean_clr)
+        self.n_data_batches = self.n_samples // batch_size
+        self.indices = np.arange(self.n_samples)
+        if shuffle:
+            np.random.shuffle(self.indices)
+
+        logger.info(
+            f'CorruptedPairBatchDataset: {self.n_samples:,} samples, '
+            f'dual clean+corrupted (2x batches per epoch)'
+        )
+
+    def __len__(self):
+        return 2 * self.n_data_batches
+
+    def __getitem__(self, idx):
+        data_idx = idx // 2
+        is_corrupted = (idx % 2 == 0)
+
+        start = data_idx * self.batch_size
+        end = start + self.batch_size
+        batch_indices = self.indices[start:end]
+
+        clean_batch = self.clean_clr[batch_indices]
+
+        if is_corrupted:
+            corrupted_batch = self.corrupted_clr[batch_indices]
+            combined = np.concatenate([corrupted_batch, clean_batch], axis = 1)
+        else:
+            combined = np.concatenate([clean_batch, clean_batch], axis = 1)
+
+        return combined, combined
 
     def on_epoch_end(self):
         if self.shuffle:
@@ -577,14 +643,18 @@ def main():
     parser = argparse.ArgumentParser(
         description = 'Train denoising VAE on 6-mer through 1-mer frequency data'
     )
-    parser.add_argument('-i', '--input', required = True, help = 'Path to input .npy file with k-mer frequencies')
+    parser.add_argument('-i', '--input', required = True, help = 'Path to input .npy file with k-mer frequencies (clean)')
+    parser.add_argument('--corrupted', default = None,
+                        help = 'Path to pre-computed corrupted k-mer frequencies (.npy). '
+                               'If provided, uses paired corruption mode instead of Dirichlet noise.')
     parser.add_argument('-e', '--epochs', type = int, default = 100, help = 'Number of training epochs (default: 100)')
     parser.add_argument('-l', '--learning-rate', type = float, default = 1e-4, help = 'Learning rate (default: 1e-4)')
     parser.add_argument('-b', '--batch-size', type = int, default = 1024, help = 'Batch size (default: 1024)')
     parser.add_argument('-n', '--max-samples', type = int, default = None, help = 'Max samples to load (for testing)')
     parser.add_argument('--min-sim-length', type = int, default = 5000,
-                        help = 'Minimum simulated contig length for noise (default: 5000)')
+                        help = 'Minimum simulated contig length for Dirichlet noise (default: 5000)')
     args = parser.parse_args()
+    use_corrupted = args.corrupted is not None
 
     np.random.seed(SEED)
     keras.utils.set_random_seed(SEED)
@@ -620,22 +690,57 @@ def main():
     vae.compile(optimizer = keras.optimizers.Adam(learning_rate = args.learning_rate))
     logger.info('Model compiled successfully.')
 
-    # Load training data: raw frequencies + CLR + lengths (for noise calibration)
-    logger.info('Loading training data with raw frequencies...')
-    train_raw, train_clr, train_lengths = load_data_with_raw(args.input, 0, train_end)
+    if use_corrupted:
+        # Pre-computed corruption mode: load clean and corrupted matrices
+        logger.info('Mode: pre-computed corrupted pairs')
 
-    # Load validation data: CLR only (no noise for validation)
-    logger.info('Loading validation data into memory...')
-    val_data = load_data_to_memory(args.input, val_start, val_end)
+        # Load clean training data (CLR only)
+        logger.info('Loading clean training data...')
+        train_clean_clr = load_data_to_memory(args.input, 0, train_end)
 
-    # Create batch datasets
-    logger.info('Creating batch datasets...')
-    train_dataset = DenoisingBatchDataset(
-        train_raw, train_clr, train_lengths,
-        args.batch_size,
-        min_sim_length = args.min_sim_length,
-        shuffle = True
-    )
+        # Load corrupted training data (CLR only)
+        logger.info('Loading corrupted training data...')
+        train_corrupted_clr = load_data_to_memory(args.corrupted, 0, train_end)
+
+        # Shuffle both with the same permutation (data may not be pre-shuffled)
+        logger.info('Shuffling training data...')
+        shuffle_idx = np.random.permutation(len(train_clean_clr))
+        train_clean_clr = train_clean_clr[shuffle_idx]
+        train_corrupted_clr = train_corrupted_clr[shuffle_idx]
+
+        # Load validation data (clean only)
+        logger.info('Loading validation data...')
+        val_data = load_data_to_memory(args.input, val_start, val_end)
+
+        # Create batch datasets
+        logger.info('Creating batch datasets...')
+        train_dataset = CorruptedPairBatchDataset(
+            train_clean_clr, train_corrupted_clr,
+            args.batch_size, shuffle = True
+        )
+        n_data_batches = len(train_clean_clr) // args.batch_size
+    else:
+        # Dirichlet noise mode: generate noise on-the-fly from raw frequencies
+        logger.info('Mode: Dirichlet noise (on-the-fly)')
+
+        # Load training data: raw frequencies + CLR + lengths
+        logger.info('Loading training data with raw frequencies...')
+        train_raw, train_clr, train_lengths = load_data_with_raw(args.input, 0, train_end)
+
+        # Load validation data: CLR only
+        logger.info('Loading validation data...')
+        val_data = load_data_to_memory(args.input, val_start, val_end)
+
+        # Create batch datasets
+        logger.info('Creating batch datasets...')
+        train_dataset = DenoisingBatchDataset(
+            train_raw, train_clr, train_lengths,
+            args.batch_size,
+            min_sim_length = args.min_sim_length,
+            shuffle = True
+        )
+        n_data_batches = len(train_clr) // args.batch_size
+
     val_dataset = CleanBatchDataset(val_data, args.batch_size, shuffle = False)
 
     # Use a subset of validation data for the metrics callback
@@ -659,10 +764,10 @@ def main():
         )
     ]
 
-    n_train_batches = len(train_raw) // args.batch_size
     n_val_batches = len(val_data) // args.batch_size
-    logger.info(f'Train batches: {n_train_batches}, Val batches: {n_val_batches}')
-    logger.info(f'Denoising: min_sim_length={args.min_sim_length}')
+    mode_str = 'corrupted pairs' if use_corrupted else f'Dirichlet (min_sim_length={args.min_sim_length})'
+    logger.info(f'Train batches: {2 * n_data_batches} ({n_data_batches} noisy + {n_data_batches} clean), Val batches: {n_val_batches}')
+    logger.info(f'Noise mode: {mode_str}')
     logger.info('Starting Training...')
     history = vae.fit(
         train_dataset,

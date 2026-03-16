@@ -1472,4 +1472,46 @@ Run_NCBI_euk_5 on `/Spawn/Claude/Runs/` — NCBI_5 + 12,403 eukaryotic sequences
 - **Decision**: feed both clean→clean AND noisy→clean for every training sample — each sequence appears twice per epoch. No randomness, no ratio hyperparameter.
 - Rationale: clean is just the zero-noise end of the continuum. Teaches model to pass through faithfully when input is already clean, denoise when it's not.
 - Only cost is doubling training time per epoch — not a concern.
-- Will implement after current denoising run completes.
+- **Implemented 2026-03-15**: Interleaved noisy/clean batches in `DenoisingBatchDataset` (even=noisy, odd=clean). ~2 min/epoch.
+
+### Denoising Run Results (2026-03-15)
+- Run_NCBI_5_denoise completed 1000 epochs. Final val_loss 83.28, KL ~130.8
+- LR never reduced (ReduceLROnPlateau never triggered)
+- **Spearman on SFE_SE_5 (50K pool): 0.840** [CI: 0.775-0.882] — baseline NCBI_5 is 0.837. CIs overlap.
+- Dual clean+noisy run started: `Runs/Run_NCBI_5_denoise_dual/`
+
+### Dual Model Progress (2026-03-15)
+- Epoch ~348: val_loss 81.98 (already below noisy-only's 83.28 final), KL ~151
+- Spearman at epoch ~348: **0.835** [CI: 0.770-0.879] — all three models within noise of each other
+- KL notably higher (~151) than noisy-only (~130) — clean→clean batches push encoder to use more latent space
+
+### Per-Dimension KL Analysis (2026-03-15)
+Computed KL per latent dimension (384-dim) on SFE_SE_5 data for three models:
+
+| Metric | NCBI_5 (baseline) | Denoise (noisy-only) | Denoise dual |
+|---|---|---|---|
+| Total KL | 246.2 | 197.1 | 232.2 |
+| Active dims (KL > 0.1) | 134 | 110 | 129 |
+| Active dims (KL > 0.01) | 338 | 157 | 129 |
+| Near-zero (KL < 0.001) | 0 | 66 | **255** |
+
+- Dual model has sharpest on/off pattern: 129 active, 255 effectively dead
+- Baseline NCBI_5 spreads information thinly across 338 dimensions
+- Denoising objective forces model to concentrate into robust dimensions
+- Dead dimensions don't hurt retrieval (near-zero variance, invisible in distance calculations)
+- Effective dimensionality ~129 — could reduce latent dim, but no biological benefit expected
+
+### Assembly Error Noise Discussion (2026-03-15)
+**Key insight**: Metagenomic models underperform isolate models possibly because assembly errors create spurious rare k-mers. Each substitution error destroys up to 6 real 6-mers and creates up to 6 new ones. This is qualitatively different from Dirichlet noise (which only redistributes among existing k-mers, never creates new ones). Spurious rare k-mers shift the CLR geometric mean, perturbing all CLR values.
+
+**Conceptual framing**: The encoder is a learned locality-sensitive hash for genomic composition. Training on corrupted variants of known genomes teaches which features are stable (signal) vs which fluctuate (noise). Also generalizes to intra-species variation (~1-2% divergence looks like ~1-2% error rate from the k-mer perspective).
+
+### Nucleotide-Level Corruption Implementation (2026-03-15)
+- Created `corrupt_and_count` script (project root, PEP 723 standalone)
+- Reads FASTA, introduces random substitutions (log-uniform 0.1-2% per sequence), computes both clean and corrupted k-mer frequencies. Row-aligned output matrices.
+- Added `--corrupted` flag to `VAE_denoise.py` with new `CorruptedPairBatchDataset` class
+- Dirichlet mode retained as default for comparison
+- **Run_NCBI_euk_corrupt**: NCBI prokaryotic (656K) + eukaryotic (12K) = ~668K sequences
+  - Data generation running (`generate_data.sh`), ~3 hrs so far, chunk 5 of ~7
+  - Training via `run.sh` after data generation completes
+- This is the first model to include eukaryotic training data alongside prokaryotes

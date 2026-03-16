@@ -1,0 +1,340 @@
+#!/usr/bin/env python
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["numpy"]
+# ///
+"""
+Generate clean and corrupted k-mer frequency matrices from FASTA files.
+
+For each sequence, computes canonical k-mer frequencies (6-mer through 1-mer)
+from both the original (clean) sequence and a corrupted version with random
+substitution errors. The error rate per sequence is drawn log-uniformly from
+a configurable range.
+
+Outputs:
+- Clean k-mer matrix (.npy): length + 2772 canonical k-mer frequencies
+- Corrupted k-mer matrix (.npy): same format, from error-containing sequences
+- IDs file: one sequence ID per line
+- Metadata file: error rate used per sequence
+
+Row alignment between clean and corrupted matrices is guaranteed by
+construction (same processing order, same script).
+"""
+
+import argparse
+import gzip
+import sys
+import tempfile
+from itertools import groupby, product
+from pathlib import Path
+
+import numpy as np
+
+
+def reverse_complement(seq: str) -> str:
+    """Return the reverse complement of a DNA sequence."""
+    complement = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G'}
+    return ''.join(complement[base] for base in reversed(seq))
+
+
+def get_canonical_kmer(kmer: str) -> str:
+    """Return the canonical form (lexicographically smallest) of a k-mer."""
+    rc = reverse_complement(kmer)
+    return min(kmer, rc)
+
+
+def build_canonical_index(k: int) -> tuple[int, np.ndarray]:
+    """Build array mapping integer k-mer encoding to canonical index.
+
+    Returns:
+        tuple: (number of canonical k-mers, array mapping k-mer int -> canonical index)
+    """
+    bases = 'ACGT'
+    base_to_int = {'A': 0, 'C': 1, 'G': 2, 'T': 3}
+    n_kmers = 4 ** k
+
+    all_kmers = [''.join(kmer) for kmer in product(bases, repeat = k)]
+    kmer_to_canonical = {kmer: get_canonical_kmer(kmer) for kmer in all_kmers}
+
+    canonical_list = sorted(set(kmer_to_canonical.values()))
+    n_canonical = len(canonical_list)
+    canonical_to_idx = {kmer: i for i, kmer in enumerate(canonical_list)}
+
+    kmer_int_to_idx = np.zeros(n_kmers, dtype = np.int32)
+    for kmer in all_kmers:
+        kmer_int = 0
+        for base in kmer:
+            kmer_int = (kmer_int << 2) | base_to_int[base]
+        canonical = kmer_to_canonical[kmer]
+        kmer_int_to_idx[kmer_int] = canonical_to_idx[canonical]
+
+    return n_canonical, kmer_int_to_idx
+
+
+def count_kmers(seq_encoded: np.ndarray, k: int, canonical_map: np.ndarray, n_canonical: int) -> np.ndarray:
+    """Count canonical k-mers in an encoded sequence using vectorized operations."""
+    if len(seq_encoded) < k:
+        return np.zeros(n_canonical, dtype = np.int32)
+
+    n_kmers = len(seq_encoded) - k + 1
+    kmer_ints = np.zeros(n_kmers, dtype = np.int32)
+
+    for i in range(k):
+        kmer_ints += seq_encoded[i:i + n_kmers].astype(np.int32) << (2 * (k - 1 - i))
+
+    canonical_indices = canonical_map[kmer_ints]
+    counts = np.bincount(canonical_indices, minlength = n_canonical).astype(np.int32)
+
+    return counts
+
+
+def compute_kmer_row(seq_encoded: np.ndarray, seq_length: int, k_data: dict, n_features: int) -> np.ndarray:
+    """Compute a single row of the k-mer frequency matrix.
+
+    Args:
+        seq_encoded: Sequence encoded as integers (A=0, C=1, G=2, T=3)
+        seq_length: Original sequence length (for column 0)
+        k_data: Dict mapping k -> (n_canonical, mapping)
+        n_features: Total number of features (1 + sum of canonical k-mers)
+
+    Returns:
+        Row of shape (n_features,) with length + normalized k-mer frequencies
+    """
+    row = np.zeros(n_features, dtype = np.float32)
+    col = 0
+    row[col] = seq_length
+    col += 1
+
+    for k in range(6, 0, -1):
+        n_canonical, mapping = k_data[k]
+        counts = count_kmers(seq_encoded, k, mapping, n_canonical)
+        total = counts.sum()
+        if total > 0:
+            row[col:col + n_canonical] = counts / total
+        col += n_canonical
+
+    return row
+
+
+def corrupt_sequence(seq_encoded: np.ndarray, error_rate: float, rng: np.random.Generator) -> np.ndarray:
+    """Introduce random substitution errors into an encoded sequence.
+
+    For each position, with probability error_rate, the base is replaced
+    with a uniformly chosen different base.
+
+    Args:
+        seq_encoded: Sequence encoded as integers (A=0, C=1, G=2, T=3)
+        error_rate: Probability of error per position
+        rng: NumPy random generator
+
+    Returns:
+        Corrupted copy of seq_encoded (original is not modified)
+    """
+    corrupted = seq_encoded.copy()
+    n = len(corrupted)
+
+    # Draw which positions get errors
+    error_mask = rng.random(n) < error_rate
+    n_errors = error_mask.sum()
+
+    if n_errors > 0:
+        # For each error position, pick a different base (offset 1-3, then mod 4)
+        offsets = rng.integers(1, 4, size = n_errors)
+        corrupted[error_mask] = (corrupted[error_mask] + offsets) % 4
+
+    return corrupted
+
+
+def read_fasta(fasta_path: Path):
+    """Yield (seq_id, sequence) tuples from a FASTA file."""
+    opener = gzip.open if fasta_path.suffix == '.gz' else open
+    with opener(fasta_path, 'rt') as f:
+        for is_header, group in groupby(f, lambda line: line.startswith('>')):
+            if is_header:
+                header = next(group).strip()
+                seq_id = header[1:].split()[0] if header[1:].strip() else 'unknown'
+            else:
+                seq = ''.join(line.strip() for line in group).upper()
+                seq = ''.join(b for b in seq if b in 'ATGC')
+                if seq:
+                    yield seq_id, seq
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description = 'Generate clean and corrupted k-mer frequency matrices'
+    )
+    parser.add_argument('-i', '--input', type = Path, nargs = '+', required = True,
+                        help = 'One or more input FASTA files (gzip supported)')
+    parser.add_argument('-c', '--clean', type = Path, required = True,
+                        help = 'Output file for clean k-mer frequencies (.npy)')
+    parser.add_argument('-n', '--noisy', type = Path, required = True,
+                        help = 'Output file for corrupted k-mer frequencies (.npy)')
+    parser.add_argument('-id', '--identifier', type = Path, required = True,
+                        help = 'Output file for sequence IDs (text)')
+    parser.add_argument('-m', '--metadata', type = Path, default = None,
+                        help = 'Output file for per-sequence error rates (text)')
+    parser.add_argument('--min-error-rate', type = float, default = 0.001,
+                        help = 'Minimum error rate (default: 0.001 = 0.1%%)')
+    parser.add_argument('--max-error-rate', type = float, default = 0.02,
+                        help = 'Maximum error rate (default: 0.02 = 2%%)')
+    parser.add_argument('--seed', type = int, default = 42,
+                        help = 'Random seed (default: 42)')
+    args = parser.parse_args()
+
+    if args.metadata is None:
+        args.metadata = args.noisy.with_suffix('.error_rates.txt')
+
+    # Validate input files
+    for f in args.input:
+        if not f.exists():
+            print(f'Error: File not found: {f}', file = sys.stderr)
+            sys.exit(1)
+
+    rng = np.random.default_rng(args.seed)
+
+    # Build canonical index mappings for k=1 through 6
+    print('Building canonical k-mer mappings...', file = sys.stderr)
+    k_data = {}
+    for k in range(1, 7):
+        n_canonical, mapping = build_canonical_index(k)
+        k_data[k] = (n_canonical, mapping)
+        print(f'  k={k}: {n_canonical} canonical k-mers', file = sys.stderr)
+
+    # Total features: length + sum of canonical k-mers per group
+    n_features = 1
+    for k in range(6, 0, -1):
+        n_features += k_data[k][0]
+    print(f'Total features per sequence: {n_features}', file = sys.stderr)
+
+    # Encoding table
+    base_to_int = np.zeros(256, dtype = np.uint8)
+    base_to_int[ord('A')] = 0
+    base_to_int[ord('C')] = 1
+    base_to_int[ord('G')] = 2
+    base_to_int[ord('T')] = 3
+
+    # Log-uniform error rate bounds
+    log_min_rate = np.log(args.min_error_rate)
+    log_max_rate = np.log(args.max_error_rate)
+
+    # Process sequences in chunks
+    CHUNK_SIZE = 100000
+    clean_chunk = np.zeros((CHUNK_SIZE, n_features), dtype = np.float32)
+    noisy_chunk = np.zeros((CHUNK_SIZE, n_features), dtype = np.float32)
+    chunk_idx = 0
+    total_seqs = 0
+    clean_temp_files = []
+    noisy_temp_files = []
+    temp_dir = tempfile.mkdtemp(prefix = 'corrupt_chunks_', dir = '.')
+
+    print(f'Using temp directory: {temp_dir}', file = sys.stderr)
+    print(f'Error rate range: {args.min_error_rate:.4f} - {args.max_error_rate:.4f}', file = sys.stderr)
+
+    try:
+        with open(args.identifier, 'w') as id_file, \
+             open(args.metadata, 'w') as meta_file:
+
+            meta_file.write('seq_id\terror_rate\tn_errors\tseq_length\n')
+
+            for input_file in args.input:
+                print(f'Processing {input_file}...', file = sys.stderr)
+                file_seqs = 0
+
+                for seq_id, sequence in read_fasta(input_file):
+                    seq_encoded = base_to_int[
+                        np.frombuffer(sequence.encode('ascii'), dtype = np.uint8)
+                    ]
+                    seq_length = len(sequence)
+
+                    # Clean k-mer row
+                    clean_chunk[chunk_idx] = compute_kmer_row(
+                        seq_encoded, seq_length, k_data, n_features
+                    )
+
+                    # Draw error rate and corrupt
+                    error_rate = np.exp(rng.uniform(log_min_rate, log_max_rate))
+                    corrupted = corrupt_sequence(seq_encoded, error_rate, rng)
+                    n_errors = int(np.sum(corrupted != seq_encoded))
+
+                    # Corrupted k-mer row (use original length in column 0)
+                    noisy_chunk[chunk_idx] = compute_kmer_row(
+                        corrupted, seq_length, k_data, n_features
+                    )
+
+                    # Write ID and metadata
+                    id_file.write(seq_id + '\n')
+                    meta_file.write(
+                        f'{seq_id}\t{error_rate:.6f}\t{n_errors}\t{seq_length}\n'
+                    )
+
+                    chunk_idx += 1
+                    file_seqs += 1
+                    total_seqs += 1
+
+                    # Flush chunk to disk
+                    if chunk_idx >= CHUNK_SIZE:
+                        clean_path = Path(temp_dir) / f'clean_{len(clean_temp_files):04d}.npy'
+                        noisy_path = Path(temp_dir) / f'noisy_{len(noisy_temp_files):04d}.npy'
+                        np.save(clean_path, clean_chunk)
+                        np.save(noisy_path, noisy_chunk)
+                        clean_temp_files.append(clean_path)
+                        noisy_temp_files.append(noisy_path)
+                        clean_chunk = np.zeros((CHUNK_SIZE, n_features), dtype = np.float32)
+                        noisy_chunk = np.zeros((CHUNK_SIZE, n_features), dtype = np.float32)
+                        chunk_idx = 0
+                        print(
+                            f'  {total_seqs:,} sequences (wrote chunk {len(clean_temp_files)})',
+                            file = sys.stderr
+                        )
+
+                print(f'  Finished {input_file}: {file_seqs:,} sequences', file = sys.stderr)
+
+        # Write remaining sequences
+        if chunk_idx > 0:
+            clean_path = Path(temp_dir) / f'clean_{len(clean_temp_files):04d}.npy'
+            noisy_path = Path(temp_dir) / f'noisy_{len(noisy_temp_files):04d}.npy'
+            np.save(clean_path, clean_chunk[:chunk_idx])
+            np.save(noisy_path, noisy_chunk[:chunk_idx])
+            clean_temp_files.append(clean_path)
+            noisy_temp_files.append(noisy_path)
+
+        print(f'Total: {total_seqs:,} sequences in {len(clean_temp_files)} chunks', file = sys.stderr)
+
+        # Concatenate chunks using memmap
+        for label, temp_files, output_path in [
+            ('clean', clean_temp_files, args.clean),
+            ('corrupted', noisy_temp_files, args.noisy),
+        ]:
+            print(f'Concatenating {label} chunks to {output_path}...', file = sys.stderr)
+            output = np.lib.format.open_memmap(
+                output_path, mode = 'w+', dtype = np.float32,
+                shape = (total_seqs, n_features)
+            )
+            row = 0
+            for i, temp_path in enumerate(temp_files):
+                chunk_data = np.load(temp_path)
+                output[row:row + len(chunk_data)] = chunk_data
+                row += len(chunk_data)
+                if (i + 1) % 10 == 0:
+                    print(f'  Copied {i + 1}/{len(temp_files)} chunks', file = sys.stderr)
+            del output
+
+        print(f'Done! Outputs: ({total_seqs}, {n_features})', file = sys.stderr)
+
+    finally:
+        # Clean up temp files
+        print('Cleaning up temp files...', file = sys.stderr)
+        for temp_path in clean_temp_files + noisy_temp_files:
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+        try:
+            Path(temp_dir).rmdir()
+        except OSError:
+            pass
+
+
+if __name__ == '__main__':
+    main()

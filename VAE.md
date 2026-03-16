@@ -2223,6 +2223,17 @@ For each training sample:
 - ~1 min/epoch, ~16 hrs total
 - KL notably lower than standard NCBI_5 (117 vs 169) — denoising objective
   may be encouraging tighter latent representations
+- Epoch 529: val_loss 83.48, KL ~130, MSE 0.027. LR still at initial 1e-4
+  (no ReduceLROnPlateau reductions yet; standard NCBI_5 hit LR floor by
+  epoch 316-468)
+- Mid-training Spearman on SFE_SE_5 (50K pool): 0.843 [CI: 0.779-0.884]
+  (epoch 521 checkpoint)
+- **Final Spearman on SFE_SE_5 (50K pool): 0.840** [CI: 0.775-0.882]
+  (epoch 992 best checkpoint). Baseline NCBI_5: 0.837. CIs overlap.
+- LR never reduced — ReduceLROnPlateau never triggered across all 1000
+  epochs. Val_loss improved very slowly from 83.50 to 83.27 over final
+  500 epochs.
+- Final: val_loss 83.28, KL ~130.8, MSE 0.027
 
 ---
 
@@ -2262,9 +2273,45 @@ Per-species cap options:
    versions of the full-genome compositional signature
 7. Could also add eukaryotic data from the Spawn run
 
-### Clean + Noisy Training (planned)
-Current VAE_denoise.py only trains noisy→clean. Design flaw: at inference, long
-contigs have clean profiles but the model never trained on clean input.
-**Fix**: feed both clean→clean and noisy→clean for every sample — each sequence
-appears twice per epoch. Clean is just the zero-noise end of the continuum.
-Will implement after current denoising run completes.
+### Clean + Noisy Dual Training (implemented 2026-03-15)
+Previous VAE_denoise.py only trained noisy→clean. Design flaw: at inference,
+long contigs have clean profiles but the model never trained on clean input.
+**Fix**: `DenoisingBatchDataset` now interleaves noisy and clean batches —
+even batch indices produce noisy→clean, odd indices produce clean→clean from
+the same data slice. Each sample appears twice per epoch. `__len__` returns
+`2 * n_data_batches`. Training time doubles per epoch (~2 min/epoch).
+
+Run directory: `Runs/Run_NCBI_5_denoise_dual/`
+Command: `cd Runs/Run_NCBI_5_denoise_dual && bash run.sh`
+
+### Nucleotide-Level Error Noise (implemented 2026-03-15)
+
+**Observation**: NCBI isolate models outperform metagenomic models. Metagenomic
+assemblies have higher error rates; each substitution error destroys up to 6
+real 6-mers and creates up to 6 *spurious* ones. These spurious rare k-mers
+shift the CLR geometric mean and perturb all CLR values — a different noise
+signature than sampling noise (Dirichlet just redistributes among existing
+k-mers, never creating new ones).
+
+**Conceptual framing**: The encoder is effectively a learned locality-sensitive
+hash for genomic composition — mapping all variants of the "same" organism
+(errors, fragments, strain variation) to the same latent region. Training on
+corrupted variants of known genomes teaches which k-mer features are stable
+(signal) vs which fluctuate (noise).
+
+**Implementation**: Pre-computed corruption via `corrupt_and_count` script.
+For each sequence in NCBI FASTA:
+1. Draw error rate log-uniform from [0.1%, 2%]
+2. Introduce random substitutions (each base → random different base)
+3. Compute canonical k-mer frequencies from corrupted sequence
+4. Output paired clean + corrupted .npy matrices (row-aligned)
+
+`VAE_denoise.py` accepts `--corrupted` flag to use pre-computed pairs instead
+of Dirichlet noise. Both modes retained for comparison.
+
+**Data**: NCBI prokaryotic (`NCBI_contigs_5.fna.gz`, 656K contigs) +
+eukaryotic (`/Spawn/Claude/eukaryotes.fna`, 12K contigs) = ~668K sequences.
+
+**Run**: `Runs/Run_NCBI_euk_corrupt/`
+- Step 1: `bash generate_data.sh` (pre-compute k-mer pairs, ~4 hrs)
+- Step 2: `bash run.sh` (train with `--corrupted`, ~2 min/epoch)
