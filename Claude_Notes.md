@@ -1515,3 +1515,10 @@ Computed KL per latent dimension (384-dim) on SFE_SE_5 data for three models:
   - Data generation running (`generate_data.sh`), ~3 hrs so far, chunk 5 of ~7
   - Training via `run.sh` after data generation completes
 - This is the first model to include eukaryotic training data alongside prokaryotes
+- Bug fix: initial run had all eukaryotes in val set (no pre-shuffle before split). Fixed, restarted.
+- ~6 sec/epoch (10x faster than Dirichlet — no on-the-fly noise generation)
+- Epoch 300: Train 84.95, Val 84.67, KL ~200, MSE 0.027. Nearly converged.
+- KL higher than basic NCBI_euk_5 (200 vs 188) — corruption objective needs more latent capacity
+- Val_loss tracking below NCBI_euk_5 basic (84.7 vs 85.3 final)
+- Comparison at epoch 16: corruption model lower loss AND higher KL than basic at same stage
+- **NCBI_euk_5 baseline** (Spawn, no corruption): converged to val_loss 85.3, KL 188

@@ -694,23 +694,25 @@ def main():
         # Pre-computed corruption mode: load clean and corrupted matrices
         logger.info('Mode: pre-computed corrupted pairs')
 
-        # Load clean training data (CLR only)
-        logger.info('Loading clean training data...')
-        train_clean_clr = load_data_to_memory(args.input, 0, train_end)
+        # Load full clean and corrupted data
+        logger.info('Loading clean data...')
+        all_clean_clr = load_data_to_memory(args.input, 0, val_end)
+        logger.info('Loading corrupted data...')
+        all_corrupted_clr = load_data_to_memory(args.corrupted, 0, val_end)
 
-        # Load corrupted training data (CLR only)
-        logger.info('Loading corrupted training data...')
-        train_corrupted_clr = load_data_to_memory(args.corrupted, 0, train_end)
+        # Shuffle both with the same permutation before splitting
+        # (data may not be pre-shuffled, e.g. prokaryotes then eukaryotes)
+        logger.info('Shuffling data before train/val split...')
+        shuffle_idx = np.random.permutation(len(all_clean_clr))
+        all_clean_clr = all_clean_clr[shuffle_idx]
+        all_corrupted_clr = all_corrupted_clr[shuffle_idx]
 
-        # Shuffle both with the same permutation (data may not be pre-shuffled)
-        logger.info('Shuffling training data...')
-        shuffle_idx = np.random.permutation(len(train_clean_clr))
-        train_clean_clr = train_clean_clr[shuffle_idx]
-        train_corrupted_clr = train_corrupted_clr[shuffle_idx]
-
-        # Load validation data (clean only)
-        logger.info('Loading validation data...')
-        val_data = load_data_to_memory(args.input, val_start, val_end)
+        # Split into train and val
+        train_clean_clr = all_clean_clr[:train_end]
+        train_corrupted_clr = all_corrupted_clr[:train_end]
+        val_data = all_clean_clr[train_end:]
+        del all_clean_clr, all_corrupted_clr
+        logger.info(f'Train: {len(train_clean_clr):,}, Val: {len(val_data):,}')
 
         # Create batch datasets
         logger.info('Creating batch datasets...')

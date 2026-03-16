@@ -51,4 +51,9 @@ modes: (1) Dirichlet on-the-fly noise simulating shorter contigs, or
   val_loss 83.28, Spearman 0.840 on SFE_SE_5 (baseline NCBI_5: 0.837)
 - **Run_NCBI_5_denoise_dual**: dual clean+noisy (Dirichlet), training
 - **Run_NCBI_euk_corrupt**: nucleotide-level corruption, NCBI prokaryotic
-  + eukaryotic genomes (~668K sequences). Data generation pending.
+  + eukaryotic genomes (668K sequences). Training started 2026-03-15.
+  Bug fix: initial run had eukaryotes concentrated in val set (no pre-shuffle
+  before split). Fixed by shuffling both matrices before train/val split.
+  Epoch 16: Train 93.3, Val 92.0, KL 185, MSE 0.030. ~6 sec/epoch.
+  Comparison with NCBI_euk_5 basic (same data, no corruption): similar
+  trajectory but higher KL (185 vs 152 at epoch 16; basic converged to 188).
