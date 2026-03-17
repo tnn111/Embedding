@@ -129,11 +129,22 @@ class VAEMetricsCallback(keras.callbacks.Callback):
 
 
 class KLWarmupCallback(keras.callbacks.Callback):
-    def __init__(self, warmup_epochs = 10, max_weight = 1.0, skip_warmup = False):
+    """Gradually increase KL weight during warmup, then reset dependent callbacks.
+
+    After warmup ends, resets ReduceLROnPlateau and VAECheckpoint so they
+    don't carry over artificially low val_loss from the near-zero KL period.
+
+    Pass the callbacks to reset via `reset_callbacks`.
+    """
+
+    def __init__(self, warmup_epochs = 10, max_weight = 1.0, skip_warmup = False,
+                 reset_callbacks = None):
         super().__init__()
         self.warmup_epochs = warmup_epochs
         self.max_weight = max_weight
         self.skip_warmup = skip_warmup
+        self.reset_callbacks = reset_callbacks or []
+        self._warmup_ended = False
 
     def on_epoch_begin(self, epoch, logs = None):
         if self.skip_warmup or epoch >= self.warmup_epochs:
@@ -141,6 +152,17 @@ class KLWarmupCallback(keras.callbacks.Callback):
         else:
             new_weight = (epoch / self.warmup_epochs) * self.max_weight
         self.model.kl_weight.assign(new_weight)
+
+    def on_epoch_end(self, epoch, logs = None):
+        if not self.skip_warmup and not self._warmup_ended and epoch == self.warmup_epochs - 1:
+            self._warmup_ended = True
+            for cb in self.reset_callbacks:
+                if isinstance(cb, keras.callbacks.ReduceLROnPlateau):
+                    cb.best = float('inf')
+                    cb.wait = 0
+                    cb.cooldown_counter = 0
+                if isinstance(cb, VAECheckpoint):
+                    cb.best = float('inf')
 
 
 class VAECheckpoint(keras.callbacks.Callback):
@@ -466,18 +488,22 @@ def main():
 
     # Setup callbacks
     vae_metrics = VAEMetricsCallback(validation_data = (val_sample, val_sample), sample_size = 5000)
+    vae_checkpoint = VAECheckpoint(filepath_prefix = 'vae', monitor = 'val_loss', verbose = 1,
+                                   initial_best = initial_best)
+    lr_scheduler = keras.callbacks.ReduceLROnPlateau(
+        monitor = 'val_loss',
+        factor = 0.5,
+        patience = 20,
+        min_lr = 1e-6,
+        verbose = 1
+    )
 
     callbacks = [
-        KLWarmupCallback(warmup_epochs = 5, max_weight = 0.05, skip_warmup = resuming),
+        KLWarmupCallback(warmup_epochs = 5, max_weight = 0.05, skip_warmup = resuming,
+                         reset_callbacks = [vae_checkpoint, lr_scheduler]),
         vae_metrics,
-        VAECheckpoint(filepath_prefix = 'vae', monitor = 'val_loss', verbose = 1, initial_best = initial_best),
-        keras.callbacks.ReduceLROnPlateau(
-            monitor = 'val_loss',
-            factor = 0.5,
-            patience = 20,
-            min_lr = 1e-6,
-            verbose = 1
-        )
+        vae_checkpoint,
+        lr_scheduler,
     ]
 
     n_train_batches = len(train_data) // args.batch_size
