@@ -169,6 +169,19 @@ def main():
     print(f'Using temp directory: {temp_dir}', file = sys.stderr)
     print(f'Min fragment length: {min_len:,}', file = sys.stderr)
 
+    def flush_if_full():
+        nonlocal chunk, chunk_idx
+        if chunk_idx >= CHUNK_SIZE:
+            temp_path = Path(temp_dir) / f'chunk_{len(temp_files):04d}.npy'
+            np.save(temp_path, chunk)
+            temp_files.append(temp_path)
+            chunk = np.zeros((CHUNK_SIZE, n_features), dtype = np.float32)
+            chunk_idx = 0
+            print(
+                f'  {total_rows:,} rows (wrote chunk {len(temp_files)})',
+                file = sys.stderr
+            )
+
     try:
         with open(args.identifier, 'w') as id_file:
             for input_file in args.input:
@@ -189,6 +202,7 @@ def main():
                     chunk_idx += 1
                     total_rows += 1
                     n_originals += 1
+                    flush_if_full()
 
                     # Chop if long enough
                     if seq_length >= min_len:
@@ -197,7 +211,6 @@ def main():
                             piece_len = seq_length // n_pieces
                             for p in range(n_pieces):
                                 start = p * piece_len
-                                # Last piece gets the remainder
                                 if p == n_pieces - 1:
                                     end = seq_length
                                 else:
@@ -213,32 +226,9 @@ def main():
                                 chunk_idx += 1
                                 total_rows += 1
                                 n_fragments += 1
-
-                                # Flush chunk
-                                if chunk_idx >= CHUNK_SIZE:
-                                    temp_path = Path(temp_dir) / f'chunk_{len(temp_files):04d}.npy'
-                                    np.save(temp_path, chunk)
-                                    temp_files.append(temp_path)
-                                    chunk = np.zeros((CHUNK_SIZE, n_features), dtype = np.float32)
-                                    chunk_idx = 0
-                                    print(
-                                        f'  {total_rows:,} rows (wrote chunk {len(temp_files)})',
-                                        file = sys.stderr
-                                    )
+                                flush_if_full()
                     else:
                         n_short += 1
-
-                    # Flush chunk (for the original row)
-                    if chunk_idx >= CHUNK_SIZE:
-                        temp_path = Path(temp_dir) / f'chunk_{len(temp_files):04d}.npy'
-                        np.save(temp_path, chunk)
-                        temp_files.append(temp_path)
-                        chunk = np.zeros((CHUNK_SIZE, n_features), dtype = np.float32)
-                        chunk_idx = 0
-                        print(
-                            f'  {total_rows:,} rows (wrote chunk {len(temp_files)})',
-                            file = sys.stderr
-                        )
 
                     file_seqs += 1
 
