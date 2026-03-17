@@ -1522,3 +1522,73 @@ Computed KL per latent dimension (384-dim) on SFE_SE_5 data for three models:
 - Val_loss tracking below NCBI_euk_5 basic (84.7 vs 85.3 final)
 - Comparison at epoch 16: corruption model lower loss AND higher KL than basic at same stage
 - **NCBI_euk_5 baseline** (Spawn, no corruption): converged to val_loss 85.3, KL 188
+
+### Run_NCBI_euk_corrupt Final Results (2026-03-16)
+- Completed 1000 epochs in 1h39m. Final val_loss 84.25, KL ~199
+- **Spearman on SFE_SE_5 (50K pool): 0.766** [CI: 0.681-0.830]
+- NCBI_euk_5 basic (same data, no corruption): 0.795. Adding eukaryotes dilutes prokaryotic quality;
+  corruption doesn't compensate on this test set.
+
+## 2026-03-16: 5-mer Model (VAE_5mer.py)
+
+### Key Finding: 5-mers outperform 6-mers
+Dropping 6-mers entirely (692-dim input, 128-dim latent, 1.1M params) produces
+better embeddings than the full 6-mer model (2772-dim, 384-dim latent, 7.1M params)
+on taxonomic coherence. 6-mers add more noise than signal — they're undersampled
+on short contigs (~2.4 counts/bin at 5 kbp) and more vulnerable to assembly errors.
+
+### Spearman comparison
+| Model | Training data | Features | Latent | Spearman |
+|---|---|---|---|---|
+| NCBI_5 6-mer (baseline) | NCBI refs | 2772 | 384 | 0.837 |
+| SFE_SE_5 5-mer | Marine | 692 | 128 | 0.828 |
+| NCBI_5 5-mer | NCBI refs | 692 | 128 | 0.772 |
+| SFE_SE_5 6-mer | Marine | 2772 | 384 | 0.692 |
+
+### Taxonomic coherence (10-NN on NCBI refs, 20K sample)
+| Level | NCBI_5 6-mer | NCBI_5 5-mer | SFE_SE_5 5-mer |
+|---|---|---|---|
+| Domain | 0.993 | 0.995 | **0.996** |
+| Phylum | 0.879 | 0.908 | **0.955** |
+| Class | 0.833 | 0.865 | **0.913** |
+| Order | 0.732 | 0.772 | **0.815** |
+| Family | 0.647 | 0.683 | **0.706** |
+| Genus | 0.465 | **0.514** | 0.504 |
+| Species | 0.064 | **0.102** | 0.077 |
+
+Both 5-mer models beat 6-mer at all levels except species (NCBI 5-mer wins there).
+Marine-trained dominates through family; NCBI-trained wins at genus/species.
+
+### Per-dimension KL (NCBI_5mer)
+- 35 active dims out of 128 (vs 134/384 for 6-mer model)
+- Top 10 carry 53.1% of total KL — highly concentrated
+- Effective dimensionality could be as low as 32-64
+
+### Warmup checkpoint bug
+- VAECheckpoint saved during KL warmup (epochs 1-5) when KL weight near 0,
+  setting artificially low best val_loss. Post-warmup val_loss never beat it.
+- Fixed with `skip_epochs` parameter in VAE_5mer.py. Same bug exists in
+  VAE.py and VAE_denoise.py (not yet fixed).
+
+### Full augmented 5-mer (Run_5_5mer)
+- Final val_loss 12.14, KL 68.2. Spearman 0.709 — FD data dilutes, same as 6-mer models
+- Taxonomic coherence: between NCBI and SFE_SE models at all levels
+
+### Taxonomic coherence at >= 100 kbp
+At long contig lengths, 6-mer and 5-mer models converge. 5-mer still wins
+phylum through order; 6-mer catches up at genus/species. The 5-mer advantage
+is at shorter lengths where 6-mers are undersampled. For deeply sequenced
+long-read metagenomes, 6-mer model may still be better at fine taxonomy.
+**Conclusion**: 5-mer is a general-purpose model; 6-mer is better for
+long-read data with mostly long contigs.
+
+### Training efficiency
+- Run_NCBI_5mer: 10 min for 1000 epochs (~1 sec/epoch)
+- Run_SFE_SE_5mer: ~1 hr for 1000 epochs (~3.5 sec/epoch)
+- Run_5_5mer: ~2.5 hrs for 1000 epochs (~10 sec/epoch)
+
+### Warmup checkpoint/LR bug (fixed in VAE_5mer.py)
+KLWarmupCallback now resets ReduceLROnPlateau and VAECheckpoint at end of
+warmup via `reset_callbacks` parameter. Previous approach using
+`self.params.get('callbacks')` didn't work — Keras doesn't put callbacks
+in params. Also removed `skip_epochs` approach in favor of centralized reset.

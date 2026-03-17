@@ -2315,3 +2315,56 @@ eukaryotic (`/Spawn/Claude/eukaryotes.fna`, 12K contigs) = ~668K sequences.
 **Run**: `Runs/Run_NCBI_euk_corrupt/`
 - Step 1: `bash generate_data.sh` (pre-compute k-mer pairs, ~4 hrs)
 - Step 2: `bash run.sh` (train with `--corrupted`, ~2 min/epoch)
+
+### Run_NCBI_euk_corrupt Results (2026-03-16)
+- Completed 1000 epochs in ~1h39m (~6 sec/epoch). Final val_loss 84.25, KL ~199
+- **Final Spearman on SFE_SE_5 (50K pool): 0.766** [CI: 0.681-0.830]
+- Comparison: NCBI_euk_5 basic (same data, no corruption) = 0.795
+- Adding eukaryotes dilutes prokaryotic embedding quality (0.837 → 0.795);
+  corruption doesn't compensate (0.795 → 0.766). CIs overlap.
+- KL higher than basic (199 vs 188) — corruption needs more latent capacity
+
+---
+
+## 2026-03-16: 5-mer Model (VAE_5mer.py)
+
+### Motivation
+6-mers dominate the input (2080/2772 = 75% of features) and reconstruction
+error. But for short contigs, 6-mer statistics are poorly sampled (~2.4
+counts/bin at 5 kbp). Assembly errors also hit 6-mers harder (6 affected
+per substitution vs 5 for 5-mers). Dropping 6-mers entirely may improve
+robustness at short lengths.
+
+### Architecture
+- Input: 692 features (5-mer through 1-mer, columns 2081-2772 of .npy)
+- Encoder: 692 → 512 → 256 → 128 (latent)
+- Decoder: 128 → 256 → 512 → 692
+- ~1.1M parameters (vs ~7.1M for 6-mer model)
+- Beta = 0.05 (same)
+
+### Runs
+- `Runs/Run_NCBI_5mer/`: NCBI_5 data, 1000 epochs, 10 min. Val_loss 8.36.
+- `Runs/Run_SFE_SE_5mer/`: SFE_SE_5 data, 1000 epochs, ~1 hr. Val_loss 15.83.
+- `Runs/Run_5_5mer/`: Full augmented (FD+NCBI+SFE+SE), pending.
+
+### Results (2026-03-16)
+
+**5-mer models outperform 6-mer at taxonomic coherence (10-NN, NCBI refs):**
+
+| Level | NCBI_5 6-mer | NCBI_5 5-mer | SFE_SE_5 5-mer |
+|---|---|---|---|
+| Phylum | 0.879 | 0.908 (+3.3%) | **0.955** (+8.6%) |
+| Class | 0.833 | 0.865 (+3.8%) | **0.913** (+9.6%) |
+| Order | 0.732 | 0.772 (+5.5%) | **0.815** (+11.3%) |
+| Family | 0.647 | 0.683 (+5.6%) | **0.706** (+9.1%) |
+| Genus | 0.465 | **0.514** (+10.5%) | 0.504 (+8.4%) |
+| Species | 0.064 | **0.102** (+59.4%) | 0.077 (+20.3%) |
+
+Spearman on SFE_SE_5: marine 5-mer 0.828 vs NCBI 6-mer baseline 0.837
+(CIs overlap). Latent KL: 35 active dims out of 128.
+
+### Warmup checkpoint bug (fixed in VAE_5mer.py)
+VAECheckpoint saved during KL warmup when KL weight near 0, creating
+artificially low best val_loss. Post-warmup val_loss includes KL (~4.7)
+and never beat it. Fixed with `skip_epochs` parameter. Same bug exists
+in VAE.py and VAE_denoise.py (not yet fixed).

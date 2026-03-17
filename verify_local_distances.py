@@ -28,10 +28,32 @@ from keras import layers, ops
 from scipy.spatial.distance import cdist
 from scipy.stats import spearmanr, pearsonr
 
-# Constants matching VAE.py
-INPUT_DIM = 2772
-COL_START = 1
-COL_END = 2773
+# Model configurations keyed by input dimension
+MODEL_CONFIGS = {
+    2772: {  # 6-mer through 1-mer (VAE.py)
+        'col_start': 1,
+        'col_end': 2773,
+        'kmer_slices': [
+            (0, 2080),       # 6-mer
+            (2080, 2592),    # 5-mer
+            (2592, 2728),    # 4-mer
+            (2728, 2760),    # 3-mer
+            (2760, 2770),    # 2-mer
+            (2770, 2772),    # 1-mer
+        ],
+    },
+    692: {  # 5-mer through 1-mer (VAE_5mer.py)
+        'col_start': 2081,
+        'col_end': 2773,
+        'kmer_slices': [
+            (0, 512),        # 5-mer
+            (512, 648),      # 4-mer
+            (648, 680),      # 3-mer
+            (680, 690),      # 2-mer
+            (690, 692),      # 1-mer
+        ],
+    },
+}
 SEED = 42
 
 
@@ -70,17 +92,7 @@ class ClipLayer(layers.Layer):
         return config
 
 
-KMER_SLICES = [
-    (0, 2080),       # 6-mer
-    (2080, 2592),    # 5-mer
-    (2592, 2728),    # 4-mer
-    (2728, 2760),    # 3-mer
-    (2760, 2770),    # 2-mer
-    (2770, 2772),    # 1-mer
-]
-
-
-def clr_transform(data: np.ndarray) -> np.ndarray:
+def clr_transform(data: np.ndarray, kmer_slices: list) -> np.ndarray:
     """Apply per-group Centered Log-Ratio (CLR) transformation.
 
     Each k-mer size group is CLR-transformed independently, since
@@ -88,7 +100,7 @@ def clr_transform(data: np.ndarray) -> np.ndarray:
     prior pseudocount of 0.5/n_features per group.
     """
     data = data.copy()
-    for start, end in KMER_SLICES:
+    for start, end in kmer_slices:
         group = data[:, start:end]
         pseudocount = 0.5 / (end - start)
         group += pseudocount
@@ -98,11 +110,11 @@ def clr_transform(data: np.ndarray) -> np.ndarray:
     return data
 
 
-def load_data(file_path: str, start_idx: int, end_idx: int) -> np.ndarray:
+def load_data(file_path: str, start_idx: int, end_idx: int, config: dict) -> np.ndarray:
     """Load k-mer data with CLR transform."""
     data_mmap = np.load(file_path, mmap_mode = 'r')
-    data = data_mmap[start_idx:end_idx, COL_START:COL_END].astype(np.float32)
-    return clr_transform(data)
+    data = data_mmap[start_idx:end_idx, config['col_start']:config['col_end']].astype(np.float32)
+    return clr_transform(data, config['kmer_slices'])
 
 
 def main():
@@ -128,6 +140,13 @@ def main():
         'ClipLayer': ClipLayer
     })
 
+    # Detect input dimension and select config
+    input_dim = encoder.input_shape[-1]
+    if input_dim not in MODEL_CONFIGS:
+        raise ValueError(f'Unknown input dimension {input_dim}. Expected one of {list(MODEL_CONFIGS.keys())}')
+    config = MODEL_CONFIGS[input_dim]
+    print(f'Detected input dimension: {input_dim} (columns {config["col_start"]}:{config["col_end"]})')
+
     # Load a sample of data
     print(f'Loading {args.sample_size} samples...')
     data_mmap = np.load(args.input, mmap_mode = 'r')
@@ -136,7 +155,7 @@ def main():
     # Use last 10% as validation (matching VAE.py)
     val_start = int(n_total * 0.9)
     sample_size = min(args.sample_size, n_total - val_start)
-    data = load_data(args.input, val_start, val_start + sample_size)
+    data = load_data(args.input, val_start, val_start + sample_size, config)
 
     print(f'Encoding {sample_size} samples...')
     # Get latent representations (z_mean)
