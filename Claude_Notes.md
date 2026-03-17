@@ -1587,6 +1587,24 @@ long-read data with mostly long contigs.
 - Run_SFE_SE_5mer: ~1 hr for 1000 epochs (~3.5 sec/epoch)
 - Run_5_5mer: ~2.5 hrs for 1000 epochs (~10 sec/epoch)
 
+### Practical recommendation (2026-03-16)
+**Domain-matched training is best**: If you have data from your target environment
+(e.g., SFE_SE for marine metagenomes), train a 5-mer model on it. It will
+outperform a general-purpose model on phylum through family coherence.
+
+**NCBI_5 is a solid general-purpose fallback**: If you don't have domain-matched
+data, train on NCBI RefSeq references. It works on any prokaryotic data because
+it spans the tree of life. It also wins at genus/species resolution because it
+has reference-quality taxonomic labels.
+
+**Mixing data sources hurts, but the cause is unclear**: Adding FD
+(soil/sediment) to marine data consistently degrades performance. But this
+could be environment mismatch OR quality mismatch — FD uses different
+sequencing/assembly pipelines and may have higher error rates. SFE and SE
+were sequenced and basecalled in-house with potentially better quality.
+The practical advice may be "don't mix quality levels" rather than "don't
+mix environments."
+
 ### Warmup checkpoint/LR bug (fixed in VAE_5mer.py)
 KLWarmupCallback now resets ReduceLROnPlateau and VAECheckpoint at end of
 warmup via `reset_callbacks` parameter. Previous approach using

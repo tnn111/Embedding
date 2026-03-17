@@ -88,6 +88,15 @@ Mixing data sources hurts 5-mer models just as it did 6-mer models:
 - Taxonomic coherence: between NCBI and SFE_SE models at all levels
 - FD soil/sediment data dilutes regardless of k-mer size
 
+## Practical Recommendation
+- **Domain-matched training is best**: Train a 5-mer model on data from your
+  target environment. Outperforms general-purpose models phylum through family.
+- **NCBI_5 is a solid fallback**: Works on any prokaryotic data (spans tree of
+  life). Wins at genus/species due to reference-quality labels.
+- **Mixing data sources hurts, but cause unclear**: Adding FD to marine data
+  degrades performance. Could be environment mismatch or quality mismatch
+  (different sequencing/assembly pipelines, potentially higher error rates).
+
 ## Run History
 - **Run_NCBI_5mer**: NCBI_5 data, 1000 epochs, 10 min. Final val_loss
   8.36, KL 38. Spearman 0.772.

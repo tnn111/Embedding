@@ -1,0 +1,288 @@
+#!/usr/bin/env python
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["numpy"]
+# ///
+"""
+Chop long contigs from a FASTA file and compute k-mer frequencies.
+
+Contigs shorter than --min-length are kept as-is. Contigs >= --min-length
+are chopped into floor(length / min_length) equal-sized pieces (each
+>= min_length), and the original full-length contig is also kept.
+
+Output: a single .npy file with k-mer frequencies (same format as
+calculate_kmer_frequencies: length + 2772 canonical k-mer features)
+and an IDs file with one ID per row.
+
+Fragment IDs use the format: original_id.N where N is the 1-based
+fragment index. The original full-length contig keeps its original ID.
+"""
+
+import argparse
+import gzip
+import sys
+import tempfile
+from itertools import groupby, product
+from pathlib import Path
+
+import numpy as np
+
+
+def reverse_complement(seq: str) -> str:
+    """Return the reverse complement of a DNA sequence."""
+    complement = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G'}
+    return ''.join(complement[base] for base in reversed(seq))
+
+
+def get_canonical_kmer(kmer: str) -> str:
+    """Return the canonical form (lexicographically smallest) of a k-mer."""
+    rc = reverse_complement(kmer)
+    return min(kmer, rc)
+
+
+def build_canonical_index(k: int) -> tuple[int, np.ndarray]:
+    """Build array mapping integer k-mer encoding to canonical index."""
+    bases = 'ACGT'
+    base_to_int = {'A': 0, 'C': 1, 'G': 2, 'T': 3}
+    n_kmers = 4 ** k
+
+    all_kmers = [''.join(kmer) for kmer in product(bases, repeat = k)]
+    kmer_to_canonical = {kmer: get_canonical_kmer(kmer) for kmer in all_kmers}
+
+    canonical_list = sorted(set(kmer_to_canonical.values()))
+    n_canonical = len(canonical_list)
+    canonical_to_idx = {kmer: i for i, kmer in enumerate(canonical_list)}
+
+    kmer_int_to_idx = np.zeros(n_kmers, dtype = np.int32)
+    for kmer in all_kmers:
+        kmer_int = 0
+        for base in kmer:
+            kmer_int = (kmer_int << 2) | base_to_int[base]
+        canonical = kmer_to_canonical[kmer]
+        kmer_int_to_idx[kmer_int] = canonical_to_idx[canonical]
+
+    return n_canonical, kmer_int_to_idx
+
+
+def count_kmers(seq_encoded: np.ndarray, k: int, canonical_map: np.ndarray, n_canonical: int) -> np.ndarray:
+    """Count canonical k-mers in an encoded sequence using vectorized operations."""
+    if len(seq_encoded) < k:
+        return np.zeros(n_canonical, dtype = np.int32)
+
+    n_kmers = len(seq_encoded) - k + 1
+    kmer_ints = np.zeros(n_kmers, dtype = np.int32)
+
+    for i in range(k):
+        kmer_ints += seq_encoded[i:i + n_kmers].astype(np.int32) << (2 * (k - 1 - i))
+
+    canonical_indices = canonical_map[kmer_ints]
+    counts = np.bincount(canonical_indices, minlength = n_canonical).astype(np.int32)
+
+    return counts
+
+
+def compute_kmer_row(seq_encoded: np.ndarray, seq_length: int, k_data: dict, n_features: int) -> np.ndarray:
+    """Compute a single row of the k-mer frequency matrix."""
+    row = np.zeros(n_features, dtype = np.float32)
+    col = 0
+    row[col] = seq_length
+    col += 1
+
+    for k in range(6, 0, -1):
+        n_canonical, mapping = k_data[k]
+        counts = count_kmers(seq_encoded, k, mapping, n_canonical)
+        total = counts.sum()
+        if total > 0:
+            row[col:col + n_canonical] = counts / total
+        col += n_canonical
+
+    return row
+
+
+def read_fasta(fasta_path: Path):
+    """Yield (seq_id, sequence) tuples from a FASTA file."""
+    opener = gzip.open if fasta_path.suffix == '.gz' else open
+    with opener(fasta_path, 'rt') as f:
+        for is_header, group in groupby(f, lambda line: line.startswith('>')):
+            if is_header:
+                header = next(group).strip()
+                seq_id = header[1:].split()[0] if header[1:].strip() else 'unknown'
+            else:
+                seq = ''.join(line.strip() for line in group).upper()
+                seq = ''.join(b for b in seq if b in 'ATGC')
+                if seq:
+                    yield seq_id, seq
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description = 'Chop long contigs and compute k-mer frequencies'
+    )
+    parser.add_argument('-i', '--input', type = Path, nargs = '+', required = True,
+                        help = 'One or more input FASTA files (gzip supported)')
+    parser.add_argument('-k', '--kmer', type = Path, required = True,
+                        help = 'Output file for k-mer frequencies (.npy)')
+    parser.add_argument('-id', '--identifier', type = Path, required = True,
+                        help = 'Output file for sequence IDs (text)')
+    parser.add_argument('--min-length', type = int, default = 100000,
+                        help = 'Minimum fragment length (default: 100000)')
+    args = parser.parse_args()
+
+    for f in args.input:
+        if not f.exists():
+            print(f'Error: File not found: {f}', file = sys.stderr)
+            sys.exit(1)
+
+    # Build canonical index mappings for k=1 through 6
+    print('Building canonical k-mer mappings...', file = sys.stderr)
+    k_data = {}
+    for k in range(1, 7):
+        n_canonical, mapping = build_canonical_index(k)
+        k_data[k] = (n_canonical, mapping)
+        print(f'  k={k}: {n_canonical} canonical k-mers', file = sys.stderr)
+
+    n_features = 1
+    for k in range(6, 0, -1):
+        n_features += k_data[k][0]
+    print(f'Total features per sequence: {n_features}', file = sys.stderr)
+
+    # Encoding table
+    base_to_int = np.zeros(256, dtype = np.uint8)
+    base_to_int[ord('A')] = 0
+    base_to_int[ord('C')] = 1
+    base_to_int[ord('G')] = 2
+    base_to_int[ord('T')] = 3
+
+    min_len = args.min_length
+
+    # Process sequences in chunks
+    CHUNK_SIZE = 100000
+    chunk = np.zeros((CHUNK_SIZE, n_features), dtype = np.float32)
+    chunk_idx = 0
+    total_rows = 0
+    n_originals = 0
+    n_fragments = 0
+    n_short = 0
+    temp_files = []
+    temp_dir = tempfile.mkdtemp(prefix = 'chop_chunks_', dir = '.')
+
+    print(f'Using temp directory: {temp_dir}', file = sys.stderr)
+    print(f'Min fragment length: {min_len:,}', file = sys.stderr)
+
+    try:
+        with open(args.identifier, 'w') as id_file:
+            for input_file in args.input:
+                print(f'Processing {input_file}...', file = sys.stderr)
+                file_seqs = 0
+
+                for seq_id, sequence in read_fasta(input_file):
+                    seq_encoded = base_to_int[
+                        np.frombuffer(sequence.encode('ascii'), dtype = np.uint8)
+                    ]
+                    seq_length = len(sequence)
+
+                    # Always emit the full-length original
+                    chunk[chunk_idx] = compute_kmer_row(
+                        seq_encoded, seq_length, k_data, n_features
+                    )
+                    id_file.write(seq_id + '\n')
+                    chunk_idx += 1
+                    total_rows += 1
+                    n_originals += 1
+
+                    # Chop if long enough
+                    if seq_length >= min_len:
+                        n_pieces = seq_length // min_len
+                        if n_pieces >= 2:
+                            piece_len = seq_length // n_pieces
+                            for p in range(n_pieces):
+                                start = p * piece_len
+                                # Last piece gets the remainder
+                                if p == n_pieces - 1:
+                                    end = seq_length
+                                else:
+                                    end = start + piece_len
+
+                                frag_encoded = seq_encoded[start:end]
+                                frag_length = end - start
+
+                                chunk[chunk_idx] = compute_kmer_row(
+                                    frag_encoded, frag_length, k_data, n_features
+                                )
+                                id_file.write(f'{seq_id}.{p + 1}\n')
+                                chunk_idx += 1
+                                total_rows += 1
+                                n_fragments += 1
+
+                                # Flush chunk
+                                if chunk_idx >= CHUNK_SIZE:
+                                    temp_path = Path(temp_dir) / f'chunk_{len(temp_files):04d}.npy'
+                                    np.save(temp_path, chunk)
+                                    temp_files.append(temp_path)
+                                    chunk = np.zeros((CHUNK_SIZE, n_features), dtype = np.float32)
+                                    chunk_idx = 0
+                                    print(
+                                        f'  {total_rows:,} rows (wrote chunk {len(temp_files)})',
+                                        file = sys.stderr
+                                    )
+                    else:
+                        n_short += 1
+
+                    # Flush chunk (for the original row)
+                    if chunk_idx >= CHUNK_SIZE:
+                        temp_path = Path(temp_dir) / f'chunk_{len(temp_files):04d}.npy'
+                        np.save(temp_path, chunk)
+                        temp_files.append(temp_path)
+                        chunk = np.zeros((CHUNK_SIZE, n_features), dtype = np.float32)
+                        chunk_idx = 0
+                        print(
+                            f'  {total_rows:,} rows (wrote chunk {len(temp_files)})',
+                            file = sys.stderr
+                        )
+
+                    file_seqs += 1
+
+                print(f'  Finished {input_file}: {file_seqs:,} sequences', file = sys.stderr)
+
+        # Write remaining
+        if chunk_idx > 0:
+            temp_path = Path(temp_dir) / f'chunk_{len(temp_files):04d}.npy'
+            np.save(temp_path, chunk[:chunk_idx])
+            temp_files.append(temp_path)
+
+        print(f'Total: {total_rows:,} rows in {len(temp_files)} chunks', file = sys.stderr)
+        print(f'  Originals: {n_originals:,} ({n_short:,} short + {n_originals - n_short:,} long)', file = sys.stderr)
+        print(f'  Fragments: {n_fragments:,}', file = sys.stderr)
+
+        # Concatenate using memmap
+        print(f'Concatenating chunks to {args.kmer}...', file = sys.stderr)
+        output = np.lib.format.open_memmap(
+            args.kmer, mode = 'w+', dtype = np.float32,
+            shape = (total_rows, n_features)
+        )
+        row = 0
+        for i, temp_path in enumerate(temp_files):
+            chunk_data = np.load(temp_path)
+            output[row:row + len(chunk_data)] = chunk_data
+            row += len(chunk_data)
+            if (i + 1) % 10 == 0:
+                print(f'  Copied {i + 1}/{len(temp_files)} chunks', file = sys.stderr)
+        del output
+
+        print(f'Done! Output: ({total_rows}, {n_features})', file = sys.stderr)
+
+    finally:
+        print('Cleaning up temp files...', file = sys.stderr)
+        for temp_path in temp_files:
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+        try:
+                Path(temp_dir).rmdir()
+        except OSError:
+            pass
+
+
+if __name__ == '__main__':
+    main()
