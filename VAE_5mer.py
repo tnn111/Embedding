@@ -462,12 +462,19 @@ def main():
     vae.compile(optimizer = keras.optimizers.Adam(learning_rate = args.learning_rate))
     logger.info('Model compiled successfully.')
 
-    # Load all data into memory
-    logger.info('Loading training data into memory...')
-    train_data = load_data_to_memory(args.input, 0, train_end)
+    # Load all data into memory, shuffle before splitting
+    # (data may not be pre-shuffled, e.g. concatenated from multiple sources)
+    logger.info('Loading all data into memory...')
+    all_data = load_data_to_memory(args.input, 0, val_end)
 
-    logger.info('Loading validation data into memory...')
-    val_data = load_data_to_memory(args.input, val_start, val_end)
+    logger.info('Shuffling data before train/val split...')
+    shuffle_idx = np.random.permutation(len(all_data))
+    all_data = all_data[shuffle_idx]
+
+    train_data = all_data[:train_end]
+    val_data = all_data[train_end:]
+    del all_data
+    logger.info(f'Train: {len(train_data):,}, Val: {len(val_data):,}')
 
     # Create batch datasets
     logger.info('Creating batch datasets...')

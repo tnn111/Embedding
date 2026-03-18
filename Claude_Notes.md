@@ -1635,6 +1635,24 @@ Dehydrated download + rehydration in progress at `/Spawn/Claude/complete_genomes
 Accession list: `all_selected_accessions.txt` (173K accessions, cap=20/species,
 RefSeq preferred over GenBank).
 
+### Complete genomes + combined runs (2026-03-18)
+- Complete genomes only (164K seqs): heavy overfitting (train 7.7 vs val 11.7),
+  taxonomic coherence nearly identical to NCBI_5 dropout
+- Combined NCBI_5 + complete (820K seqs): no improvement over NCBI_5 alone.
+  Representative genome set already covers the compositional space.
+- NCBI_5 dropout model remains the best general-purpose model.
+
+### Raw CLR features — VAE beats the ceiling (2026-03-18)
+Raw CLR-transformed features (no VAE, no compression) scored LOWER than VAE
+models on taxonomic coherence. Raw 5-mer genus: 0.496 vs VAE dropout: 0.534.
+The VAE isn't just compressing — it learns which variation is taxonomically
+meaningful. Raw CLR treats k-mer bins independently; VAE learns covariance
+structure. **The theoretical ceiling is NOT the raw data — it's the model's
+ability to learn the right transformation.**
+
+### Dropout sweep (2026-03-18)
+- 10% dropout: best so far. Testing 15% next (Run_NCBI_5mer_drop15).
+
 ### Warmup checkpoint/LR bug (fixed in all three scripts)
 KLWarmupCallback now resets ReduceLROnPlateau and VAECheckpoint at end of
 warmup via `reset_callbacks` parameter. Previous approach using

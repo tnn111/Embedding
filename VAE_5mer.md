@@ -124,6 +124,31 @@ Dropout signature: train loss (9.73) > val loss (8.70) because dropout is
 active during training only. KL drops from 38 to 33 — dropout provides some
 regularization that KL was previously handling.
 
+### Combined NCBI representative + complete genomes (Run_NCBI_complete_5mer_drop10)
+820K sequences (656K representative + 164K complete genomes). Val_loss 10.89,
+train/val gap 9.4/10.9. Taxonomic coherence essentially identical to NCBI_5
+dropout — adding complete genomes neither helped nor hurt. The representative
+genome set already covers the compositional space adequately.
+
+### Raw CLR features as theoretical ceiling (2026-03-18)
+Tested raw CLR-transformed features (no VAE) with the same 10-NN evaluation.
+**The VAE beats the raw features** — the nonlinear transformation learns a
+geometry more biologically meaningful than raw CLR distance:
+
+| Level | Raw 5-mer | Raw 6-mer | VAE 5-mer drop10 | SFE_SE_5 5-mer |
+|---|---|---|---|---|
+| Phylum | 0.942 | 0.936 | 0.940 | **0.955** |
+| Class | 0.895 | 0.883 | **0.897** | **0.913** |
+| Order | 0.784 | 0.761 | **0.803** | **0.815** |
+| Family | 0.682 | 0.643 | **0.711** | **0.705** |
+| Genus | 0.496 | 0.456 | **0.534** | **0.504** |
+| Species | 0.089 | 0.057 | **0.114** | 0.077 |
+
+Raw CLR treats each k-mer bin independently. The VAE learns which dimensions
+covary and which variation is taxonomically meaningful vs noise. The ceiling
+is NOT the raw data — it's the model's ability to learn the right
+transformation. More room for improvement exists.
+
 ## Run History
 - **Run_NCBI_5mer**: NCBI_5 data, 1000 epochs, 10 min. Final val_loss
   8.36, KL 38. Spearman 0.772.
@@ -135,3 +160,8 @@ regularization that KL was previously handling.
   Val_loss 6.16, KL 36.8. Spearman 0.744.
 - **Run_NCBI_5mer_drop10**: NCBI_5 with 10% dropout, 1000 epochs.
   Val_loss 8.70, KL 33.2. Spearman 0.771. Best overall taxonomic coherence.
+- **Run_complete_5mer_drop10**: Complete genomes only (164K), 10% dropout.
+  Val_loss 11.67, KL 40.6. Spearman 0.775. Overfitting (train 7.7 vs val 11.7).
+- **Run_NCBI_complete_5mer_drop10**: Combined NCBI_5 + complete (820K), 10% dropout.
+  Val_loss 10.89, KL 34.2. Spearman 0.760. No improvement over NCBI_5 alone.
+- **Run_NCBI_5mer_drop15**: NCBI_5 with 15% dropout, pending.

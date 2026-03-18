@@ -2386,3 +2386,11 @@ Downloading all complete prokaryotic + viral genomes from NCBI (RefSeq +
 GenBank), capped at 20 per species. 173,067 genomes (61,905 bacteria +
 1,630 archaea + 109,532 viruses) from 108,093 species. ~278 GB uncompressed.
 In progress at `/Spawn/Claude/complete_genomes/`.
+
+### Raw CLR vs VAE Taxonomic Coherence (2026-03-18)
+Raw CLR features (no encoder, no compression) score LOWER than VAE models
+on 10-NN taxonomic coherence. The VAE learns a nonlinear transformation
+where taxonomic neighbors are closer than in raw CLR space. Example: raw
+5-mer genus agreement 0.496, VAE 5-mer dropout 0.534 (+7.7%). The ceiling
+is NOT the raw data — the model can learn representations more biologically
+meaningful than the input features.
