@@ -2367,4 +2367,22 @@ Spearman on SFE_SE_5: marine 5-mer 0.828 vs NCBI 6-mer baseline 0.837
 VAECheckpoint saved during KL warmup when KL weight near 0, creating
 artificially low best val_loss. Post-warmup val_loss includes KL (~4.7)
 and never beat it. Fixed with `skip_epochs` parameter. Same bug exists
-in VAE.py and VAE_denoise.py (not yet fixed).
+Fixed in all three scripts (VAE.py, VAE_denoise.py, VAE_5mer.py).
+
+### Chopped NCBI data (2026-03-17)
+`chop_and_count` script fragments long contigs into >= 100 kbp pieces while
+keeping originals. NCBI_5: 656K → 1.33M rows. Training on chopped data hurt
+performance (Spearman 0.744 vs 0.772 un-chopped). Fragments from same genome
+are too similar — overweights long genomes without adding meaningful diversity.
+
+### Dropout (2026-03-17)
+10% dropout in encoder+decoder hidden layers. NCBI_5 5-mer with dropout is
+the **best overall model** — beats SFE_SE_5 5-mer at family/genus/species,
+competitive at coarser levels. Dropout forces more robust representations,
+helping generalization to out-of-domain data.
+
+### Complete Genome Download (2026-03-17)
+Downloading all complete prokaryotic + viral genomes from NCBI (RefSeq +
+GenBank), capped at 20 per species. 173,067 genomes (61,905 bacteria +
+1,630 archaea + 109,532 viruses) from 108,093 species. ~278 GB uncompressed.
+In progress at `/Spawn/Claude/complete_genomes/`.

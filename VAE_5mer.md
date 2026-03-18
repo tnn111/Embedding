@@ -97,6 +97,33 @@ Mixing data sources hurts 5-mer models just as it did 6-mer models:
   degrades performance. Could be environment mismatch or quality mismatch
   (different sequencing/assembly pipelines, potentially higher error rates).
 
+### Chopped NCBI data (Run_NCBI_5mer_chopped)
+Training on NCBI contigs fragmented into >= 100 kbp pieces (1.33M rows from
+chop_and_count). Hurt performance: Spearman 0.744, taxonomic coherence 2-3 pp
+below un-chopped at every level. Fragments from same genome have similar
+profiles — overweights long genomes without adding diversity. The within-genome
+variation (genomic islands, HGT, transposons) works against the goal of
+mapping the same organism to the same latent region.
+
+### Dropout (Run_NCBI_5mer_drop10)
+10% dropout in encoder and decoder hidden layers. Improves taxonomic coherence
+at every level (3-6% improvement). Now beats SFE_SE_5 at family, genus, and
+species while being competitive at coarser levels. Best overall model.
+
+| Level | No dropout | 10% dropout | SFE_SE_5 |
+|---|---|---|---|
+| Domain | 0.993 | **0.997** | 0.996 |
+| Phylum | 0.908 | **0.938** | **0.955** |
+| Class | 0.866 | **0.897** | **0.913** |
+| Order | 0.771 | **0.803** | **0.815** |
+| Family | 0.686 | **0.711** | 0.705 |
+| Genus | 0.515 | **0.534** | 0.504 |
+| Species | 0.103 | **0.109** | 0.077 |
+
+Dropout signature: train loss (9.73) > val loss (8.70) because dropout is
+active during training only. KL drops from 38 to 33 — dropout provides some
+regularization that KL was previously handling.
+
 ## Run History
 - **Run_NCBI_5mer**: NCBI_5 data, 1000 epochs, 10 min. Final val_loss
   8.36, KL 38. Spearman 0.772.
@@ -104,3 +131,7 @@ Mixing data sources hurts 5-mer models just as it did 6-mer models:
   15.80, KL 94.3. Spearman 0.828.
 - **Run_5_5mer**: Full augmented (FD+NCBI+SFE+SE), 1000 epochs, ~2.5 hrs.
   Final val_loss 12.14, KL 68.2. Spearman 0.709.
+- **Run_NCBI_5mer_chopped**: NCBI_5 chopped (1.33M rows), 1000 epochs.
+  Val_loss 6.16, KL 36.8. Spearman 0.744.
+- **Run_NCBI_5mer_drop10**: NCBI_5 with 10% dropout, 1000 epochs.
+  Val_loss 8.70, KL 33.2. Spearman 0.771. Best overall taxonomic coherence.

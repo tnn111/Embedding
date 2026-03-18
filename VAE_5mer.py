@@ -232,9 +232,10 @@ class ClipLayer(layers.Layer):
 
 
 class VAE(Model):
-    def __init__(self, latent_dim = LATENT_DIM, kl_weight = 0.0, **kwargs):
+    def __init__(self, latent_dim = LATENT_DIM, kl_weight = 0.0, dropout = 0.0, **kwargs):
         super().__init__(**kwargs)
         self.latent_dim = latent_dim
+        self.dropout_rate = dropout
         self.kl_weight = keras.Variable(kl_weight, trainable = False, dtype = 'float32', name = 'kl_weight')
         self.encoder = self._build_encoder()
         self.decoder = self._build_decoder()
@@ -250,10 +251,14 @@ class VAE(Model):
         x = layers.Dense(512, name = 'enc_dense1')(encoder_inputs)
         x = layers.BatchNormalization(name = 'enc_bn1')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_relu1')(x)
+        if self.dropout_rate > 0:
+            x = layers.Dropout(self.dropout_rate, name = 'enc_drop1')(x)
 
         x = layers.Dense(256, name = 'enc_dense2')(x)
         x = layers.BatchNormalization(name = 'enc_bn2')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'enc_relu2')(x)
+        if self.dropout_rate > 0:
+            x = layers.Dropout(self.dropout_rate, name = 'enc_drop2')(x)
 
         # Latent space
         z_mean = layers.Dense(self.latent_dim, name = 'z_mean')(x)
@@ -274,10 +279,14 @@ class VAE(Model):
         x = layers.Dense(256, name = 'dec_dense1')(latent_inputs)
         x = layers.BatchNormalization(name = 'dec_bn1')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_relu1')(x)
+        if self.dropout_rate > 0:
+            x = layers.Dropout(self.dropout_rate, name = 'dec_drop1')(x)
 
         x = layers.Dense(512, name = 'dec_dense2')(x)
         x = layers.BatchNormalization(name = 'dec_bn2')(x)
         x = layers.LeakyReLU(negative_slope = 0.2, name = 'dec_relu2')(x)
+        if self.dropout_rate > 0:
+            x = layers.Dropout(self.dropout_rate, name = 'dec_drop2')(x)
 
         x = layers.Dense(INPUT_DIM, name = 'dec_output')(x)
 
@@ -304,6 +313,7 @@ class VAE(Model):
         config.update({
             'latent_dim': self.latent_dim,
             'kl_weight': float(self.kl_weight.numpy()),
+            'dropout': self.dropout_rate,
         })
         return config
 
@@ -414,6 +424,8 @@ def main():
     parser.add_argument('-l', '--learning-rate', type = float, default = 1e-4, help = 'Learning rate (default: 1e-4)')
     parser.add_argument('-b', '--batch-size', type = int, default = 1024, help = 'Batch size (default: 1024)')
     parser.add_argument('-n', '--max-samples', type = int, default = None, help = 'Max samples to load (for testing)')
+    parser.add_argument('-d', '--dropout', type = float, default = 0.0,
+                        help = 'Dropout rate for encoder and decoder (default: 0.0)')
     args = parser.parse_args()
 
     np.random.seed(SEED)
@@ -439,8 +451,8 @@ def main():
                     initial_best = min(prev_history['val_loss'])
                     logger.info(f'Previous best val_loss: {initial_best:.4f}')
     else:
-        logger.info('No existing model found. Creating new VAE...')
-        vae = VAE(latent_dim = LATENT_DIM)
+        logger.info(f'No existing model found. Creating new VAE (dropout={args.dropout})...')
+        vae = VAE(latent_dim = LATENT_DIM, dropout = args.dropout)
 
     # Print model summary
     vae.encoder.summary(print_fn = logger.info)

@@ -1605,8 +1605,39 @@ were sequenced and basecalled in-house with potentially better quality.
 The practical advice may be "don't mix quality levels" rather than "don't
 mix environments."
 
-### Warmup checkpoint/LR bug (fixed in VAE_5mer.py)
+### Chopped NCBI data (2026-03-17)
+- chop_and_count script: fragments long contigs into >= 100 kbp pieces, keeps originals
+- NCBI_5: 656K contigs → 1.33M rows (655K originals + 678K fragments)
+- Run_NCBI_5mer_chopped: Spearman 0.744, taxonomic coherence worse at every level
+- Fragments from same genome are too similar — overweights long genomes without adding diversity
+- Within-genome variation (HGT, genomic islands) works against mapping same organism to same region
+
+### Dropout (2026-03-17)
+- 10% dropout in encoder+decoder hidden layers (VAE_5mer.py `-d 0.1` flag)
+- **Best overall model**: NCBI_5 5-mer with 10% dropout
+- Beats SFE_SE_5 at family (0.711 vs 0.705), genus (0.534 vs 0.504), species (0.109 vs 0.077)
+- Competitive at coarser levels (phylum 0.938 vs 0.955)
+- Dropout signature: train 9.73 > val 8.70 (dropout active during training only)
+- KL drops from 38 to 33 — dropout provides regularization that KL was handling
+
+### Complete genome download (2026-03-17)
+NCBI datasets CLI survey of all complete genomes (RefSeq + GenBank):
+
+| Domain | Complete genomes | Species | Cap=20 |
+|---|---|---|---|
+| Bacteria | 140,125 | 19,921 | 61,905 |
+| Archaea | 1,640 | 733 | 1,630 |
+| Viruses | 243,205 | 87,439 | 109,532 |
+| **Total** | **384,970** | **108,093** | **173,067** |
+
+Download: ~93 GB compressed, ~278 GB uncompressed (bacteria dominate).
+Dehydrated download + rehydration in progress at `/Spawn/Claude/complete_genomes/`.
+Accession list: `all_selected_accessions.txt` (173K accessions, cap=20/species,
+RefSeq preferred over GenBank).
+
+### Warmup checkpoint/LR bug (fixed in all three scripts)
 KLWarmupCallback now resets ReduceLROnPlateau and VAECheckpoint at end of
 warmup via `reset_callbacks` parameter. Previous approach using
 `self.params.get('callbacks')` didn't work — Keras doesn't put callbacks
 in params. Also removed `skip_epochs` approach in favor of centralized reset.
+Fixed in VAE.py, VAE_denoise.py, and VAE_5mer.py.
