@@ -163,5 +163,20 @@ transformation. More room for improvement exists.
 - **Run_complete_5mer_drop10**: Complete genomes only (164K), 10% dropout.
   Val_loss 11.67, KL 40.6. Spearman 0.775. Overfitting (train 7.7 vs val 11.7).
 - **Run_NCBI_complete_5mer_drop10**: Combined NCBI_5 + complete (820K), 10% dropout.
-  Val_loss 10.89, KL 34.2. Spearman 0.760. No improvement over NCBI_5 alone.
-- **Run_NCBI_5mer_drop15**: NCBI_5 with 15% dropout, pending.
+  Val_loss 10.89, KL 34.2. Spearman 0.760. No improvement (unshuffled split bug).
+- **Run_NCBI_complete_5mer_drop10_v2**: Same but with pre-shuffle fix. Val_loss
+  8.42, KL 34.7. Spearman 0.763. Taxonomic coherence identical to NCBI_5 drop10.
+- **Run_NCBI_5mer_drop15**: NCBI+complete with 15% dropout. Val_loss 8.73,
+  KL 32.7. Spearman 0.763. Identical to drop10 — we're in a plateau.
+- **Run_NCBI_complete_euk_chopped_5mer_drop10**: Comprehensive dataset (1.87M
+  rows: NCBI_5 + chopped complete genomes 200kbp + eukaryotes), 10% dropout.
+  Val_loss 5.69, KL 30.8. Spearman 0.745. Slightly worse than NCBI_5 drop10
+  at every taxonomic level. More data doesn't help — fragments dilute signal.
+
+## Conclusion (2026-03-18, provisional)
+**NCBI_5 5-mer with 10% dropout is the best general-purpose model so far.**
+656K representative genome contigs is the sweet spot. Tested exhaustively:
+- More data (complete genomes, fragments): doesn't help, fragments dilute
+- More dropout (15%): doesn't help
+- Different training data (marine, augmented, combined): doesn't beat it overall
+- Still to test: NCBI_5 + eukaryotes only (small addition, may not dilute)

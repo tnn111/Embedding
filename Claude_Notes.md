@@ -1651,7 +1651,32 @@ structure. **The theoretical ceiling is NOT the raw data — it's the model's
 ability to learn the right transformation.**
 
 ### Dropout sweep (2026-03-18)
-- 10% dropout: best so far. Testing 15% next (Run_NCBI_5mer_drop15).
+- 10% dropout on NCBI_5: best overall model (genus 0.534, species 0.114)
+- 15% dropout on NCBI+complete: essentially identical to 10% (genus 0.532, species 0.111)
+- We're in a plateau — neither more dropout nor more data moves the needle
+
+### Combined dataset with shuffle fix (2026-03-18)
+- NCBI+complete v2 (with pre-shuffle): val_loss 8.42, proper dropout signature
+- Taxonomic coherence identical to NCBI_5 alone — complete genomes don't help but don't hurt
+- Threshold for inclusion: "doesn't hurt" rather than "must help"
+- More species coverage and viruses inherently valuable even if not captured by current eval
+
+### Data quality vs environment mismatch (2026-03-18)
+FD data degrading performance could be quality (different sequencing/assembly) not environment.
+SFE and SE were sequenced/basecalled in-house with potentially better quality. Cannot
+distinguish the two explanations without FD quality stats. Don't flag in paper — FD
+data comes from collaborators.
+
+### Comprehensive combined dataset (2026-03-18)
+Built `kmers_NCBI_complete_euk_chopped.npy`: 1,868,505 rows (19.3 GB)
+- NCBI_5 representative: 655,640 rows
+- Complete genomes chopped at 200 kbp: 1,200,000 rows (from 173K genomes, ~7 hrs to compute)
+- Eukaryotes: 12,865 rows
+Training run set up: Run_NCBI_complete_euk_chopped_5mer_drop10.
+Result: Spearman 0.745, taxonomic coherence slightly below NCBI_5 drop10 at
+every level. Chopped fragments dilute signal — same pattern as Run_NCBI_5mer_chopped.
+**More data doesn't help.** NCBI_5 5-mer drop10 remains best general-purpose model.
+Still to test: NCBI_5 + eukaryotes only (13K euk sequences, small enough to not dilute).
 
 ### Warmup checkpoint/LR bug (fixed in all three scripts)
 KLWarmupCallback now resets ReduceLROnPlateau and VAECheckpoint at end of
@@ -1659,3 +1684,7 @@ warmup via `reset_callbacks` parameter. Previous approach using
 `self.params.get('callbacks')` didn't work — Keras doesn't put callbacks
 in params. Also removed `skip_epochs` approach in favor of centralized reset.
 Fixed in VAE.py, VAE_denoise.py, and VAE_5mer.py.
+
+### VAE_5mer.py pre-shuffle (2026-03-18)
+Data is now shuffled before train/val split to prevent distribution mismatch
+when input is concatenated from multiple sources. Essential for combined datasets.
