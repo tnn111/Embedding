@@ -1676,7 +1676,10 @@ Training run set up: Run_NCBI_complete_euk_chopped_5mer_drop10.
 Result: Spearman 0.745, taxonomic coherence slightly below NCBI_5 drop10 at
 every level. Chopped fragments dilute signal — same pattern as Run_NCBI_5mer_chopped.
 **More data doesn't help.** NCBI_5 5-mer drop10 remains best general-purpose model.
-Still to test: NCBI_5 + eukaryotes only (13K euk sequences, small enough to not dilute).
+NCBI_5 + eukaryotes (669K rows): taxonomic coherence matches NCBI_5 drop10,
+eukaryotes don't hurt. **This is the future production model** (NCBI_5 + euk,
+5-mer, 10% dropout). Current paper stays with NCBI_5 6-mer (384d) model —
+all existing clustering and taxonomy analysis is built on it.
 
 ### Warmup checkpoint/LR bug (fixed in all three scripts)
 KLWarmupCallback now resets ReduceLROnPlateau and VAECheckpoint at end of

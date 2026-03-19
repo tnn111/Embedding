@@ -170,13 +170,23 @@ transformation. More room for improvement exists.
   KL 32.7. Spearman 0.763. Identical to drop10 — we're in a plateau.
 - **Run_NCBI_complete_euk_chopped_5mer_drop10**: Comprehensive dataset (1.87M
   rows: NCBI_5 + chopped complete genomes 200kbp + eukaryotes), 10% dropout.
-  Val_loss 5.69, KL 30.8. Spearman 0.745. Slightly worse than NCBI_5 drop10
-  at every taxonomic level. More data doesn't help — fragments dilute signal.
+  Val_loss 5.69, KL 30.8. Spearman 0.745. Slightly worse — fragments dilute.
+- **Run_NCBI_euk_5mer_drop10**: NCBI_5 + eukaryotes (669K), 10% dropout.
+  Val_loss 9.21, KL 34.9. Spearman 0.765. Taxonomic coherence matches
+  NCBI_5 drop10. Eukaryotes don't hurt. **Future production model.**
 
-## Conclusion (2026-03-18, provisional)
-**NCBI_5 5-mer with 10% dropout is the best general-purpose model so far.**
-656K representative genome contigs is the sweet spot. Tested exhaustively:
+## Conclusion (2026-03-18)
+**NCBI_5 + eukaryotes, 5-mer, 10% dropout is the best general-purpose model.**
+669K sequences (656K prokaryotic representative + 13K eukaryotic). Adding
+eukaryotes doesn't hurt prokaryotic performance while providing coverage for
+the 16.4% eukaryotic content in marine metagenomes.
+
+Tested exhaustively:
 - More data (complete genomes, fragments): doesn't help, fragments dilute
 - More dropout (15%): doesn't help
 - Different training data (marine, augmented, combined): doesn't beat it overall
-- Still to test: NCBI_5 + eukaryotes only (small addition, may not dilute)
+- Eukaryotes: doesn't hurt, meets "doesn't hurt" threshold, adds coverage
+
+**Note**: This is the future production model. The current paper uses the
+NCBI_5 6-mer (384d) model — all clustering and taxonomy analysis is built
+on it. The 5-mer findings are for future work / follow-up paper.
