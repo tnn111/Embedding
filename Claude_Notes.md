@@ -1691,3 +1691,45 @@ Fixed in VAE.py, VAE_denoise.py, and VAE_5mer.py.
 ### VAE_5mer.py pre-shuffle (2026-03-18)
 Data is now shuffled before train/val split to prevent distribution mismatch
 when input is concatenated from multiple sources. Essential for combined datasets.
+
+---
+
+## 2026-03-19: Paper abstract and arXiv preparation
+
+### Abstract written
+- Created `Abstract.md` in ClusteringPaper repo (~200 words)
+- Added to `build_manuscript.py` section list; manuscript rebuilds cleanly with abstract first
+- Key framing: general-purpose compositional embedding, NOT binning
+- VAMB comparison dropped from action items — irrelevant (binning tool, different problem)
+- Targeting arXiv preprint first, not journal submission
+
+### Figures generated (19 files, ~24 panels)
+Created `gen_figures.py` (PEP 723 standalone) in ClusteringPaper. All figures in `figures/`:
+- fig1a_encoder.png, fig1a_decoder.png — Keras plot_model architecture diagrams
+- fig1b_training_curves.png — val loss + LR schedule for 4 key models
+- fig1d_kmer_mse_breakdown.png — existed (per-k-mer MSE)
+- fig2a_distance_vs_mse.png — existed (latent dist vs k-mer MSE)
+- fig2b_mse_by_rank.png — existed (MSE by NN rank)
+- fig2c_spearman_heatmap.png — 5×5 brackish cross-comparison
+- fig2d_grand_comparison.png — all 9 models bar chart by type
+- fig2e_mse_vs_spearman.png — proxy metrics don't predict quality
+- fig3a_tsne_gc.png — existed (t-SNE colored by GC)
+- fig3b_neighborhood_growth.png — step-function + nn1 histogram
+- fig3c_intrinsic_dimensionality.png — TWO-NN d-hat vs length
+- fig4a_indegree_distribution.png — hub problem histogram + CCDF
+- fig4b_cluster_size_distribution.png — MCL cluster sizes + cumulative
+- fig4c_mcl_vs_leiden.png — GC span comparison
+- fig5a_nn1_sweep.png — nn1 vs length + clustering feasibility
+- fig_taxonomic_purity.png — purity + completeness by rank
+- fig_vae_vs_pca.png — VAE vs PCA vs CLR baselines
+- fig_annotation_coverage.png — 5-method annotation coverage
+
+### Author information added
+- Lauren M. Lui (LBNL, Berkeley) and Torben N. Nielsen (Jorgmundir, Tacoma)
+- Both corresponding, equal contribution
+- Added to build_pdf.py YAML header
+
+### Figure references wired into text
+- 14 new figure references added to Results_VAE.md (18 total with existing 4)
+- Figures 1B, 2C, 2D, 2E, 3B, 3C, 4A, 4B, 4C, 5A, S1, S2, S3 now referenced inline
+- tectonic installed via micromamba for PDF builds on this machine

@@ -17,6 +17,7 @@ dependencies = [
     "opentsne>=1.0.4",
     "pandas>=2.3.3",
     "plotly>=6.5.0",
+    "pydot>=4.0.1",
     "scikit-dimension>=0.3.4",
     "seaborn>=0.13.2",
     "tensorboard>=2.20.0",
